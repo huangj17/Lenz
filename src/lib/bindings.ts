@@ -27,18 +27,13 @@ export const commands = {
 	 */
 	testEngine: (engine: TranslatorEngine_Deserialize) => typedError<TestEngineResult, LenzError>(__TAURI_INVOKE("test_engine", { engine })),
 	/**
-	 *  对给定屏幕区域执行 OCR。
+	 *  对屏幕区域执行 OCR:截图 → 识别。
 	 * 
-	 *  M1 占位:入参 / 返回暂为 `Rect` / `()`,M2 落地 `OcrInput` / `OcrResult`
-	 *  等共享类型后替换。
+	 *  供设置页「测试 OCR」与 F2/F3 链路使用;识别选项取自 `config.ocr`。
 	 */
-	runOcr: (rect: Rect) => typedError<null, LenzError>(__TAURI_INVOKE("run_ocr", { rect })),
-	/**
-	 *  采集指定屏幕区域,返回截图与像素信息。
-	 * 
-	 *  M1 占位:返回类型暂为 `()`,M2 落地 `CaptureResult` 后替换。
-	 */
-	captureScreenRegion: (rect: Rect) => typedError<null, LenzError>(__TAURI_INVOKE("capture_screen_region", { rect })),
+	runOcr: (rect: Rect) => typedError<OcrResult, LenzError>(__TAURI_INVOKE("run_ocr", { rect })),
+	/**  采集指定屏幕区域(逻辑坐标),返回 PNG + 物理像素信息。 */
+	captureScreenRegion: (rect: Rect) => typedError<CaptureResult, LenzError>(__TAURI_INVOKE("capture_screen_region", { rect })),
 	/**  进入选区模式(创建 selection 蒙层窗口)。 */
 	startSelection: (trigger: TriggerKind) => typedError<null, LenzError>(__TAURI_INVOKE("start_selection", { trigger })),
 	/**  取消选区模式。 */
@@ -70,6 +65,13 @@ export type AppConfig = {
 	checkUpdate: boolean,
 	/**  启动时是否展示主窗口。 */
 	openOnLaunch: boolean,
+};
+
+/**  采集结果(spec 02 §4)。`png` 为裁剪区域;`pixel_rect` 为其在虚拟屏的物理像素位置(供 OCR 回映射)。 */
+export type CaptureResult = {
+	png: number[],
+	pixelRect: Rect,
+	scaleFactor: number | null,
 };
 
 /**  顶层配置。 */
@@ -122,6 +124,13 @@ export type LenzError =
 
 export type Locale = "system" | "zh-CN" | "en-US";
 
+/**  单个识别文本块。bbox 已回映射为屏幕逻辑坐标。 */
+export type OcrBlock = {
+	text: string,
+	bbox: Rect,
+	confidence: number | null,
+};
+
 /**  OCR 配置。MVP 仅支持系统引擎。 */
 export type OcrConfig = {
 	engine: OcrEngineKind,
@@ -132,6 +141,13 @@ export type OcrConfig = {
 };
 
 export type OcrEngineKind = "system";
+
+/**  OCR 结果(spec 03 §2)。 */
+export type OcrResult = {
+	blocks: OcrBlock[],
+	detectedLanguage: string | null,
+	costMs: number,
+};
 
 export type PopupUiConfig = {
 	/**  字号,默认 14。 */

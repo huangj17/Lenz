@@ -17,11 +17,13 @@ import {
 } from "@tauri-apps/api/event";
 import type {
   CaptureRegionSelectedPayload,
+  CaptureResult,
   Config,
   ConfigChangedPayload,
   DeepPartial,
   LenzError,
   LenzErrorCode,
+  OcrResult,
   OverlayClosedPayload,
   Rect,
   SelectionTextChangedPayload,
@@ -178,15 +180,15 @@ export const translateApi = {
 /** 采集 / 选区命令(spec 02) */
 export const captureApi = {
   region: (rect: Rect) =>
-    invoke<unknown>("capture_screen_region", { rect }),
+    invoke<CaptureResult>("capture_screen_region", { rect }),
   startSelection: (trigger: TriggerKind) =>
     invoke<void>("start_selection", { trigger }),
   cancelSelection: () => invoke<void>("cancel_selection"),
 };
 
-/** OCR 命令(spec 03) */
+/** OCR 命令(spec 03):截图区域 → 识别 */
 export const ocrApi = {
-  run: (rect: Rect) => invoke<unknown>("run_ocr", { rect }),
+  run: (rect: Rect) => invoke<OcrResult>("run_ocr", { rect }),
 };
 
 /** 覆盖层命令(spec 07) */

@@ -1,17 +1,17 @@
-//! 截图采集相关 Tauri commands(spec 02)。M1 仅占位。
+//! 截图采集相关 Tauri commands(spec 02)。
 
+use crate::core::capture::{capture_region, CaptureResult};
 use crate::error::LenzError;
 use crate::types::{Rect, TriggerKind};
 
-/// 采集指定屏幕区域,返回截图与像素信息。
-///
-/// M1 占位:返回类型暂为 `()`,M2 落地 `CaptureResult` 后替换。
-// TODO(M2): 用 xcap 抓屏 + 逻辑坐标→物理像素裁剪 + 跨屏拼接。
+/// 采集指定屏幕区域(逻辑坐标),返回 PNG + 物理像素信息。
 #[tauri::command]
 #[specta::specta]
-#[allow(unused_variables)]
-pub async fn capture_screen_region(rect: Rect) -> Result<(), LenzError> {
-    Err(LenzError::not_implemented())
+pub async fn capture_screen_region(rect: Rect) -> Result<CaptureResult, LenzError> {
+    // xcap 为阻塞调用,移出异步 runtime。
+    tokio::task::spawn_blocking(move || capture_region(rect))
+        .await
+        .map_err(|e| LenzError::Internal(format!("capture join: {e}")))?
 }
 
 /// 进入选区模式(创建 selection 蒙层窗口)。

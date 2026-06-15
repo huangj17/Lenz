@@ -226,3 +226,33 @@ export type DeepPartial<T> = {
       ? DeepPartial<T[P]>
       : T[P];
 };
+
+// ──────────────────────────────────────────────────────────────────────────
+// OCR / 截图(spec 02 / 03)
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface OcrBlock {
+  text: string;
+  /** 已回映射的屏幕逻辑坐标 */
+  bbox: Rect;
+  confidence: number;
+}
+
+export interface OcrResult {
+  blocks: OcrBlock[];
+  detectedLanguage: string | null;
+  costMs: number;
+}
+
+export interface OcrOptions {
+  preferredLanguages: string[];
+  fastMode: boolean;
+  minConfidence: number;
+}
+
+/** 截图采集结果;png 经 IPC 序列化为字节数组 */
+export interface CaptureResult {
+  png: number[];
+  pixelRect: Rect;
+  scaleFactor: number;
+}

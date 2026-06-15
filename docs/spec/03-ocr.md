@@ -134,13 +134,16 @@ logical_h = phys_h / scale_factor
 ```rust
 #[tauri::command]
 async fn run_ocr(
-    engine: State<'_, Arc<dyn OcrEngine>>,
-    input: OcrInput,
-    opts: OcrOptions,
+    rect: Rect,                       // 逻辑坐标:内部先截图再 OCR
+    config: State<'_, ConfigStore>,   // OcrOptions 由 config.ocr 构造
+    ocr: State<'_, Arc<dyn OcrEngine>>,
 ) -> Result<OcrResult, LenzError>;
 ```
 
-前端一般**不直接**调 `run_ocr`;它被 screenshot / overlay 两条主链路内部使用。仅设置页 "测试 OCR" 按钮会显式调。
+> 实现说明:前端传 PNG 字节不现实,故 `run_ocr` 以**屏幕逻辑矩形**为入参,内部
+> `capture_region(rect)` 截图后再调引擎 `recognize`;`OcrOptions` 取自 `config.ocr`。
+> 设置页「测试 OCR」按钮直接调;F2/F3 主链路复用同一路径。`OcrInput`/`OcrOptions`
+> 仍是引擎层(`OcrEngine::recognize`)的入参。
 
 ## 7. 性能
 

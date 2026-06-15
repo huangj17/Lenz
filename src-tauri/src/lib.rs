@@ -67,6 +67,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .manage(crate::core::ocr::default_engine())
         .invoke_handler(specta.invoke_handler())
         .setup(|app| setup::setup(app))
         .run(tauri::generate_context!())

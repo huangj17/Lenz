@@ -73,6 +73,10 @@
 
 目标:macOS Vision + Windows.Media.Ocr 完整打通,输出统一 `OcrResult`。
 
+> **进度(2026-06-15)**:抽象层(2.1)、xcap 截图(2.2)、macOS Vision(2.3)已完成;
+> 可行性 **GO** —— headless 单元测试在内存图像上零权限识别文字(`Hello Vision 2026`,conf 1.0,~320ms),无需 Tesseract 兜底(2.6)。
+> 待办:Windows.Media.Ocr(2.4,需 Windows 环境)、真实多屏/Retina 截图的 bbox 端到端校准(2.5)、屏幕录制权限弹窗与端到端验收(2.7)。
+
 ### 2.1 抽象层
 - [ ] `OcrEngine` trait 定义(→ spec 03 §2)
 - [ ] `OcrInput`、`OcrOptions`、`OcrResult`、`OcrBlock` 共享类型(→ spec 03 §2)

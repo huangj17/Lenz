@@ -30,4 +30,19 @@ log = "0.4"
 tauri-specta = { version = ">=2.0.0-rc, <3", features = ["typescript"] }
 specta-typescript = "0.0.12"
 specta = { version = ">=2.0.0-rc, <3", features = ["uuid", "serde_json"] }
+async-trait = "0.1.89"
+image = "0.25.10"
+xcap = "0.9.6"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+objc2-core-foundation = "0.3.2"
+objc2-core-graphics = "0.3.2"
+objc2-foundation = "0.3.2"
+objc2-vision = "0.3.2"
+
+[dev-dependencies]
+# 用于 OCR 单元测试:在内存位图上渲染高对比度文字后让 Vision 识别(无需屏幕权限)。
+ab_glyph = "0.2.32"
+imageproc = "0.27.0"
 
