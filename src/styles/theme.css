@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+/*
+ * 暗/亮色主题骨架(CSS 变量)。
+ *
+ * 主题切换:在 <html> 上加 `.dark` 类(由 lib/theme.ts 根据
+ * config.app.theme: system|light|dark 维护)。
+ *
+ * 色调取自设计交接包(docs/design):温暖中性底色 + 天空蓝点缀色,
+ * 变量命名沿用 spec 09 §6.1(--bg / --fg / --accent / --border …)。
+ *
+ * Tailwind v4 的 @theme inline 把 CSS 变量暴露为工具类
+ * (bg-bg / text-fg / border-border / text-accent …)。
+ */
+
+:root {
+  /* 亮色(默认) */
+  --bg: #faf8f4;
+  --bg-secondary: #ffffff;
+  --bg-elevated: #ffffff;
+  --fg: #1c1a16;
+  --fg-muted: rgba(30, 24, 14, 0.58);
+  --accent: #4ea3d9;
+  --accent-fg: #ffffff;
+  --border: rgba(30, 24, 14, 0.1);
+  --field-bg: rgba(30, 24, 14, 0.03);
+  --ring: rgba(78, 163, 217, 0.45);
+  --danger: #d9534e;
+  --success: #5b9a6b;
+
+  --radius: 0.5rem;
+
+  color-scheme: light;
+}
+
+.dark {
+  --bg: #1a1814;
+  --bg-secondary: #211e19;
+  --bg-elevated: #26221c;
+  --fg: #f0ebdf;
+  --fg-muted: rgba(240, 235, 223, 0.62);
+  --accent: #5fb0e3;
+  --accent-fg: #10141a;
+  --border: rgba(255, 255, 255, 0.09);
+  --field-bg: rgba(0, 0, 0, 0.22);
+  --ring: rgba(95, 176, 227, 0.5);
+  --danger: #e07b76;
+  --success: #79b389;
+
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-secondary: var(--bg-secondary);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-border: var(--border);
+  --color-field: var(--field-bg);
+  --color-ring: var(--ring);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+
+  --radius-DEFAULT: var(--radius);
+
+  --font-sans:
+    system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 透明窗口(popup / selection / overlay)不绘制底色 */
+body[data-window="popup"],
+body[data-window="selection"],
+body[data-window="overlay"] {
+  background: transparent;
+}

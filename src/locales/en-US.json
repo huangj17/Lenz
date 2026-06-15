@@ -1,0 +1,93 @@
+{
+  "app": {
+    "name": "Lenz"
+  },
+  "nav": {
+    "general": "General",
+    "shortcuts": "Shortcuts",
+    "engines": "Engines",
+    "ocr": "OCR",
+    "about": "About"
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "reset": "Reset",
+    "add": "Add",
+    "delete": "Delete",
+    "test": "Test connection",
+    "edit": "Edit",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "comingSoon": "Coming soon",
+    "loading": "Loading…",
+    "retry": "Retry",
+    "close": "Close",
+    "copy": "Copy",
+    "copied": "Copied",
+    "showSettings": "Search settings"
+  },
+  "theme": {
+    "label": "Theme",
+    "system": "System",
+    "light": "Light",
+    "dark": "Dark"
+  },
+  "locale": {
+    "label": "Language",
+    "system": "System",
+    "zh-CN": "简体中文",
+    "en-US": "English"
+  },
+  "general": {
+    "title": "General",
+    "appearance": "Appearance",
+    "startup": "Startup",
+    "autoStart": "Launch at login",
+    "autoStartHint": "Run Lenz automatically after you sign in",
+    "openOnLaunch": "Open main window on launch",
+    "checkUpdate": "Check for updates automatically",
+    "proxy": "Proxy",
+    "proxyHint": "Used for translation engine requests"
+  },
+  "shortcuts": {
+    "title": "Shortcuts",
+    "selection": "Selection translation",
+    "screenshot": "Screenshot translation",
+    "overlay": "Overlay translation",
+    "openMain": "Open main window",
+    "record": "Record",
+    "recording": "Press shortcut…",
+    "clear": "Clear",
+    "unset": "Not set"
+  },
+  "engines": {
+    "title": "Translation engines",
+    "empty": "No engines added yet",
+    "addEngine": "Add engine",
+    "name": "Name",
+    "kind": "Kind",
+    "apiUrl": "API URL",
+    "apiKey": "API Key",
+    "model": "Model",
+    "systemPrompt": "System Prompt",
+    "timeout": "Timeout",
+    "useProxy": "Use proxy",
+    "setDefault": "Set as default",
+    "credentialWarning": "Credentials are stored in plaintext on this device; do not share config.json."
+  },
+  "ocr": {
+    "title": "OCR",
+    "engine": "Recognition engine",
+    "systemEngine": "System built-in",
+    "preferredLanguages": "Preferred languages",
+    "minConfidence": "Min confidence"
+  },
+  "about": {
+    "title": "About",
+    "version": "Version",
+    "license": "License",
+    "github": "GitHub repository",
+    "bundleId": "Bundle ID"
+  }
+}

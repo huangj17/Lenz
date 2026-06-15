@@ -1,0 +1,93 @@
+{
+  "app": {
+    "name": "Lenz"
+  },
+  "nav": {
+    "general": "通用",
+    "shortcuts": "快捷键",
+    "engines": "翻译引擎",
+    "ocr": "OCR",
+    "about": "关于"
+  },
+  "common": {
+    "save": "保存",
+    "cancel": "取消",
+    "reset": "重置",
+    "add": "添加",
+    "delete": "删除",
+    "test": "测试连接",
+    "edit": "编辑",
+    "enabled": "已启用",
+    "disabled": "已禁用",
+    "comingSoon": "待实现",
+    "loading": "加载中…",
+    "retry": "重试",
+    "close": "关闭",
+    "copy": "复制",
+    "copied": "已复制",
+    "showSettings": "搜索设置"
+  },
+  "theme": {
+    "label": "主题",
+    "system": "跟随系统",
+    "light": "浅色",
+    "dark": "深色"
+  },
+  "locale": {
+    "label": "语言",
+    "system": "跟随系统",
+    "zh-CN": "简体中文",
+    "en-US": "English"
+  },
+  "general": {
+    "title": "通用",
+    "appearance": "外观",
+    "startup": "启动",
+    "autoStart": "开机自启",
+    "autoStartHint": "登录系统后自动运行 Lenz",
+    "openOnLaunch": "启动时打开主窗口",
+    "checkUpdate": "自动检查更新",
+    "proxy": "代理",
+    "proxyHint": "用于翻译引擎的网络请求"
+  },
+  "shortcuts": {
+    "title": "快捷键",
+    "selection": "划词翻译",
+    "screenshot": "截图翻译",
+    "overlay": "原图覆盖翻译",
+    "openMain": "打开主窗口",
+    "record": "录制",
+    "recording": "按下快捷键…",
+    "clear": "清空",
+    "unset": "未设置"
+  },
+  "engines": {
+    "title": "翻译引擎",
+    "empty": "尚未添加任何引擎",
+    "addEngine": "添加引擎",
+    "name": "名称",
+    "kind": "类型",
+    "apiUrl": "API 地址",
+    "apiKey": "API Key",
+    "model": "模型名",
+    "systemPrompt": "System Prompt",
+    "timeout": "超时时间",
+    "useProxy": "使用代理",
+    "setDefault": "设为默认",
+    "credentialWarning": "凭据以明文保存在本机;请勿共享 config.json。"
+  },
+  "ocr": {
+    "title": "OCR",
+    "engine": "识别引擎",
+    "systemEngine": "系统内置",
+    "preferredLanguages": "首选语言",
+    "minConfidence": "最低置信度"
+  },
+  "about": {
+    "title": "关于",
+    "version": "版本",
+    "license": "开源协议",
+    "github": "GitHub 仓库",
+    "bundleId": "Bundle ID"
+  }
+}

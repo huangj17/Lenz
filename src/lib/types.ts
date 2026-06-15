@@ -1,0 +1,228 @@
+/**
+ * 前后端共享类型契约(手写)。
+ *
+ * 注意:Rust 后端 agent 会用 tauri-specta 生成 `src/lib/bindings.ts`。
+ * 在生成链路打通前,本文件作为前端与后端约定的"权威契约",二者必须保持一致。
+ * 线缆格式统一为 camelCase。
+ *
+ * 参考:docs/spec/00-architecture.md §5、docs/spec/01-config-storage.md §2
+ */
+
+// ──────────────────────────────────────────────────────────────────────────
+// 基础几何 / 触发类型
+// ──────────────────────────────────────────────────────────────────────────
+
+/** 矩形(逻辑坐标) */
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** 功能触发类型 */
+export type TriggerKind = "selection" | "screenshot" | "overlay";
+
+// ──────────────────────────────────────────────────────────────────────────
+// 错误
+// ──────────────────────────────────────────────────────────────────────────
+
+/** 统一错误码,与 Rust 侧 LenzError 枚举判别值同构 */
+export type LenzErrorCode =
+  | "Config"
+  | "OcrUnavailable"
+  | "OcrFailed"
+  | "TranslateFailed"
+  | "Network"
+  | "Permission"
+  | "Internal";
+
+/**
+ * 统一错误结构。
+ *
+ * Rust 侧使用 `#[serde(tag = "code", content = "message")]`,
+ * 因此线缆形态为 `{ code: "Network", message: "timeout" }`。
+ */
+export interface LenzError {
+  code: LenzErrorCode;
+  message: string;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// 翻译引擎
+// ──────────────────────────────────────────────────────────────────────────
+
+export type TranslatorEngineKind = "openai" | "google" | "deepl" | "youdao";
+
+export interface TranslatorEngine {
+  /** uuid */
+  id: string;
+  /** 用户自定义名称 */
+  name: string;
+  kind: TranslatorEngineKind;
+  enabled: boolean;
+  apiUrl: string;
+  apiKey: string;
+  /** LLM 类必填 */
+  model?: string;
+  /** LLM 类,支持 {sourceLang}/{targetLang} 变量 */
+  systemPrompt?: string;
+  /** 默认 15000 */
+  timeoutMs: number;
+  /** 本地 LLM 通常 false */
+  useProxy: boolean;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// 配置(无 history 字段 —— 历史记录功能已删除)
+// ──────────────────────────────────────────────────────────────────────────
+
+export type LocaleSetting = "system" | "zh-CN" | "en-US";
+export type ThemeSetting = "system" | "light" | "dark";
+export type ProxyScheme = "http" | "https" | "socks5";
+
+export interface AppConfig {
+  locale: LocaleSetting;
+  theme: ThemeSetting;
+  autoStart: boolean;
+  checkUpdate: boolean;
+  /** 启动时是否展示主窗口 */
+  openOnLaunch: boolean;
+}
+
+export interface ShortcutsConfig {
+  /** 如 "Alt+D",null 表示禁用 */
+  selection: string | null;
+  screenshot: string | null;
+  overlay: string | null;
+  openMain: string | null;
+}
+
+export interface SelectionConfig {
+  /** 总开关 */
+  enabled: boolean;
+  /** 是否启用自动弹框 */
+  autoDetect: boolean;
+  /** 选中后延迟触发,防抖 */
+  popupDelayMs: number;
+}
+
+export interface OcrConfig {
+  /** MVP 仅系统 */
+  engine: "system";
+  /** BCP-47 */
+  preferredLanguages: string[];
+  /** 0~1 */
+  minConfidence: number;
+}
+
+export interface TranslatorConfig {
+  defaultEngineId: string;
+  /** 默认 "zh-CN" */
+  targetLang: string;
+  engines: TranslatorEngine[];
+}
+
+export interface ProxyConfig {
+  enabled: boolean;
+  scheme: ProxyScheme;
+  host: string;
+  port: number;
+  username?: string;
+  /** 存储:保留明文,提示用户 */
+  password?: string;
+  /** 默认 true:127.0.0.1/localhost 绕过 */
+  bypassLocal: boolean;
+}
+
+export interface PopupUiConfig {
+  /** 默认 14 */
+  fontSize: number;
+  showOriginal: boolean;
+}
+
+export interface UiConfig {
+  popup: PopupUiConfig;
+}
+
+export interface Config {
+  /** schema 版本号,用于迁移 */
+  version: number;
+  app: AppConfig;
+  shortcuts: ShortcutsConfig;
+  selection: SelectionConfig;
+  ocr: OcrConfig;
+  translator: TranslatorConfig;
+  proxy: ProxyConfig;
+  ui: UiConfig;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// 翻译请求 / 响应(spec 00 §5)
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface TranslateRequest {
+  texts: string[];
+  sourceLang?: string;
+  targetLang: string;
+  /** undefined = 默认引擎 */
+  engineId?: string;
+}
+
+export interface TranslateResponse {
+  translations: string[];
+  detectedSourceLang?: string;
+  engineId: string;
+  costMs: number;
+}
+
+/** test_engine 命令返回 */
+export interface TestEngineResult {
+  ok: boolean;
+  latencyMs: number;
+  sample: string;
+  error?: string;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// 事件载荷(spec 00 §4.3)
+// ──────────────────────────────────────────────────────────────────────────
+
+/** `selection://text-changed` */
+export interface SelectionTextChangedPayload {
+  text: string;
+  lang?: string;
+}
+
+/** `capture://region-selected` */
+export interface CaptureRegionSelectedPayload extends Rect {
+  displayId?: number;
+  trigger?: TriggerKind;
+}
+
+/** `overlay://closed` */
+export interface OverlayClosedPayload {
+  id: string;
+}
+
+/** `config://changed` —— 变更的 keypath 列表(如 ["shortcuts.selection"]) */
+export type ConfigChangedPayload = string[];
+
+/** `app://startup-warning` */
+export interface StartupWarningPayload {
+  step: string;
+  message: string;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// 工具类型
+// ──────────────────────────────────────────────────────────────────────────
+
+/** 递归可选(用于 set_config 的 JSON Merge Patch) */
+export type DeepPartial<T> = {
+  [P in keyof T]?: T[P] extends Array<infer U>
+    ? Array<U>
+    : T[P] extends object
+      ? DeepPartial<T[P]>
+      : T[P];
+};

@@ -1,0 +1,33 @@
+[package]
+name = "lenz"
+version = "0.1.0"
+description = "Lenz — 跨平台截图翻译桌面工具"
+authors = ["Lenz contributors"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "lenz_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
+tauri-plugin-log = "2"
+tauri-plugin-global-shortcut = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+log = "0.4"
+tauri-specta = { version = ">=2.0.0-rc, <3", features = ["typescript"] }
+specta-typescript = "0.0.12"
+specta = { version = ">=2.0.0-rc, <3", features = ["uuid", "serde_json"] }
+
