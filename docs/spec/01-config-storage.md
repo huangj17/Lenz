@@ -8,7 +8,7 @@
 
 | 平台 | 目录 | 文件 |
 |---|---|---|
-| macOS | `~/Library/Application Support/app.lenz.desktop/` | `config.json`, `history.json` |
+| macOS | `~/Library/Application Support/app.lenz.desktop/` | `config.json` |
 | Windows | `%APPDATA%/Lenz/` | 同上 |
 
 通过 `tauri::api::path::app_config_dir` 获取基目录;首次启动不存在则创建。
@@ -55,10 +55,6 @@ interface Config {
     username?: string;
     password?: string;              // 存储:保留明文,提示用户(见 §6)
     bypassLocal: boolean;           // 默认 true:127.0.0.1/localhost 绕过
-  };
-  history: {
-    enabled: boolean;
-    maxItems: number;               // 默认 500
   };
   ui: {
     popup: {

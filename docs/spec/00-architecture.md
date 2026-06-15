@@ -19,11 +19,11 @@
                                  │ invoke      │ emit/listen
                  ┌───────────────▼─────────────▼──────────────────┐
                  │                 Tauri commands                  │
-                 │  translate / ocr / capture / config / history   │
+                 │  translate / ocr / capture / config             │
                  └───────────────┬─────────────┬──────────────────┘
                                  │             │
                  ┌───────────────▼──┐       ┌──▼──────────────┐
-                 │   core (业务)    │       │  config/history │
+                 │   core (业务)    │       │   config 存储   │
                  │ capture│ocr      │       │   JSON 持久化   │
                  │ translator│overlay│      └─────────────────┘
                  │ selection        │
@@ -50,8 +50,7 @@ src-tauri/src/
 │   ├── ocr.rs
 │   ├── capture.rs
 │   ├── overlay.rs
-│   ├── config.rs
-│   └── history.rs
+│   └── config.rs
 ├── core/
 │   ├── capture.rs       # 屏幕位图获取(xcap 包装)
 │   ├── ocr/             # Spec 03
@@ -59,12 +58,10 @@ src-tauri/src/
 │   ├── overlay.rs       # Spec 07
 │   ├── selection.rs     # Spec 05
 │   └── shortcut.rs      # 全局快捷键注册/解绑
-├── config/              # Spec 01
-│   ├── mod.rs
-│   ├── schema.rs
-│   └── migrate.rs       # 未来版本迁移
-└── history/             # Spec 08
-    └── mod.rs
+└── config/              # Spec 01
+    ├── mod.rs
+    ├── schema.rs
+    └── migrate.rs       # 未来版本迁移
 ```
 
 ### 2.2 前端目录
@@ -79,7 +76,7 @@ src/
 │   └── overlay/         # 原图覆盖层
 ├── components/          # 通用 UI(shadcn/ui 二次封装)
 ├── hooks/               # useConfig / useTranslate / useInvoke 等
-├── stores/              # Zustand:config, history, session
+├── stores/              # Zustand:config, session
 ├── lib/
 │   ├── ipc.ts           # invoke/emit 薄封装 + 类型注入
 │   ├── types.ts         # 从 Rust 导出的类型
@@ -118,7 +115,6 @@ Lenz 运行时最多存在四类窗口,职责单一,互不依赖:
 | `start_selection` / `cancel_selection` | capture | Spec 02 |
 | `run_ocr` | ocr | Spec 03 |
 | `show_overlay` / `close_overlay` | overlay | Spec 07 |
-| `list_history` / `clear_history` / `delete_history_item` | history | Spec 08 |
 | `toggle_selection_listener` | selection | Spec 05 |
 | `check_update` | system | Spec 10 |
 
@@ -189,12 +185,11 @@ pub enum LenzError {
 ```
 app.setup():
   1. 加载 config(容错:损坏则备份 + 重建)
-  2. 初始化 History store
-  3. 注册托盘图标与菜单
-  4. 注册全局快捷键(config 驱动)
-  5. 按 config.selection.autoDetect 启动划词监听
-  6. 创建 main 窗口(若 config.app.openOnLaunch)
-  7. 异步触发 check_update(若 config.app.checkUpdate)
+  2. 注册托盘图标与菜单
+  3. 注册全局快捷键(config 驱动)
+  4. 按 config.selection.autoDetect 启动划词监听
+  5. 创建 main 窗口(若 config.app.openOnLaunch)
+  6. 异步触发 check_update(若 config.app.checkUpdate)
 ```
 
 失败 step 不阻断主流程:记录到日志并 emit `app://startup-warning`。

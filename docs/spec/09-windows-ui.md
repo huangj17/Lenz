@@ -39,7 +39,6 @@ macOS:`titleBarStyle: "overlay"`(隐藏标题栏,前端用 `data-tauri-drag-regi
 | 快捷键 | `/settings/shortcuts` | 各功能快捷键录制/清空 |
 | 翻译引擎 | `/settings/engines` | 引擎列表 + 增删改 + 测试 |
 | OCR | `/settings/ocr` | 引擎选择、语言包提示 |
-| 历史记录 | `/settings/history` | 见 Spec 08 §8 |
 | 关于 | `/settings/about` | 版本、开源协议、GitHub 链接 |
 
 ### 2.3 翻译引擎 Tab

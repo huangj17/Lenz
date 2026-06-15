@@ -83,11 +83,6 @@ interface ScreenshotResult {
 }
 ```
 
-### 2.7 历史写入
-
-在推送 result 后,Rust 侧同步写入历史记录(见 [Spec 08](./08-history.md)):
-- `trigger = "screenshot"`, `original`, `translation`, `sourceLang`, `targetLang`, `engineId`。
-
 ## 3. popup 窗口展示
 
 popup 窗口监听 `screenshot://result` 与 `screenshot://error`。

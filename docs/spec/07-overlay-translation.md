@@ -197,11 +197,7 @@ pub struct OverlayBlockData {
 
 `show_overlay` 由 Rust 内部流程调用,不由前端直接 invoke。
 
-## 8. 历史写入
-
-- F3 触发完成后写历史:`trigger = "overlay"`,`original = blocks.map(b.text).join("\n")`,`translation = blocks.map(b.translation).join("\n")`。
-
-## 9. 性能目标
+## 8. 性能目标
 
 | 阶段 | 目标 |
 |---|---|
@@ -209,7 +205,7 @@ pub struct OverlayBlockData {
 | 颜色采样(100 个 block) | ≤ 50ms |
 | 前端渲染(100 个 block) | ≤ 100ms |
 
-## 10. 验收标准
+## 9. 验收标准
 
 - [ ] 框选完成 → 覆盖层显示 ≤ 4s。
 - [ ] 译文不超出原文 bbox(超出时缩小字号到最小值,超长则截断)。
@@ -218,7 +214,7 @@ pub struct OverlayBlockData {
 - [ ] 多屏 + 不同 DPR 下,覆盖块位置与原文字对齐(误差 ≤ 2 逻辑像素)。
 - [ ] 深底白字与浅底黑字场景均可识别译文。
 
-## 11. 测试点
+## 10. 测试点
 
 - 纯英文漫画气泡(不规则排布)。
 - 日文纵排文字(bbox 高 > 宽)。
@@ -227,7 +223,7 @@ pub struct OverlayBlockData {
 - 翻译后部分 block 失败(其余 block 正常展示)。
 - Retina + 标准屏双显示器,框选跨屏区域。
 
-## 12. 开放问题
+## 11. 开放问题
 
 - [ ] ESC 全局快捷键与系统/其他应用的 ESC 是否冲突——考虑改为自定义快捷键或托盘菜单"关闭覆盖"作为后备。
 - [ ] 竖排文字(日文 tategumi)的 block 顺序是否正确——取决于 OCR 引擎,MVP 先观察 Vision 行为。

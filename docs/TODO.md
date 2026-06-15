@@ -1,6 +1,6 @@
 # Lenz 开发 TODO List
 
-> 基于 [PRD v0.2](./PRD.md) §6.1 里程碑 + [spec](./spec/) 各模块详细规格拆分的任务清单。
+> 基于 [PRD v0.3](./PRD.md) §6.1 里程碑 + [spec](./spec/) 各模块详细规格拆分的任务清单。
 >
 > 约定:
 > - 完成标记为 `[x]`,跳过用 `[-]` 并注明原因。
@@ -31,10 +31,10 @@
 ### 1.1 脚手架
 - [ ] `cargo create-tauri-app` 初始化仓库,选择 React + TypeScript + pnpm + Vite(版本号跟随官方最新,不做固定)
 - [ ] 前端目录按 spec 00 §2.2 调整:`windows/{main,popup,selection,overlay}`、`components`、`hooks`、`stores`、`lib`、`locales`(→ spec 00 §2.2)
-- [ ] Rust 目录按 spec 00 §2.1 建立骨架(`commands/`、`core/`、`config/`、`history/`、`types.rs`、`error.rs`)(→ spec 00 §2.1)
+- [ ] Rust 目录按 spec 00 §2.1 建立骨架(`commands/`、`core/`、`config/`、`types.rs`、`error.rs`)(→ spec 00 §2.1)
 - [ ] 配置 `tauri.conf.json` 的 `main` 和 `popup` 两个静态窗口(→ spec 09 §2.1 / §3.1)
 - [ ] 引入 shadcn/ui + Tailwind;确认暗/亮色 CSS 变量骨架(→ spec 09 §6.1)
-- [ ] Zustand 基础 store:`config`、`session`、`history`(空实现)
+- [ ] Zustand 基础 store:`config`、`session`(空实现)
 - [ ] i18next 接入;准备 `zh-CN.json` 和 `en-US.json` 两份空语言包(→ spec 09 §6.4)
 - [ ] Rust 侧共享类型 `types.rs`(`Rect`、`TriggerKind`、`TranslateRequest/Response` 等)(→ spec 00 §5)
 - [ ] 统一错误枚举 `LenzError`(→ spec 00 §5, §6)
@@ -55,7 +55,7 @@
 - [ ] `TrayIcon` 构建 + 菜单项(打开主窗口、F1/F2/F3、划词监听 toggle、设置、检查更新、关于、退出)(→ spec 10 §1.2)
 - [ ] 左键点击托盘 → 显示主窗口(→ spec 10 §1.3)
 - [ ] 配置变更后菜单重建(`rebuild_tray_menu`)(→ spec 10 §1.3)
-- [ ] 主窗口骨架:Tab 导航占位(通用/快捷键/翻译引擎/OCR/历史/关于)(→ spec 09 §2.2)
+- [ ] 主窗口骨架:Tab 导航占位(通用/快捷键/翻译引擎/OCR/关于)(→ spec 09 §2.2)
 - [ ] macOS `LSUIElement = true`(不在 Dock 显示)(→ spec 11 §4.1)
 
 ### 1.4 启动时序
@@ -181,7 +181,6 @@
 - [ ] OCR block 拼接(同行空格,跨行 `\n`)→ 送翻译(→ spec 06 §2.4)
 - [ ] OCR 为空 → emit `screenshot://error { stage: "ocr", code: "no_text" }`(→ spec 06 §2.4)
 - [ ] 翻译完成 → emit `screenshot://result { ... }`(→ spec 06 §2.6)
-- [ ] 写入历史(`trigger: "screenshot"`)(→ spec 06 §2.7)
 
 ### 4.3 进度与取消
 - [ ] 关键节点 emit `screenshot://progress { stage }`(→ spec 06 §5)
@@ -236,7 +235,6 @@
 - [ ] 监听 `selection://triggered` → 复用同一 popup 实例(→ spec 05 §6)
 - [ ] 正在翻译中触发新文本 → 取消旧请求(→ spec 05 §6)
 - [ ] 定位:`cursorPos + (16,16)` 偏移 + 溢出夹紧(以 popup 尺寸估算)(→ spec 05 §7)
-- [ ] 写入历史(`trigger: "selection"`)(→ spec 08 §3)
 
 ### 5.4 状态机
 - [ ] IDLE → WAITING → TRANSLATING → SHOWING 状态切换(→ spec 05 §9)
@@ -283,18 +281,15 @@
 ### 6.5 关闭交互 ⚠️
 - [ ] 注册临时全局快捷键 ESC(仅 overlay 存在时有效),触发后销毁 + 解绑(→ spec 07 §6.4)
 - [ ] emit `overlay://closed`(→ spec 00 §4.3)
-- [ ] 评估 ESC 冲突风险:若不可接受,退化为托盘菜单"关闭覆盖"后备(→ spec 07 §12)
+- [ ] 评估 ESC 冲突风险:若不可接受,退化为托盘菜单"关闭覆盖"后备(→ spec 07 §11)
 
-### 6.6 历史
-- [ ] 写入历史:`original/translation` 多行拼接(`\n`)(→ spec 07 §8)
-
-### 6.7 验收(M6 结束)
-- [ ] 框选 → 覆盖层显示 ≤ 4s(→ spec 07 §10)
-- [ ] 译文不超出 bbox(→ spec 07 §10)
-- [ ] 覆盖层不拦截鼠标事件(→ spec 07 §10)
-- [ ] ESC 关闭覆盖层,下层交互恢复(→ spec 07 §10)
-- [ ] 多屏 + DPR 对齐 ≤ 2 逻辑像素(→ spec 07 §10)
-- [ ] 深/浅底文字都可读(自动前景色)(→ spec 07 §10)
+### 6.6 验收(M6 结束)
+- [ ] 框选 → 覆盖层显示 ≤ 4s(→ spec 07 §9)
+- [ ] 译文不超出 bbox(→ spec 07 §9)
+- [ ] 覆盖层不拦截鼠标事件(→ spec 07 §9)
+- [ ] ESC 关闭覆盖层,下层交互恢复(→ spec 07 §9)
+- [ ] 多屏 + DPR 对齐 ≤ 2 逻辑像素(→ spec 07 §9)
+- [ ] 深/浅底文字都可读(自动前景色)(→ spec 07 §9)
 
 ---
 
@@ -330,13 +325,7 @@
 - [ ] `minConfidence` 滑块(0~1)(→ spec 01 §2)
 - [ ] 监听 `ocr://language-missing` → 显示系统设置跳转引导(→ spec 03 §4.1)
 
-### 7.5 历史 Tab
-- [ ] 虚拟列表 + 搜索框(debounce 300ms)+ 触发类型筛选(→ spec 08 §8)
-- [ ] 条目展开详情 + 复制按钮(→ spec 08 §8)
-- [ ] 删除单条 / 清空全部(二次确认)(→ spec 08 §5)
-- [ ] 条数统计 + `maxItems` 配置联动(→ spec 08 §6)
-
-### 7.6 关于 Tab
+### 7.5 关于 Tab
 - [ ] 版本号、构建日期(`env!("BUILD_DATE")`)(→ spec 10 §7)
 - [ ] MIT License 链接(→ spec 10 §7)
 - [ ] GitHub 仓库链接 + Bundle ID(→ spec 10 §7)
@@ -351,43 +340,34 @@
 
 ## M8 · 完善(W11)
 
-目标:历史、主题、i18n、自启、更新、代理等全部打磨到可发布。
+目标:主题、i18n、自启、更新、代理等全部打磨到可发布。
 
-### 8.1 历史记录(完整化)
-- [ ] `HistoryStore`:`VecDeque` + `max_items` 截断(→ spec 08 §3)
-- [ ] debounce 2s 异步 flush;退出前同步 flush(→ spec 08 §3)
-- [ ] `list_history` 分页 + 搜索 + 触发类型过滤(→ spec 08 §4)
-- [ ] `delete_history_item` / `clear_history`(→ spec 08 §5)
-- [ ] 启动加载 + 损坏 fallback 备份(→ spec 08 §7)
-- [ ] `history.enabled = false` 不写入但保留已有(→ spec 08 §6)
-
-### 8.2 国际化
+### 8.1 国际化
 - [ ] 所有 UI 文字抽到语言包(禁止硬编码)(→ spec 09 §6.4)
 - [ ] `navigator.language` 前缀匹配(→ spec 09 §6.4)
 - [ ] 中文语言包完整;英文语言包完整(→ spec 09 §6.4)
 
-### 8.3 主题
+### 8.2 主题
 - [ ] CSS 变量统一(`--bg`, `--text`, `--accent`, ...)(→ spec 09 §6.1)
 - [ ] 系统主题变化监听 → emit `config://theme-changed` → 所有窗口响应(→ spec 10 §6)
 - [ ] macOS vibrancy / Windows acrylic(popup)(→ spec 09 §3.2)
 
-### 8.4 检查更新
+### 8.3 检查更新
 - [ ] `tauri-plugin-updater` 接入(→ spec 10 §4)
 - [ ] 启动 3s 延迟自动检查(若开启)(→ spec 10 §4.1)
 - [ ] 手动触发(托盘 / 设置页)(→ spec 10 §4.1)
 - [ ] 弹框展示版本 + changelog + 浏览器打开 Release 页(不自动下载)(→ spec 10 §4.2)
 - [ ] `tauri.conf.json` 配置 `updater.endpoints` 指向 `latest.json`(→ spec 10 §4.3)
 
-### 8.5 代理联动
+### 8.4 代理联动
 - [ ] `config.proxy.*` 变更 → `TranslatorManager` 重建 http_client(→ spec 04 §7)
 - [ ] `engine.useProxy = false` 的引擎用无代理 client(→ spec 04 §7)
 
-### 8.6 日志
+### 8.5 日志
 - [ ] 日志轮转(5MB × 3 份)(→ spec 11 §5)
 - [ ] 禁止记录 API Key / 剪贴板内容(code review 检查点)(→ spec 11 §5)
 
-### 8.7 验收(M8 结束)
-- [ ] 历史 500 条满负载下搜索 debounce 正常(→ spec 08 §9)
+### 8.6 验收(M8 结束)
 - [ ] 中英切换 UI 即时更新(→ spec 09 §7)
 - [ ] 系统主题切换后三种窗口(main/popup/overlay)都正确跟随(→ spec 09 §7)
 - [ ] 自启开关重启系统后验证生效(→ spec 10 §8)
@@ -439,12 +419,12 @@
 
 ### 跨平台验证
 - [ ] 每个功能里程碑结束前,双平台各跑一遍核心路径
-- [ ] 多屏 + HiDPI 在 M2/M4/M6 结束时做回归(→ spec 02 §8, spec 07 §11)
+- [ ] 多屏 + HiDPI 在 M2/M4/M6 结束时做回归(→ spec 02 §8, spec 07 §10)
 
 ### 风险观察项 ⚠️
 - [ ] Vision / Win OCR 桥接可行性(M2 前半段判断是否切 Tesseract)(→ PRD §6.2)
 - [ ] 划词监听权限 / 稳定性(macOS 辅助功能 / Windows UIA)(→ spec 05 §2)
-- [ ] 原图覆盖 ESC 快捷键与系统/其他应用冲突(→ spec 07 §12)
+- [ ] 原图覆盖 ESC 快捷键与系统/其他应用冲突(→ spec 07 §11)
 - [ ] LLM 批量翻译 JSON 稳定性(多模型回归测试)(→ spec 04 §11)
 - [ ] macOS 公证流程(早期跑完整 CI 验证)(→ spec 11 §4.1)
 - [ ] Windows `transparent + fullscreen + alwaysOnTop` 组合黑屏(→ spec 02 §9)
@@ -471,5 +451,5 @@
 
 ---
 
-**文档版本**:v0.1(2026-04-24)
-**上游**:[PRD.md](./PRD.md) v0.2 / [spec/](./spec/) v0.1
+**文档版本**:v0.2(2026-06-15,移除历史记录相关任务)
+**上游**:[PRD.md](./PRD.md) v0.3 / [spec/](./spec/) v0.2
