@@ -1,52 +1,39 @@
-import * as React from "react";
-import { Slot } from "@radix-ui/react-slot";
-import { cva, type VariantProps } from "class-variance-authority";
-import { cn } from "@/lib/utils";
+/**
+ * 按钮 —— 对齐设计稿(settings.jsx):
+ *  - primary:实心 lens,白字,带高光阴影(添加服务等)
+ *  - secondary:0.5px 描边,透明底(测试连接、更新日志等)
+ *  - warm:实心 warm-700(关于页 GitHub)
+ */
+import { clsx } from "clsx";
+import type { ButtonHTMLAttributes } from "react";
 
-const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[var(--radius)] text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0",
-  {
-    variants: {
-      variant: {
-        default: "bg-accent text-accent-fg hover:opacity-90",
-        secondary:
-          "bg-field text-fg border border-border hover:bg-bg-secondary",
-        ghost: "text-fg hover:bg-field",
-        outline: "border border-border text-fg hover:bg-field",
-        destructive: "bg-danger text-white hover:opacity-90",
-      },
-      size: {
-        default: "h-9 px-4 py-2",
-        sm: "h-8 px-3 text-xs",
-        lg: "h-10 px-6",
-        icon: "size-9",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-      size: "default",
-    },
-  },
-);
+type Variant = "primary" | "secondary" | "warm";
 
-export interface ButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonVariants> {
-  asChild?: boolean;
+interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: Variant;
 }
 
-const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
-    const Comp = asChild ? Slot : "button";
-    return (
-      <Comp
-        ref={ref}
-        className={cn(buttonVariants({ variant, size, className }))}
-        {...props}
-      />
-    );
-  },
-);
-Button.displayName = "Button";
+const VARIANTS: Record<Variant, string> = {
+  primary:
+    "bg-accent text-accent-fg shadow-[0_1px_2px_rgba(45,127,179,.3),inset_0_1px_0_rgba(255,255,255,.2)]",
+  secondary: "border-[0.5px] border-line bg-transparent text-fg",
+  warm: "bg-warm-700 text-warm-white",
+};
 
-export { Button, buttonVariants };
+export function Button({
+  variant = "secondary",
+  className,
+  ...rest
+}: ButtonProps) {
+  return (
+    <button
+      type="button"
+      className={clsx(
+        "inline-flex cursor-pointer items-center gap-1.5 rounded-md border-0 px-3 py-1.5 text-xs font-medium transition-colors",
+        VARIANTS[variant],
+        className,
+      )}
+      {...rest}
+    />
+  );
+}

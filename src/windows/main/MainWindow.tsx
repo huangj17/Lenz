@@ -1,104 +1,124 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  Settings,
-  Keyboard,
-  Languages,
-  ScanText,
-  Info,
-  type LucideIcon,
-} from "lucide-react";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { clsx } from "clsx";
+import { LensMark } from "@/components/LensMark";
+import { Icon, type IconName } from "@/components/Icon";
 import { useConfigStore } from "@/stores/config";
-import { GeneralTab } from "./tabs/GeneralTab";
-import { ShortcutsTab } from "./tabs/ShortcutsTab";
-import { EnginesTab } from "./tabs/EnginesTab";
-import { OcrTab } from "./tabs/OcrTab";
-import { AboutTab } from "./tabs/AboutTab";
+import { GeneralPane } from "./panes/GeneralPane";
+import { ShortcutsPane } from "./panes/ShortcutsPane";
+import { ServicesPane } from "./panes/ServicesPane";
+import { AboutPane } from "./panes/AboutPane";
 
-type TabId = "general" | "shortcuts" | "engines" | "ocr" | "about";
+type TabId = "general" | "shortcuts" | "services" | "about";
 
-const NAV: { id: TabId; icon: LucideIcon; labelKey: string }[] = [
-  { id: "general", icon: Settings, labelKey: "nav.general" },
-  { id: "shortcuts", icon: Keyboard, labelKey: "nav.shortcuts" },
-  { id: "engines", icon: Languages, labelKey: "nav.engines" },
-  { id: "ocr", icon: ScanText, labelKey: "nav.ocr" },
-  { id: "about", icon: Info, labelKey: "nav.about" },
+const NAV: { id: TabId; icon: IconName }[] = [
+  { id: "general", icon: "settings" },
+  { id: "shortcuts", icon: "keyboard" },
+  { id: "services", icon: "cpu" },
+  { id: "about", icon: "info" },
 ];
 
 /**
- * 设置主窗口:左侧 Tab 导航(通用 / 快捷键 / 翻译引擎 / OCR / 关于)+ 右侧内容。
- * 无历史 Tab(历史记录功能已删除)。
+ * 设置主窗口 —— 对齐设计稿:200px vibrancy 侧边栏(红绿灯留白 + logo + 4 导航 +
+ * 底部连接状态)+ 内容区(header 标题/搜索框 + 当前 pane)。
  *
- * macOS 顶部留出可拖拽区(data-tauri-drag-region),适配 titleBarStyle overlay。
+ * macOS 用 titleBarStyle: Overlay,原生红绿灯浮于侧边栏左上;顶部 data-tauri-drag-region 可拖拽。
  */
 export function MainWindow() {
   const { t } = useTranslation();
   const [tab, setTab] = useState<TabId>("general");
   const load = useConfigStore((s) => s.load);
+  const engines = useConfigStore((s) => s.config.translator.engines);
+  const defaultId = useConfigStore((s) => s.config.translator.defaultEngineId);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  const def = engines.find((e) => e.id === defaultId) ?? engines[0];
+  const endpoint = def ? def.apiUrl.replace(/^https?:\/\//, "") : null;
+
   return (
-    <Tabs
-      value={tab}
-      onValueChange={(v) => setTab(v as TabId)}
-      orientation="vertical"
-      className="grid h-screen grid-cols-[200px_1fr] bg-bg text-fg"
-    >
+    <div className="grid h-screen grid-cols-[200px_1fr] bg-bg text-fg">
       {/* 侧边栏 */}
-      <aside className="flex flex-col gap-1 border-r border-border bg-bg-secondary/40 p-2.5">
+      <aside className="ln-vibrancy flex flex-col gap-0.5 border-r-[0.5px] border-line px-2.5 py-3">
+        {/* macOS overlay 原生红绿灯留白 + 可拖拽 */}
+        <div data-tauri-drag-region className="h-3" />
         <div
           data-tauri-drag-region
-          className="flex items-center gap-2 px-2 pt-2 pb-3"
+          className="flex items-center gap-2 px-2 pb-2.5"
         >
-          <div className="size-5 rounded-md bg-accent" />
-          <span className="text-sm font-semibold tracking-tight">
-            {t("app.name")}
-          </span>
-          <span className="ml-auto font-mono text-[10px] text-fg-muted">
-            0.1.0
-          </span>
+          <LensMark size={22} />
+          <span className="text-sm font-semibold tracking-tight">Lenz</span>
+          <span className="ml-auto font-mono text-[10px] text-sub">0.1.0</span>
         </div>
-        <TabsList aria-label="Settings sections">
-          {NAV.map(({ id, icon: Icon, labelKey }) => (
-            <TabsTrigger key={id} value={id}>
-              <Icon />
-              <span>{t(labelKey)}</span>
-            </TabsTrigger>
-          ))}
-        </TabsList>
+
+        {NAV.map((n) => {
+          const active = tab === n.id;
+          return (
+            <button
+              key={n.id}
+              type="button"
+              onClick={() => setTab(n.id)}
+              className={clsx(
+                "flex cursor-pointer items-center gap-[9px] rounded-[7px] border-0 bg-transparent px-[9px] py-[7px] text-left text-[13px] font-medium",
+                active ? "text-accent-ink" : "text-fg",
+              )}
+              style={active ? { background: "var(--tint)" } : undefined}
+            >
+              <Icon name={n.icon} size={15} />
+              <span>{t(`nav.${n.id}`)}</span>
+            </button>
+          );
+        })}
+
+        {/* 底部连接状态 */}
+        <div className="mt-auto border-t-[0.5px] border-line p-2 text-[11px] text-sub">
+          <div className="flex items-center gap-1.5">
+            <span
+              className={clsx("size-1.5 rounded-full", def && "ln-glow")}
+              style={{
+                background: def
+                  ? "var(--sage)"
+                  : "color-mix(in srgb, var(--fg) 25%, transparent)",
+              }}
+            />
+            <span>{def ? def.name : t("sidebar.noEngine")}</span>
+          </div>
+          {endpoint && (
+            <div className="mt-0.5 truncate font-mono text-[10px] text-sub">
+              {endpoint}
+            </div>
+          )}
+        </div>
       </aside>
 
-      {/* 内容区 */}
+      {/* 内容 */}
       <main className="flex min-h-0 flex-col">
         <header
           data-tauri-drag-region
-          className="flex h-12 items-center border-b border-border px-6 text-[15px] font-semibold"
+          className="ln-header flex items-center justify-between border-b-[0.5px] border-line px-6 py-[14px]"
         >
-          {t(NAV.find((n) => n.id === tab)?.labelKey ?? "nav.general")}
+          <div className="text-[15px] font-semibold">{t(`nav.${tab}`)}</div>
+          <div className="flex items-center gap-1.5 rounded-md border-[0.5px] border-line bg-field py-1 pr-2.5 pl-2 text-xs text-sub">
+            <Icon name="search" size={13} />
+            <span>{t("header.search")}</span>
+          </div>
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-          <TabsContent value="general">
-            <GeneralTab />
-          </TabsContent>
-          <TabsContent value="shortcuts">
-            <ShortcutsTab />
-          </TabsContent>
-          <TabsContent value="engines">
-            <EnginesTab />
-          </TabsContent>
-          <TabsContent value="ocr">
-            <OcrTab />
-          </TabsContent>
-          <TabsContent value="about">
-            <AboutTab />
-          </TabsContent>
-        </div>
+
+        {tab === "services" ? (
+          <div className="min-h-0 flex-1 overflow-hidden px-6 pt-[22px] pb-6">
+            <ServicesPane />
+          </div>
+        ) : (
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-[22px] pb-6">
+            {tab === "general" && <GeneralPane />}
+            {tab === "shortcuts" && <ShortcutsPane />}
+            {tab === "about" && <AboutPane />}
+          </div>
+        )}
       </main>
-    </Tabs>
+    </div>
   );
 }
 

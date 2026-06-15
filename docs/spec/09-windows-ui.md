@@ -37,11 +37,12 @@ macOS:`titleBarStyle: "overlay"`(隐藏标题栏,前端用 `data-tauri-drag-regi
 |---|---|---|
 | 通用 | `/settings/general` | 语言、主题、自启、更新、代理 |
 | 快捷键 | `/settings/shortcuts` | 各功能快捷键录制/清空 |
-| 翻译引擎 | `/settings/engines` | 引擎列表 + 增删改 + 测试 |
-| OCR | `/settings/ocr` | 引擎选择、语言包提示 |
+| 服务 | `/settings/services` | 分段控件切换:文本翻译(引擎列表+编辑器)/ OCR(后端、精度、识别语言) |
 | 关于 | `/settings/about` | 版本、开源协议、GitHub 链接 |
 
-### 2.3 翻译引擎 Tab
+> **服务页**用分段控件(Segmented)在「文本翻译」与「OCR」两个子视图间切换,而非两个独立侧边栏 Tab——对齐设计稿(`docs/design`)。侧边栏共四项;底部展示默认引擎连接状态。
+
+### 2.3 服务 · 文本翻译分段
 
 - 左侧:引擎列表(拖拽排序、启用/禁用 toggle、删除)。
 - 右侧:选中引擎的详情表单:
