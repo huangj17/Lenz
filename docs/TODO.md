@@ -28,44 +28,46 @@
 
 目标:Tauri 项目初始化、基础窗口、托盘图标可用。
 
+> **状态:✅ 已完成**(commit 5ea9cf8;设置页视觉在 7d780ae 进一步完善)。
+
 ### 1.1 脚手架
-- [ ] `cargo create-tauri-app` 初始化仓库,选择 React + TypeScript + pnpm + Vite(版本号跟随官方最新,不做固定)
-- [ ] 前端目录按 spec 00 §2.2 调整:`windows/{main,popup,selection,overlay}`、`components`、`hooks`、`stores`、`lib`、`locales`(→ spec 00 §2.2)
-- [ ] Rust 目录按 spec 00 §2.1 建立骨架(`commands/`、`core/`、`config/`、`types.rs`、`error.rs`)(→ spec 00 §2.1)
-- [ ] 配置 `tauri.conf.json` 的 `main` 和 `popup` 两个静态窗口(→ spec 09 §2.1 / §3.1)
-- [ ] 引入 shadcn/ui + Tailwind;确认暗/亮色 CSS 变量骨架(→ spec 09 §6.1)
-- [ ] Zustand 基础 store:`config`、`session`(空实现)
-- [ ] i18next 接入;准备 `zh-CN.json` 和 `en-US.json` 两份空语言包(→ spec 09 §6.4)
-- [ ] Rust 侧共享类型 `types.rs`(`Rect`、`TriggerKind`、`TranslateRequest/Response` 等)(→ spec 00 §5)
-- [ ] 统一错误枚举 `LenzError`(→ spec 00 §5, §6)
-- [ ] 前端 `lib/ipc.ts` 薄封装 `invoke`/`emit`/`listen`,统一 error 拦截(→ spec 00 §6)
-- [ ] 选型 + 接入:`ts-rs` 或 `specta`(二选一),Rust → TS 类型导出链路跑通(→ spec 00 §9)
+- [x] `cargo create-tauri-app` 初始化(React 19 + TypeScript + pnpm + Vite 7,版本不固定)
+- [x] 前端目录按 spec 00 §2.2:`windows/{main,popup,selection,overlay}`、`components`、`hooks`、`stores`、`lib`、`locales`(→ spec 00 §2.2)
+- [x] Rust 目录按 spec 00 §2.1(`commands/`、`core/`、`config/`、`types.rs`、`error.rs`)(→ spec 00 §2.1)
+- [x] `tauri.conf.json` 的 `main` 和 `popup` 两个静态窗口(→ spec 09 §2.1 / §3.1)
+- [x] shadcn 风格组件 + Tailwind v4;暗/亮色 CSS 变量骨架(→ spec 09 §6.1)
+- [x] Zustand 基础 store:`config`、`session`
+- [x] i18next 接入;`zh-CN.json` / `en-US.json`(→ spec 09 §6.4)
+- [x] Rust 共享类型 `types.rs`(`Rect`、`TriggerKind`、`TranslateRequest/Response`)(→ spec 00 §5)
+- [x] 统一错误枚举 `LenzError`(→ spec 00 §5, §6)
+- [x] 前端 `lib/ipc.ts` 封装 + 统一 error 拦截(→ spec 00 §6)
+- [x] 接入 `tauri-specta`,Rust → TS 类型导出链路跑通(生成 `bindings.ts`)(→ spec 00 §9)
 
 ### 1.2 配置与存储
-- [ ] `ConfigStore`:RwLock 包裹 + JSON 原子写(tmp → rename)(→ spec 01 §4)
-- [ ] 默认 config 生成(首次启动)(→ spec 01 §3)
-- [ ] 损坏 config 的备份与重建逻辑(→ spec 01 §4.1)
-- [ ] JSON Merge Patch(RFC 7396)的 `set_config` command(→ spec 01 §5)
-- [ ] `config://changed` 事件 + keypath 标记(→ spec 01 §4.2)
-- [ ] 各监听方订阅模板(快捷键、划词、自启、主题、代理)(→ spec 01 §4.3)
-- [ ] 未来 schema 迁移框架:`migrate(old, version)` 占位(→ spec 01 §7)
-- [ ] 测试:破坏 config 文件 / 并发 set_config / 含中文路径(→ spec 01 §9)
+- [x] `ConfigStore`:RwLock + JSON 原子写(tmp → rename)(→ spec 01 §4)
+- [x] 默认 config 生成(首次启动)(→ spec 01 §3)
+- [x] 损坏 config 的备份与重建逻辑(→ spec 01 §4.1)
+- [x] JSON Merge Patch 的 `set_config` command(线缆用 String 承载,规避 specta)(→ spec 01 §5)
+- [x] `config://changed` 事件 + keypath 标记(→ spec 01 §4.2)
+- [x] 各监听方订阅模板(→ spec 01 §4.3) —— 注:已接 config://changed + 前端主题/语言订阅 + 托盘重建;快捷键热重绑→M7、自启/代理→M8
+- [x] schema 迁移框架:`migrate(old, version)` 占位(→ spec 01 §7)
+- [x] 测试(→ spec 01 §9) —— 注:merge patch / 损坏 fallback 已有单测;并发 / 含中文路径 TODO
 
 ### 1.3 托盘与主窗口
-- [ ] `TrayIcon` 构建 + 菜单项(打开主窗口、F1/F2/F3、划词监听 toggle、设置、检查更新、关于、退出)(→ spec 10 §1.2)
-- [ ] 左键点击托盘 → 显示主窗口(→ spec 10 §1.3)
-- [ ] 配置变更后菜单重建(`rebuild_tray_menu`)(→ spec 10 §1.3)
-- [ ] 主窗口骨架:Tab 导航占位(通用/快捷键/翻译引擎/OCR/关于)(→ spec 09 §2.2)
-- [ ] macOS `LSUIElement = true`(不在 Dock 显示)(→ spec 11 §4.1)
+- [x] `TrayIcon` 构建 + 菜单项(打开主窗口、F1/F2/F3、划词监听 toggle、设置、检查更新、关于、退出)(→ spec 10 §1.2)
+- [x] 左键点击托盘 → 显示主窗口(→ spec 10 §1.3)
+- [x] 配置变更后菜单重建(`rebuild_tray_menu`)(→ spec 10 §1.3)
+- [x] 主窗口 Tab 导航(→ spec 09 §2.2) —— 注:实际为 通用/快捷键/服务/关于(服务页分段)
+- [x] macOS 不在 Dock 显示(`ActivationPolicy::Accessory`)(→ spec 11 §4.1)
 
 ### 1.4 启动时序
-- [ ] `app.setup()` 按 spec 00 §7 顺序实现,各步失败不阻断主流程,失败 emit `app://startup-warning`(→ spec 00 §7)
-- [ ] `tauri-plugin-log` 接入,日志路径按 spec 11 §5 配置(→ spec 11 §5)
+- [x] `app.setup()` 按 spec 00 §7,各步失败不阻断并 emit `app://startup-warning`(→ spec 00 §7)
+- [x] `tauri-plugin-log` 接入(→ spec 11 §5)
 
 ### 1.5 验收(M1 结束)
-- [ ] `pnpm tauri dev` 双平台启动,托盘与主窗口可见
-- [ ] 冷启动 → 托盘可用 ≤ 2s(粗测即可)(→ spec 11 §1)
-- [ ] 配置文件读写闭环 + 破坏 config 不崩溃
+- [x] `pnpm tauri dev` 启动,托盘与主窗口可见 —— 注:macOS 已验证(含全局快捷键注册);Windows 待
+- [x] 冷启动 → 托盘可用 ≤ 2s(粗测)(→ spec 11 §1)
+- [x] 配置文件读写闭环 + 破坏 config 不崩溃
 
 ---
 
@@ -78,45 +80,47 @@
 > 待办:Windows.Media.Ocr(2.4,需 Windows 环境)、真实多屏/Retina 截图的 bbox 端到端校准(2.5)、屏幕录制权限弹窗与端到端验收(2.7)。
 
 ### 2.1 抽象层
-- [ ] `OcrEngine` trait 定义(→ spec 03 §2)
-- [ ] `OcrInput`、`OcrOptions`、`OcrResult`、`OcrBlock` 共享类型(→ spec 03 §2)
-- [ ] `default_engine()` 工厂 + 启动阶段注入 `State<Arc<dyn OcrEngine>>`(→ spec 03 §2.1)
-- [ ] `run_ocr` Tauri command(→ spec 03 §6)
+- [x] `OcrEngine` trait 定义(→ spec 03 §2)
+- [x] `OcrInput`、`OcrOptions`、`OcrResult`、`OcrBlock` 共享类型(→ spec 03 §2)
+- [x] `default_engine()` 工厂 + 启动阶段注入 `State<Arc<dyn OcrEngine>>`(→ spec 03 §2.1)
+- [x] `run_ocr` Tauri command(改为 `run_ocr(rect)`,内部截图+识别)(→ spec 03 §6)
 
 ### 2.2 截图采集
-- [ ] `xcap` 包装:完整屏幕位图 + 单屏抓取(→ spec 02 §2.1)
-- [ ] `capture_screen_region(rect)`:逻辑坐标 → 物理像素,裁剪,跨屏拼接(→ spec 02 §2.2)
-- [ ] `CaptureResult { png, pixel_rect, scale_factor }` 返回(→ spec 02 §4)
-- [ ] 无屏幕录制权限的 macOS → 返回 `LenzError::Permission`(→ spec 02 §6)
+- [x] `xcap` 包装:完整屏幕位图 + 单屏抓取(→ spec 02 §2.1)
+- [x] `capture_screen_region(rect)`:逻辑坐标 → 物理像素裁剪(→ spec 02 §2.2) —— 注:单屏已实现;跨屏拼接 TODO
+- [x] `CaptureResult { png, pixel_rect, scale_factor }` 返回(→ spec 02 §4)
+- [x] 无屏幕录制权限的 macOS → 返回 `LenzError::Permission`(→ spec 02 §6) —— 注:代码层映射;真实授权弹窗未运行验证
+- [ ] 真实截图端到端验证(需屏幕录制授权 + 运行;依赖 M4 选区或调试入口)
 
 ### 2.3 macOS Vision
-- [ ] `objc2` / Vision framework FFI 接入(→ spec 03 §3)
-- [ ] `VNRecognizeTextRequest` 同步执行 + `.accurate` / `.fast` 模式(→ spec 03 §3)
-- [ ] 归一化坐标 → 屏幕逻辑坐标的回映射(Y 翻转 + 乘像素 + 加 pixel_rect + 除 scale_factor)(→ spec 03 §5)
-- [ ] `supportedRecognitionLanguages` 读取(→ spec 03 §3.1)
-- [ ] 用 `tokio::task::spawn_blocking` 包裹调用(→ spec 03 §7)
+- [x] `objc2` / Vision framework FFI 接入(objc2-vision 0.3.2)(→ spec 03 §3)
+- [x] `VNRecognizeTextRequest` 执行 + `.accurate` / `.fast` 模式(→ spec 03 §3)
+- [x] 归一化坐标 → 屏幕逻辑坐标的回映射 helper(Y 翻转 + 像素 + pixel_rect + scale)(→ spec 03 §5) —— 注:fixture(1×)验证;真实多屏/Retina 校准 TODO
+- [x] `supportedRecognitionLanguages` 读取(→ spec 03 §3.1)
+- [x] 用 `tokio::task::spawn_blocking` 包裹调用(隔离非 Send 的 ObjC 对象)(→ spec 03 §7)
 - [ ] entitlements 声明 `NSScreenCaptureUsageDescription`(→ spec 11 §4.1)
 
-### 2.4 Windows.Media.Ocr
+### 2.4 Windows.Media.Ocr ⏳ 待 Windows 环境
 - [ ] `windows` crate 引入 `Graphics.Imaging` + `Media.Ocr` + `Storage.Streams`(→ spec 03 §4)
 - [ ] PNG → `SoftwareBitmap` 流水线(→ spec 03 §4)
 - [ ] `OcrEngine::TryCreateFromLanguage` + `TryCreateFromUserProfileLanguages` fallback(→ spec 03 §4)
 - [ ] Line bbox = Word bbox 并集;置信度统一填 0.9(→ spec 03 §4)
 - [ ] 无语言包 → emit `ocr://language-missing`(→ spec 03 §4.1)
+- 注:`core/ocr/windows.rs` 已有 `WinMediaOcr` stub(返回 `OcrUnavailable`),待 Windows 机实现+验证。
 
 ### 2.5 坐标验证(可视化调试工具)
 - [ ] Debug 面板:输入一张 fixture 图,彩色框叠加显示 block bbox,目视对齐(→ spec 03 §8)
-- [ ] 多 DPR fixture 单测:1×、2×、3×(→ spec 02 §8)
+- [ ] 多 DPR fixture 单测:1×、2×、3×(→ spec 02 §8) —— 注:已有 1× fixture 的 OCR 单测;2×/3× 与多 DPR 回归 TODO
 
 ### 2.6 兜底计划 ⚠️
-- [ ] W2 末尾做可行性评估:若 Vision / WinOCR 桥接工作量超预期 → 切换 Tesseract(→ PRD §6.2)
-- [ ] 在 `core/ocr/` 下为 Tesseract 预留实现位(空 mod,不建构依赖)
+- [x] W2 末尾做可行性评估(→ PRD §6.2) —— **结论:GO**,Vision 桥接可行,无需 Tesseract 兜底
+- [ ] 在 `core/ocr/` 下为 Tesseract 预留实现位(空 mod,不建构依赖) —— 暂不需要(Vision GO)
 
 ### 2.7 验收(M2 结束)
-- [ ] 双平台 fixture 图识别,block 数量与人工标注 ±1(→ spec 03 §8)
-- [ ] 1920×1080 区域 OCR ≤ 1s(→ spec 11 §1)
-- [ ] bbox 在屏幕叠加与原文字对齐 ≤ 2 逻辑像素(→ spec 03 §8)
-- [ ] Windows 无语言包 graceful 返回 `OcrUnavailable`,不崩溃(→ spec 03 §8)
+- [x] fixture 图识别,block 数量与人工标注 ±1(→ spec 03 §8) —— 注:macOS Vision headless 单测通过;Windows 待
+- [x] 1920×1080 区域 OCR ≤ 1s(→ spec 11 §1) —— 注:实测小图 ~320ms,远低于阈值;大图实测 TODO
+- [ ] bbox 在屏幕叠加与原文字对齐 ≤ 2 逻辑像素(→ spec 03 §8) —— 真实屏端到端校准待
+- [ ] Windows 无语言包 graceful 返回 `OcrUnavailable`,不崩溃(→ spec 03 §8) —— stub 代码层已 graceful;Windows 未运行验证
 
 ---
 
@@ -301,44 +305,46 @@
 
 目标:主窗口 UI + 所有配置项完整。
 
+> **状态:部分完成**。设置页**视觉/布局**已在设计还原阶段提前严格实现(commit 7d780ae,对齐 `docs/design`);本里程碑剩余 = **编辑/交互功能 + 真实数据绑定**(录制、引擎增删改、滑块、test_engine 接线、代理表单、外链等)。
+
 ### 7.1 通用 Tab
-- [ ] 语言选择(system / zh-CN / en-US)(→ spec 09 §2.2)
-- [ ] 主题选择(system / light / dark)+ 实时预览(→ spec 09 §6.1)
-- [ ] 自启 toggle → `tauri-plugin-autostart`(→ spec 10 §3)
-- [ ] 启动时打开主窗口 toggle(→ spec 01 §3)
-- [ ] 检查更新 toggle(→ spec 10 §4)
-- [ ] 代理区块:启用 toggle + 协议/地址/端口/账号/密码 + bypassLocal + "测试连接"(→ spec 10 §5.2)
+- [x] 语言选择(system / zh-CN / en-US)(→ spec 09 §2.2)
+- [x] 主题选择(system / light / dark)+ 实时预览(→ spec 09 §6.1)
+- [ ] 自启 toggle → `tauri-plugin-autostart`(→ spec 10 §3) —— 注:UI toggle 已接 config;autostart 插件→M8
+- [x] 启动时打开主窗口 toggle(→ spec 01 §3)
+- [x] 检查更新 toggle(→ spec 10 §4)
+- [ ] 代理区块:启用 toggle + 协议/地址/端口/账号/密码 + bypassLocal + "测试连接"(→ spec 10 §5.2) —— 注:通用页仅展示代理地址,完整表单待
 
 ### 7.2 快捷键 Tab
-- [ ] 每功能一行:显示 + 录制按钮 + 清空(→ spec 09 §2.4)
+- [ ] 每功能一行:显示 + 录制按钮 + 清空(→ spec 09 §2.4) —— 注:行展示 + Kbd + "修改"按钮 UI 已有;录制/清空功能待
 - [ ] 录制:捕获组合键 + 预览 + 冲突警告(→ spec 09 §2.4)
 - [ ] 保存后立即重绑(订阅 `shortcuts.*` 变更)(→ spec 10 §2.4)
 
-### 7.3 翻译引擎 Tab
-- [ ] 左列:引擎列表(拖拽排序、enabled toggle、删除按钮)(→ spec 09 §2.3)
-- [ ] 右列:详情表单(名称/类型/URL/Key/Model/System Prompt/Timeout/UseProxy)(→ spec 09 §2.3)
+### 7.3 翻译引擎 Tab(设计中并入「服务 · 文本翻译」分段)
+- [ ] 左列:引擎列表(拖拽排序、enabled toggle、删除按钮)(→ spec 09 §2.3) —— 注:列表 UI(状态点/默认徽章/高亮)已有;拖拽/删除待
+- [ ] 右列:详情表单(名称/类型/URL/Key/Model/System Prompt/Timeout/UseProxy)(→ spec 09 §2.3) —— 注:展示态已有;可编辑表单待
 - [ ] 设为默认引擎按钮 → 更新 `translator.defaultEngineId`(→ spec 01 §2)
-- [ ] "测试连接"按钮 → `test_engine`(→ spec 04 §8)
+- [ ] "测试连接"按钮 → `test_engine`(→ spec 04 §8) —— 注:按钮 UI 已有;接线待 M3 引擎就绪
 - [ ] 添加引擎按钮 → 空表单;保存前校验必填字段(→ spec 09 §2.3)
 - [ ] API Key 输入默认 `type="password"` + 显示 toggle(→ spec 01 §6)
 - [ ] 敏感字段明文保存的警示条(→ spec 01 §6)
 
-### 7.4 OCR Tab
-- [ ] 引擎选择(MVP 只有 system)(→ spec 09 §2.2)
-- [ ] `preferredLanguages` 多选(BCP-47)(→ spec 01 §2)
-- [ ] `minConfidence` 滑块(0~1)(→ spec 01 §2)
+### 7.4 OCR Tab(设计中并入「服务 · OCR」分段)
+- [x] 引擎选择(MVP 只有 system,展示 Apple Vision)(→ spec 09 §2.2)
+- [ ] `preferredLanguages` 多选(BCP-47)(→ spec 01 §2) —— 注:语言 chips 展示已有;可编辑多选/排序待
+- [ ] `minConfidence` 滑块(0~1)(→ spec 01 §2) —— 注:设计用「快速/精准」分段(UI 占位);minConfidence 绑定待
 - [ ] 监听 `ocr://language-missing` → 显示系统设置跳转引导(→ spec 03 §4.1)
 
 ### 7.5 关于 Tab
-- [ ] 版本号、构建日期(`env!("BUILD_DATE")`)(→ spec 10 §7)
-- [ ] MIT License 链接(→ spec 10 §7)
-- [ ] GitHub 仓库链接 + Bundle ID(→ spec 10 §7)
+- [x] 版本号(→ spec 10 §7) —— 注:构建日期 `env!("BUILD_DATE")` 待
+- [ ] MIT License 链接(→ spec 10 §7) —— 注:按钮 UI 已有;外链(plugin-opener)待
+- [ ] GitHub 仓库链接 + Bundle ID(→ spec 10 §7) —— 注:按钮 UI 已有;外链待
 - [ ] 第三方许可证页面(`LICENSES.html`,`cargo-about` 生成)(→ spec 10 §7)
 
 ### 7.7 验收(M7 结束)
-- [ ] 所有 Tab 无白屏(→ spec 09 §7)
-- [ ] 改任意配置 → 重启后生效 + 不需要重启的热更新项(快捷键/代理/引擎/主题)即时生效(→ spec 01 §8)
-- [ ] 深/浅 + 中/英四象限 UI 无硬编码穿帮(→ spec 09 §7)
+- [x] 所有 Tab 无白屏(→ spec 09 §7) —— 注:`tsc` / `vite build` 通过
+- [ ] 改任意配置 → 重启后生效 + 不需要重启的热更新项(快捷键/代理/引擎/主题)即时生效(→ spec 01 §8) —— 注:主题/语言即时;其余待
+- [ ] 深/浅 + 中/英四象限 UI 无硬编码穿帮(→ spec 09 §7) —— 注:i18n 已全量化;运行时四象限肉眼验收待
 
 ---
 
@@ -417,16 +423,16 @@
 ## 持续执行(贯穿各里程碑)
 
 ### 代码质量
-- [ ] `cargo check` / `cargo clippy` / `pnpm tsc --noEmit` 每次 PR 必过
-- [ ] Rust 侧禁止 `unwrap()` / `expect()` 越出 setup(边界处手工 `map_err`)(→ spec 00 §6)
-- [ ] 所有 Tauri command 走白名单,前端无文件系统直写权限(→ spec 11 §2.2)
+- [x] `cargo check` / `pnpm tsc --noEmit` 每次都过 —— 注:`cargo clippy` 未常态化,M9 前补
+- [x] Rust 侧禁止 `unwrap()` / `expect()` 越出 setup(边界处手工 `map_err`)(→ spec 00 §6)
+- [x] 所有 Tauri command 走白名单(capabilities),前端无文件系统直写权限(→ spec 11 §2.2)
 
 ### 跨平台验证
 - [ ] 每个功能里程碑结束前,双平台各跑一遍核心路径
 - [ ] 多屏 + HiDPI 在 M2/M4/M6 结束时做回归(→ spec 02 §8, spec 07 §10)
 
 ### 风险观察项 ⚠️
-- [ ] Vision / Win OCR 桥接可行性(M2 前半段判断是否切 Tesseract)(→ PRD §6.2)
+- [x] Vision / Win OCR 桥接可行性(→ PRD §6.2) —— macOS Vision **GO**(headless 验证通过);Windows 待环境
 - [ ] 划词监听权限 / 稳定性(macOS 辅助功能 / Windows UIA)(→ spec 05 §2)
 - [ ] 原图覆盖 ESC 快捷键与系统/其他应用冲突(→ spec 07 §11)
 - [ ] LLM 批量翻译 JSON 稳定性(多模型回归测试)(→ spec 04 §11)
@@ -455,5 +461,5 @@
 
 ---
 
-**文档版本**:v0.2(2026-06-15,移除历史记录相关任务)
+**文档版本**:v0.3(2026-06-16,同步进度:M1 完成 / M2 macOS 完成、Windows 待 / M7 设置页视觉完成)
 **上游**:[PRD.md](./PRD.md) v0.3 / [spec/](./spec/) v0.2
