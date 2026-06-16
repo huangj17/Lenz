@@ -17,6 +17,10 @@ use crate::types::Rect;
 mod macos;
 #[cfg(target_os = "windows")]
 mod windows;
+// Tesseract 预留实现位(spec 03 §10 / 2.6 兜底):默认不编译、不引入依赖,
+// 通过 `--features ocr-tesseract` 启用。当前 Vision/WinOCR 已满足 MVP。
+#[cfg(feature = "ocr-tesseract")]
+mod tesseract;
 
 /// OCR 输入:PNG 字节 + 截图在屏幕上的物理像素位置 + 缩放因子(用于坐标回映射)。
 #[derive(Debug, Clone)]
@@ -116,6 +120,27 @@ pub fn map_normalized_bbox(
     }
 }
 
+/// 把绝对像素 bbox(原点左上,相对截图图像)回映射为屏幕逻辑坐标。
+///
+/// 用于 Windows.Media.Ocr —— 它返回的 `BoundingRect` 已是图像物理像素(无需翻转 Y)。
+/// `raw_*` 为图像内像素;`pixel_rect` 为截图在虚拟屏的物理像素矩形;`scale` 为缩放因子。
+pub fn map_pixel_bbox(
+    raw_x: f64,
+    raw_y: f64,
+    raw_w: f64,
+    raw_h: f64,
+    pixel_rect: &Rect,
+    scale: f32,
+) -> Rect {
+    let s = scale as f64;
+    Rect {
+        x: ((pixel_rect.x as f64 + raw_x) / s).round() as i32,
+        y: ((pixel_rect.y as f64 + raw_y) / s).round() as i32,
+        w: (raw_w / s).round() as i32,
+        h: (raw_h / s).round() as i32,
+    }
+}
+
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 struct UnsupportedOcr;
 
@@ -134,5 +159,56 @@ impl OcrEngine for UnsupportedOcr {
         _opts: OcrOptions,
     ) -> Result<OcrResult, LenzError> {
         Err(LenzError::OcrUnavailable("ocr unsupported on this platform".into()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{map_normalized_bbox, map_pixel_bbox};
+    use crate::types::Rect;
+
+    /// 整图 + 2× 缩放:物理 200×100 → 逻辑 100×50,原点不变。
+    #[test]
+    fn maps_full_image_with_scale() {
+        let r = map_normalized_bbox(
+            0.0, 0.0, 1.0, 1.0, 200.0, 100.0,
+            &Rect { x: 0, y: 0, w: 200, h: 100 },
+            2.0,
+        );
+        assert_eq!((r.x, r.y, r.w, r.h), (0, 0, 100, 50));
+    }
+
+    /// Vision 原点在左下:靠近顶部的框(ny=0.8)回映射后 y 应较小(屏幕上方)。
+    #[test]
+    fn flips_y_origin_bottom_left() {
+        let r = map_normalized_bbox(
+            0.1, 0.8, 0.2, 0.1, 1000.0, 500.0,
+            &Rect { x: 0, y: 0, w: 1000, h: 500 },
+            1.0,
+        );
+        assert_eq!((r.x, r.y, r.w, r.h), (100, 50, 200, 50));
+    }
+
+    /// pixel_rect 物理偏移 (300,600) + 3× → 逻辑原点 (100,200);整图 300×300 → 100×100。
+    #[test]
+    fn applies_pixel_rect_offset_and_scale_3x() {
+        let r = map_normalized_bbox(
+            0.0, 0.0, 1.0, 1.0, 300.0, 300.0,
+            &Rect { x: 300, y: 600, w: 300, h: 300 },
+            3.0,
+        );
+        assert_eq!((r.x, r.y, r.w, r.h), (100, 200, 100, 100));
+    }
+
+    /// Windows 绝对像素 bbox(左上原点,无翻转):pixel_rect 偏移 + 2× 缩放。
+    #[test]
+    fn maps_absolute_pixel_bbox() {
+        let r = map_pixel_bbox(
+            10.0, 20.0, 100.0, 40.0,
+            &Rect { x: 200, y: 0, w: 800, h: 600 },
+            2.0,
+        );
+        // (200+10)/2=105, (0+20)/2=10, 100/2=50, 40/2=20
+        assert_eq!((r.x, r.y, r.w, r.h), (105, 10, 50, 20));
     }
 }

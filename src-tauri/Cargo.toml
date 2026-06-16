@@ -14,6 +14,10 @@ edition = "2021"
 name = "lenz_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# 预留:启用自带 Tesseract OCR 兜底(默认关闭,不引入第三方依赖)。
+ocr-tesseract = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -40,6 +44,9 @@ objc2-core-foundation = "0.3.2"
 objc2-core-graphics = "0.3.2"
 objc2-foundation = "0.3.2"
 objc2-vision = "0.3.2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62.2", features = ["Media_Ocr", "Graphics_Imaging", "Storage_Streams", "Foundation", "Foundation_Collections", "Globalization"] }
 
 [dev-dependencies]
 # 用于 OCR 单元测试:在内存位图上渲染高对比度文字后让 Vision 识别(无需屏幕权限)。

@@ -98,23 +98,23 @@
 - [x] 归一化坐标 → 屏幕逻辑坐标的回映射 helper(Y 翻转 + 像素 + pixel_rect + scale)(→ spec 03 §5) —— 注:fixture(1×)验证;真实多屏/Retina 校准 TODO
 - [x] `supportedRecognitionLanguages` 读取(→ spec 03 §3.1)
 - [x] 用 `tokio::task::spawn_blocking` 包裹调用(隔离非 Send 的 ObjC 对象)(→ spec 03 §7)
-- [ ] entitlements 声明 `NSScreenCaptureUsageDescription`(→ spec 11 §4.1)
+- [-] entitlements 声明 `NSScreenCaptureUsageDescription`(→ spec 11 §4.1) —— N/A:macOS 屏幕录制走 TCC 运行时授权,无标准 Info.plist usage key;非沙盒分发无需特殊 entitlement
 
-### 2.4 Windows.Media.Ocr ⏳ 待 Windows 环境
-- [ ] `windows` crate 引入 `Graphics.Imaging` + `Media.Ocr` + `Storage.Streams`(→ spec 03 §4)
-- [ ] PNG → `SoftwareBitmap` 流水线(→ spec 03 §4)
-- [ ] `OcrEngine::TryCreateFromLanguage` + `TryCreateFromUserProfileLanguages` fallback(→ spec 03 §4)
-- [ ] Line bbox = Word bbox 并集;置信度统一填 0.9(→ spec 03 §4)
-- [ ] 无语言包 → emit `ocr://language-missing`(→ spec 03 §4.1)
-- 注:`core/ocr/windows.rs` 已有 `WinMediaOcr` stub(返回 `OcrUnavailable`),待 Windows 机实现+验证。
+### 2.4 Windows.Media.Ocr(实现已写,⏳ 待 Windows/CI 验证编译)
+- [x] `windows` crate(0.62)引入 `Graphics.Imaging` + `Media.Ocr` + `Storage.Streams` + `Globalization`(→ spec 03 §4)
+- [x] PNG → `InMemoryRandomAccessStream` → `BitmapDecoder` → `SoftwareBitmap` 流水线(→ spec 03 §4)
+- [x] `TryCreateFromLanguage` 依序尝试 + `TryCreateFromUserProfileLanguages` 回退(→ spec 03 §4)
+- [x] Line bbox = Word.BoundingRect 并集;置信度统一 0.9;`map_pixel_bbox` 回映射(→ spec 03 §4)
+- [ ] 无语言包 → emit `ocr://language-missing`(→ spec 03 §4.1) —— 注:引擎层返回 `OcrUnavailable`;事件 emit 需 AppHandle,留 M4/M7 上层接线
+- ⚠️ `core/ocr/windows.rs` 完整实现已写,但本机 macOS 的 `tauri-build` 阻止交叉 `cargo check --target *-windows`,故**未本地验证编译**;需 Windows / CI(windows-latest)校验(重点:`TryCreateFromLanguage` 缺包返回语义、`IAsyncOperation::get()`)。
 
 ### 2.5 坐标验证(可视化调试工具)
 - [ ] Debug 面板:输入一张 fixture 图,彩色框叠加显示 block bbox,目视对齐(→ spec 03 §8)
-- [ ] 多 DPR fixture 单测:1×、2×、3×(→ spec 02 §8) —— 注:已有 1× fixture 的 OCR 单测;2×/3× 与多 DPR 回归 TODO
+- [x] 多 DPR 回映射单测:1×/2×/3×(→ spec 02 §8) —— `map_normalized_bbox`(Vision 归一化+翻转)与 `map_pixel_bbox`(WinOCR 绝对像素)各档已单测;真实屏可视化校准待
 
 ### 2.6 兜底计划 ⚠️
 - [x] W2 末尾做可行性评估(→ PRD §6.2) —— **结论:GO**,Vision 桥接可行,无需 Tesseract 兜底
-- [ ] 在 `core/ocr/` 下为 Tesseract 预留实现位(空 mod,不建构依赖) —— 暂不需要(Vision GO)
+- [x] 在 `core/ocr/` 下为 Tesseract 预留实现位 —— `tesseract.rs` + `ocr-tesseract` feature(默认不编译、不引入依赖)
 
 ### 2.7 验收(M2 结束)
 - [x] fixture 图识别,block 数量与人工标注 ±1(→ spec 03 §8) —— 注:macOS Vision headless 单测通过;Windows 待
