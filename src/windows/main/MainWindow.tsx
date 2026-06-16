@@ -99,7 +99,9 @@ export function MainWindow() {
           data-tauri-drag-region
           className="ln-header flex items-center justify-between border-b-[0.5px] border-line px-6 py-[14px]"
         >
-          <div className="text-[15px] font-semibold">{t(`nav.${tab}`)}</div>
+          <div data-tauri-drag-region className="text-[15px] font-semibold">
+            {t(`nav.${tab}`)}
+          </div>
           <div className="flex items-center gap-1.5 rounded-md border-[0.5px] border-line bg-field py-1 pr-2.5 pl-2 text-xs text-sub">
             <Icon name="search" size={13} />
             <span>{t("header.search")}</span>
