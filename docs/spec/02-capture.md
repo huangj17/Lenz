@@ -33,8 +33,9 @@
 
 ### 3.1 窗口规格(见 Spec 09)
 
-- 运行时创建一个覆盖**所有显示器**的透明窗口 `selection`。
-- 属性:`transparent: true`, `decorations: false`, `alwaysOnTop: true`, `skipTaskbar: true`, `fullscreen: false`,手工通过 `set_position` + `set_size` 覆盖全虚拟屏矩形。
+- 运行时为**每块显示器**各创建一个透明全屏窗口 `selection-{i}`,用 `set_position` + `set_size`(物理像素)精确铺满该屏。
+- ⚠️ 不用单个跨虚拟屏的窗口:macOS「显示器各自拥有独立 Space」(默认开启)会把跨屏窗口夹到单块屏,导致只有一块屏能框选。按屏拆窗规避此限制。
+- 属性:`transparent: true`, `decorations: false`, `alwaysOnTop: true`, `skipTaskbar: true`, `fullscreen: false`。
 - 鼠标事件:不穿透(需要响应拖拽)。
 
 ### 3.2 前端交互
@@ -85,10 +86,10 @@ pub struct CaptureResult {
 
 `start_selection` 的职责:
 
-1. 若已有 selection 窗口 → 取消旧的,再开新的(避免双窗口)。
-2. 计算虚拟屏边界,创建全屏窗口。
-3. 向该窗口注入 `trigger`(URL query 或 initial state)。
-4. 收到前端 `capture://region-selected` 后销毁窗口,转交给对应功能模块。
+1. 若已有 selection 窗口 → 全部销毁,再开新的(避免残留)。
+2. 枚举显示器,每块各创建一个铺满该屏的全屏窗口(规避 macOS 独立 Space 对跨屏窗口的夹取)。
+3. 向各窗口注入 `trigger`(URL query 或 initial state)。
+4. 收到前端 `capture://region-selected` 后销毁全部 selection 窗口,转交给对应功能模块。
 
 ## 5. 坐标系与 HiDPI
 

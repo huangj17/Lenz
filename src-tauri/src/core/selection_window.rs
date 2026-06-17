@@ -1,23 +1,25 @@
 //! 选区蒙层窗口的运行时创建 / 销毁(spec 02 §3 / spec 09 §4)。
 //!
-//! 运行时创建一个覆盖**所有显示器并集**的透明全屏窗口 `selection`,前端在其上
+//! **每块显示器**各创建一个透明全屏窗口 `selection-{i}`,精确铺满该屏;前端在其上
 //! 用 canvas 绘制遮罩 + 框选(见 `src/windows/selection`)。框选完成 / 取消由前端
 //! emit `capture://region-selected` / `capture://region-cancelled`,Rust 侧据此销毁
-//! 本窗口并接续 F2/F3 流程。
+//! 全部蒙层窗口并接续 F2/F3 流程。
+//!
+//! ⚠️ 为何「每屏一窗」而非单个跨虚拟屏的窗口:macOS「调度中心 → 显示器各自拥有
+//! 独立 Space」(系统默认开启)会把横跨多屏的窗口强制夹到单块屏幕上,导致蒙层只
+//! 出现在某一屏、其余屏框选不到。按屏拆窗可规避该限制,在 Windows 上也同样成立。
 //!
 //! macOS 要求窗口创建在主线程,故 `open` 把构建动作 dispatch 到主线程执行。
 
-use tauri::{
-    AppHandle, LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindowBuilder,
-};
+use tauri::{AppHandle, Manager, Monitor, WebviewUrl, WebviewWindowBuilder};
 
 use crate::error::LenzError;
 use crate::types::TriggerKind;
 
-/// selection 窗口 label。
-pub const SELECTION_LABEL: &str = "selection";
+/// selection 窗口 label 前缀;每块显示器一个窗口,label 为 `selection-{i}`。
+pub const SELECTION_LABEL_PREFIX: &str = "selection";
 
-/// 打开覆盖全部显示器的选区蒙层窗口;已存在则先销毁再重建(spec 02 §4)。
+/// 为每块显示器打开一个选区蒙层窗口;已存在则先销毁再重建(spec 02 §4)。
 ///
 /// 构建被 dispatch 到主线程(macOS 约束),故本函数立即返回,真正失败仅记日志。
 pub fn open(app: &AppHandle, trigger: TriggerKind) -> Result<(), LenzError> {
@@ -30,12 +32,10 @@ pub fn open(app: &AppHandle, trigger: TriggerKind) -> Result<(), LenzError> {
     .map_err(|e| LenzError::internal(format!("dispatch open selection: {e}")))
 }
 
-/// 主线程内实际构建窗口。
+/// 主线程内实际构建窗口:遍历显示器,每块各建一个铺满该屏的蒙层窗口。
 fn open_inner(app: &AppHandle, trigger: TriggerKind) -> Result<(), LenzError> {
     // 旧窗口残留则同步销毁,避免 label 冲突。
     close(app)?;
-
-    let (origin, size) = virtual_desktop_rect(app)?;
 
     let trig = match trigger {
         TriggerKind::Overlay => "overlay",
@@ -43,64 +43,50 @@ fn open_inner(app: &AppHandle, trigger: TriggerKind) -> Result<(), LenzError> {
     };
     let url = format!("index.html?window=selection&trigger={trig}");
 
-    let win = WebviewWindowBuilder::new(app, SELECTION_LABEL, WebviewUrl::App(url.into()))
-        .transparent(true)
-        .decorations(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .resizable(false)
-        .focused(true)
-        // 先隐藏构建,定位/定尺后再 show,避免默认位置闪现。
-        .visible(false)
-        .build()
-        .map_err(|e| LenzError::internal(format!("build selection window: {e}")))?;
+    // 每块显示器一窗:用物理坐标精确铺满该屏(规避 macOS 独立 Space 对跨屏窗口的夹取)。
+    let monitors = query_monitors(app)?;
+    for (i, m) in monitors.iter().enumerate() {
+        let label = format!("{SELECTION_LABEL_PREFIX}-{i}");
+        let win = WebviewWindowBuilder::new(app, label.as_str(), WebviewUrl::App(url.clone().into()))
+            .transparent(true)
+            .decorations(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(false)
+            // 仅首个窗口取焦(承载键盘 ESC);其余屏在点击时自然获焦。
+            .focused(i == 0)
+            // 先隐藏构建,定位/定尺后再 show,避免默认位置闪现。
+            .visible(false)
+            .build()
+            .map_err(|e| LenzError::internal(format!("build {label}: {e}")))?;
 
-    win.set_position(origin)
-        .map_err(|e| LenzError::internal(format!("position selection: {e}")))?;
-    win.set_size(size)
-        .map_err(|e| LenzError::internal(format!("size selection: {e}")))?;
-    win.show()
-        .map_err(|e| LenzError::internal(format!("show selection: {e}")))?;
-    let _ = win.set_focus();
+        win.set_position(*m.position())
+            .map_err(|e| LenzError::internal(format!("position {label}: {e}")))?;
+        win.set_size(*m.size())
+            .map_err(|e| LenzError::internal(format!("size {label}: {e}")))?;
+        win.show()
+            .map_err(|e| LenzError::internal(format!("show {label}: {e}")))?;
+        if i == 0 {
+            let _ = win.set_focus();
+        }
+    }
     Ok(())
 }
 
-/// 销毁选区窗口(若存在)。`destroy` 同步移除,可跨线程调用。
+/// 销毁全部选区蒙层窗口(若存在)。`destroy` 同步移除,可跨线程调用。
 pub fn close(app: &AppHandle) -> Result<(), LenzError> {
-    if let Some(w) = app.get_webview_window(SELECTION_LABEL) {
-        w.destroy()
-            .map_err(|e| LenzError::internal(format!("destroy selection: {e}")))?;
+    let prefix = format!("{SELECTION_LABEL_PREFIX}-");
+    for (label, w) in app.webview_windows() {
+        if label == SELECTION_LABEL_PREFIX || label.starts_with(&prefix) {
+            w.destroy()
+                .map_err(|e| LenzError::internal(format!("destroy {label}: {e}")))?;
+        }
     }
     Ok(())
 }
 
-/// 计算所有显示器并集的逻辑矩形(原点 + 尺寸)。
-///
-/// 各屏以自身 `scale_factor` 把物理坐标换算为逻辑坐标后取并集——单屏 / 同 DPR 多屏
-/// 精确;混合 DPR 为近似(spec 02 §9 开放问题)。
-fn virtual_desktop_rect(
-    app: &AppHandle,
-) -> Result<(LogicalPosition<f64>, LogicalSize<f64>), LenzError> {
-    let bounds = logical_monitor_bounds(app)?;
-    let (mut min_x, mut min_y, mut max_x, mut max_y) =
-        (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
-    for (lx, ly, lw, lh) in &bounds {
-        min_x = min_x.min(*lx);
-        min_y = min_y.min(*ly);
-        max_x = max_x.max(lx + lw);
-        max_y = max_y.max(ly + lh);
-    }
-    Ok((
-        LogicalPosition::new(min_x, min_y),
-        LogicalSize::new(max_x - min_x, max_y - min_y),
-    ))
-}
-
-/// 列出各显示器的逻辑边界 `(x, y, w, h)`。
-///
-/// monitor 查询走任一已存在窗口(popup 常驻 / main),避免依赖 AppHandle 上不稳定的
-/// monitor API。供选区定位与 popup 夹紧复用。
-pub fn logical_monitor_bounds(app: &AppHandle) -> Result<Vec<(f64, f64, f64, f64)>, LenzError> {
+/// 查询全部显示器(走任一已存在窗口,避免依赖 AppHandle 上不稳定的 monitor API)。
+fn query_monitors(app: &AppHandle) -> Result<Vec<Monitor>, LenzError> {
     let base = app
         .get_webview_window("popup")
         .or_else(|| app.get_webview_window("main"))
@@ -111,7 +97,15 @@ pub fn logical_monitor_bounds(app: &AppHandle) -> Result<Vec<(f64, f64, f64, f64
     if monitors.is_empty() {
         return Err(LenzError::internal("no monitor found"));
     }
-    Ok(monitors
+    Ok(monitors)
+}
+
+/// 列出各显示器的逻辑边界 `(x, y, w, h)`。
+///
+/// 各屏以自身 `scale_factor` 把物理坐标换算为逻辑坐标——单屏 / 同 DPR 多屏精确;
+/// 混合 DPR 为近似(spec 02 §9 开放问题)。供 popup 定位与夹紧复用(见 screenshot.rs)。
+pub fn logical_monitor_bounds(app: &AppHandle) -> Result<Vec<(f64, f64, f64, f64)>, LenzError> {
+    Ok(query_monitors(app)?
         .iter()
         .map(|m| {
             let sf = m.scale_factor();

@@ -10,7 +10,7 @@
 |---|---|---|---|
 | `main` | 静态(tauri.conf) | 常驻可隐藏 | 托盘 / 快捷键 `Alt+Cmd+T` |
 | `popup` | 静态(tauri.conf) | 常驻可隐藏 | F1/F2 结果推送时 show |
-| `selection` | 运行时创建 | 一次性 | F2/F3 触发时创建 |
+| `selection-{i}` | 运行时创建 | 一次性 | F2/F3 触发时**每块显示器各一个** |
 | `overlay` | 运行时创建 | 一次性 | F3 结果推送时创建 |
 
 ## 2. main 窗口
@@ -129,7 +129,7 @@ macOS:`titleBarStyle: "overlay"`(隐藏标题栏,前端用 `data-tauri-drag-regi
 
 ```json
 {
-  "label": "selection",
+  "label": "selection-{i}(每块显示器一个)",
   "transparent": true,
   "decorations": false,
   "alwaysOnTop": true,
@@ -139,7 +139,7 @@ macOS:`titleBarStyle: "overlay"`(隐藏标题栏,前端用 `data-tauri-drag-regi
 }
 ```
 
-位置/尺寸:运行时设置为虚拟屏全部显示器的并集矩形。
+位置/尺寸:每块显示器各一个窗口,运行时用物理像素铺满各自显示器矩形(不用单个并集窗口,以规避 macOS 独立 Space 对跨屏窗口的夹取)。
 
 ### 4.2 UI 实现要点
 

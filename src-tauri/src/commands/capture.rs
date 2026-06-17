@@ -17,7 +17,7 @@ pub async fn capture_screen_region(rect: Rect) -> Result<CaptureResult, LenzErro
         .map_err(|e| LenzError::Internal(format!("capture join: {e}")))?
 }
 
-/// 进入选区模式:创建覆盖全虚拟屏的 selection 蒙层窗口(spec 02 §4)。
+/// 进入选区模式:为每块显示器各创建一个 selection 蒙层窗口(spec 02 §4)。
 #[tauri::command]
 #[specta::specta]
 pub async fn start_selection(trigger: TriggerKind, app: AppHandle) -> Result<(), LenzError> {

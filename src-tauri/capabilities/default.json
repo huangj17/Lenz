@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for Lenz windows (tray, shortcuts, config, logging)",
-  "windows": ["main", "popup", "selection", "overlay"],
+  "windows": ["main", "popup", "selection", "selection-*", "overlay"],
   "permissions": [
     "core:default",
     "core:window:default",
