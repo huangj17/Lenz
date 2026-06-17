@@ -93,10 +93,10 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Menu<R>, LenzError> {
 /// 在启动阶段创建托盘图标(spec 10 §1.3)。
 pub fn build_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), LenzError> {
     let menu = build_menu(app)?;
-    let icon = app
-        .default_window_icon()
-        .cloned()
-        .ok_or_else(|| LenzError::internal("missing default window icon for tray"))?;
+    // 专用单色模板图标(icons/tray.svg → icons/tray.png,见 scripts/gen-icons.mjs),
+    // 编译期内嵌;不再复用应用窗口图标。
+    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))
+        .map_err(|e| LenzError::internal(format!("load tray icon: {e}")))?;
 
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)

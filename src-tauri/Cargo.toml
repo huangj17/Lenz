@@ -22,7 +22,7 @@ ocr-tesseract = []
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
+tauri = { version = "2", features = ["tray-icon", "macos-private-api", "image-png"] }
 tauri-plugin-log = "2"
 tauri-plugin-global-shortcut = "2"
 # 划词翻译(快捷键模式)读取剪贴板选中文本(spec 05 §3)。

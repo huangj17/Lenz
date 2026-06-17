@@ -1,0 +1,34 @@
+<svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Lenz</title>
+  <defs>
+    <linearGradient id="lenz-l" x1="14" y1="12" x2="60" y2="82" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3D8BFF"/>
+      <stop offset="1" stop-color="#9B5CF6"/>
+    </linearGradient>
+    <linearGradient id="lenz-zh" x1="42" y1="5" x2="80" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1FD4C3"/>
+      <stop offset="1" stop-color="#2E9BF0"/>
+    </linearGradient>
+    <linearGradient id="lenz-en" x1="40" y1="44" x2="86" y2="90" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#4F46E5"/>
+    </linearGradient>
+  </defs>
+
+  <!-- L 主体:圆角粗笔画,蓝→紫渐变 -->
+  <path d="M22 22 V57 H42" stroke="url(#lenz-l)" stroke-width="27" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 顶部气泡:文(青→蓝),白色分隔环 + 尾巴 -->
+  <path d="M52 37 L65 40 L44 54 Z" fill="#fff"/>
+  <circle cx="60" cy="25" r="23" fill="#fff"/>
+  <path d="M53 38 L63 41 L47 51 Z" fill="url(#lenz-zh)"/>
+  <circle cx="60" cy="25" r="20" fill="url(#lenz-zh)"/>
+  <text x="60" y="26" font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif" font-size="27" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">文</text>
+
+  <!-- 底部气泡:A(蓝→靛),白色分隔环 + 尾巴 -->
+  <path d="M53 81 L73 83 L61 95 Z" fill="#fff"/>
+  <circle cx="62" cy="66" r="25" fill="#fff"/>
+  <path d="M55 81 L71 83 L61 92 Z" fill="url(#lenz-en)"/>
+  <circle cx="62" cy="66" r="22" fill="url(#lenz-en)"/>
+  <text x="62" y="67" font-family="'Helvetica Neue',Arial,sans-serif" font-size="31" font-weight="700" fill="#fff" text-anchor="middle" dominant-baseline="central">A</text>
+</svg>

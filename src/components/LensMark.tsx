@@ -1,8 +1,8 @@
 /**
- * Lenz 应用 logo —— 移植自设计交接包(docs/design/project/src/icons.jsx 的 LensMark)。
- * 使用设计提供的 logo.png(已复制到 src/assets/lenz-logo.png)。
+ * Lenz 应用 logo —— 矢量重绘版(src/assets/lenz-logo.svg):圆角 L + 文/A 双气泡。
+ * 任意尺寸清晰;PNG 版(lenz-logo.png)保留作应用图标(dock/安装包)生成源。
  */
-import logoUrl from "@/assets/lenz-logo.png";
+import logoUrl from "@/assets/lenz-logo.svg";
 
 export function LensMark({
   size = 28,
