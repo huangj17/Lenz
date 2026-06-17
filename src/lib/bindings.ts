@@ -34,7 +34,7 @@ export const commands = {
 	runOcr: (rect: Rect) => typedError<OcrResult, LenzError>(__TAURI_INVOKE("run_ocr", { rect })),
 	/**  采集指定屏幕区域(逻辑坐标),返回 PNG + 物理像素信息。 */
 	captureScreenRegion: (rect: Rect) => typedError<CaptureResult, LenzError>(__TAURI_INVOKE("capture_screen_region", { rect })),
-	/**  进入选区模式:创建覆盖全虚拟屏的 selection 蒙层窗口(spec 02 §4)。 */
+	/**  进入选区模式:为每块显示器各创建一个 selection 蒙层窗口(spec 02 §4)。 */
 	startSelection: (trigger: TriggerKind) => typedError<null, LenzError>(__TAURI_INVOKE("start_selection", { trigger })),
 	/**  取消选区模式:销毁 selection 窗口(spec 02 §4)。 */
 	cancelSelection: () => typedError<null, LenzError>(__TAURI_INVOKE("cancel_selection")),
