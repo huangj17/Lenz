@@ -4,6 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Lenz</title>
+    <!--
+      透明窗口(popup / selection / overlay)首帧防白闪:
+      bundle 的 theme.css 里 `body{background:var(--bg)}`(浅色)会在 CSS 一加载就生效,
+      而把窗口置透明的 `body[data-window=…]` 规则要等 React 在 effect 里设 data-window 才命中。
+      中间存在一帧「body 被浅色底填满」的白闪。这里据 ?window= 在解析阶段(早于 bundle / React)
+      就给 <html> 标记并内联置透明,使首帧即透明。!important 压过随后加载的 theme.css。
+    -->
+    <style>
+      html[data-window="popup"], html[data-window="selection"], html[data-window="overlay"],
+      html[data-window="popup"] body, html[data-window="selection"] body, html[data-window="overlay"] body {
+        background: transparent !important;
+      }
+    </style>
+    <script>
+      document.documentElement.dataset.window =
+        new URLSearchParams(location.search).get("window") || "main";
+    </script>
   </head>
 
   <body>
