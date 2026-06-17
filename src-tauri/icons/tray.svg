@@ -1,18 +1,22 @@
 <svg width="96" height="96" viewBox="0 0 96 96" xmlns="http://www.w3.org/2000/svg">
   <!-- macOS 菜单栏模板图标(单色):由 alpha 决定显隐,系统自动适配深浅色。
-       由 scripts/gen-icons.mjs 光栅化为 icons/tray.png(32)与 tray@2x.png(64)。 -->
+       tray-icon crate 固定把图标缩放为 18pt 高,故图形需填满画布(少留白)才能
+       与系统其他菜单栏图标等大。外层 transform 把原始整数坐标放大居中以铺满。
+       由 scripts/gen-icons.mjs 光栅化为 icons/tray.png(64px,>2x 保证锐利)。 -->
   <defs>
     <mask id="lenz-tray">
-      <!-- 白=保留(不透明):L + 两个气泡 -->
-      <path d="M22 24 V57 H42" stroke="#fff" stroke-width="25" stroke-linecap="round" stroke-linejoin="round"/>
-      <circle cx="61" cy="26" r="20" fill="#fff"/>
-      <circle cx="63" cy="66" r="22" fill="#fff"/>
-      <!-- 黑=镂空:气泡描边分隔环(与 L / 背景拉开) -->
-      <circle cx="61" cy="26" r="20" fill="none" stroke="#000" stroke-width="4"/>
-      <circle cx="63" cy="66" r="22" fill="none" stroke="#000" stroke-width="4"/>
-      <!-- 黑=镂空:文 / A 字形 -->
-      <text x="61" y="27" font-family="'PingFang SC','Hiragino Sans GB','STHeiti',sans-serif" font-size="25" font-weight="700" fill="#000" text-anchor="middle" dominant-baseline="central">文</text>
-      <text x="63" y="67" font-family="'Helvetica Neue',Arial,sans-serif" font-size="30" font-weight="800" fill="#000" text-anchor="middle" dominant-baseline="central">A</text>
+      <g transform="translate(48,48) scale(1.12) translate(-47.25,-47)">
+        <!-- 白=保留(不透明):L + 两个气泡 -->
+        <path d="M22 24 V57 H42" stroke="#fff" stroke-width="25" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="61" cy="26" r="20" fill="#fff"/>
+        <circle cx="63" cy="66" r="22" fill="#fff"/>
+        <!-- 黑=镂空:气泡描边分隔环(与 L / 背景拉开) -->
+        <circle cx="61" cy="26" r="20" fill="none" stroke="#000" stroke-width="4"/>
+        <circle cx="63" cy="66" r="22" fill="none" stroke="#000" stroke-width="4"/>
+        <!-- 黑=镂空:文 / A 字形 -->
+        <text x="61" y="27" font-family="'PingFang SC','Hiragino Sans GB','STHeiti',sans-serif" font-size="25" font-weight="700" fill="#000" text-anchor="middle" dominant-baseline="central">文</text>
+        <text x="63" y="67" font-family="'Helvetica Neue',Arial,sans-serif" font-size="30" font-weight="800" fill="#000" text-anchor="middle" dominant-baseline="central">A</text>
+      </g>
     </mask>
   </defs>
   <rect width="96" height="96" fill="#000" mask="url(#lenz-tray)"/>

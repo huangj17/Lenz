@@ -3,7 +3,8 @@
 //   node scripts/gen-icons.mjs
 //
 // 当前生成:macOS 菜单栏托盘模板图标(单色,alpha 决定显隐)。
-//   icons/tray.svg → icons/tray.png(32) + icons/tray@2x.png(64)
+//   icons/tray.svg → icons/tray.png(64px)
+// tray-icon crate 会把图标固定缩放为 18pt 高,这里用 64px(>2x/3x)保证 Retina 锐利。
 //
 // 应用图标(dock / 安装包)另由 Tauri CLI 从彩色 PNG 生成:
 //   pnpm tauri icon src/assets/lenz-logo.png
@@ -25,5 +26,4 @@ function rasterize(svgPath, outPath, width) {
   console.log(`✓ ${outPath} (${width}px)`);
 }
 
-rasterize("src-tauri/icons/tray.svg", "src-tauri/icons/tray.png", 32);
-rasterize("src-tauri/icons/tray.svg", "src-tauri/icons/tray@2x.png", 64);
+rasterize("src-tauri/icons/tray.svg", "src-tauri/icons/tray.png", 64);
