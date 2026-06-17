@@ -81,7 +81,8 @@ export function PopupWindow() {
   const targetLang = useConfigStore((s) => s.config.translator.targetLang);
 
   const [view, setView] = useState<View>({ kind: "loading", stage: "capture" });
-  const [copied, setCopied] = useState(false);
+  // 哪个复制按钮刚被点过("original" / "translation");原文与译文各自独立反馈。
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   // 原文可编辑草稿:同步自最近一次结果的原文;用户可改写后回车重译。
   const [draft, setDraft] = useState("");
@@ -100,7 +101,7 @@ export function PopupWindow() {
   useEffect(() => {
     const subs = [
       listenEvent(Events.ScreenshotProgress, (e) => {
-        setCopied(false);
+        setCopiedId(null);
         setView({ kind: "loading", stage: e.payload.stage });
       }),
       listenEvent(Events.ScreenshotResult, (e) => {
@@ -183,11 +184,12 @@ export function PopupWindow() {
     ta.style.height = `${Math.min(96, ta.scrollHeight)}px`;
   }, [draft, view]);
 
-  const onCopy = useCallback(async (text: string) => {
+  const onCopy = useCallback(async (id: string, text: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
+      setCopiedId(id);
+      // 仅清除自己的反馈,避免清掉期间发生的另一次复制。
+      window.setTimeout(() => setCopiedId((cur) => (cur === id ? null : cur)), 1500);
     } catch {
       /* clipboard 不可用时静默 */
     }
@@ -262,11 +264,11 @@ export function PopupWindow() {
                 <div className="mt-2 flex items-center gap-2.5">
                   <button
                     type="button"
-                    onClick={() => void onCopy(draft)}
-                    className="text-sub hover:text-fg"
-                    aria-label={t("popup.copy")}
+                    onClick={() => void onCopy("original", draft)}
+                    className={copiedId === "original" ? "text-accent-ink" : "text-sub hover:text-fg"}
+                    aria-label={copiedId === "original" ? t("popup.copied") : t("popup.copy")}
                   >
-                    <Icon name="copy" size={13} />
+                    <Icon name={copiedId === "original" ? "check" : "copy"} size={13} />
                   </button>
                   <span className="inline-flex items-center gap-1 rounded-[5px] bg-field px-2 py-0.5 text-[11px] text-sub">
                     {t("popup.detected")}{" "}
@@ -312,11 +314,11 @@ export function PopupWindow() {
               <div className="mt-2.5 flex items-center gap-3 pl-[26px]">
                 <button
                   type="button"
-                  onClick={() => void onCopy(view.translation)}
+                  onClick={() => void onCopy("translation", view.translation)}
                   className="inline-flex items-center gap-1.5 text-[11px] text-sub hover:text-fg"
                 >
-                  <Icon name="copy" size={13} />
-                  {copied ? t("popup.copied") : t("popup.copy")}
+                  <Icon name={copiedId === "translation" ? "check" : "copy"} size={13} />
+                  {copiedId === "translation" ? t("popup.copied") : t("popup.copy")}
                 </button>
               </div>
             </div>
