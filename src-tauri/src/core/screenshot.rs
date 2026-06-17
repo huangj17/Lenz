@@ -33,6 +33,9 @@ const POPUP_INIT_HEIGHT: f64 = 150.0;
 const POPUP_GAP: f64 = 12.0;
 /// 整体超时(spec 06 §4)。
 const TOTAL_TIMEOUT: Duration = Duration::from_millis(10_000);
+/// 抓屏前等待选区蒙层从屏幕消失的时延:覆盖「事件线程→主线程」派发 + 合成器出帧,
+/// 避免截到遮罩 / 销毁残帧导致 OCR 空结果(spec 02 §7)。
+const OVERLAY_CLEAR_DELAY_MS: u64 = 150;
 
 const EVT_PROGRESS: &str = "screenshot://progress";
 const EVT_RESULT: &str = "screenshot://result";
@@ -86,6 +89,8 @@ pub fn on_region_selected(app: &AppHandle, payload: &str) {
         }
     };
 
+    // 先隐藏(立即从屏幕移除,无白底残帧),再销毁释放。
+    selection_window::hide_all(app);
     if let Err(e) = selection_window::close(app) {
         log::warn!("close selection window after select: {e}");
     }
@@ -137,6 +142,9 @@ async fn run_pipeline(app: &AppHandle, region: Rect, gen: u64) {
 
     // ── 截图 ──
     emit_progress(app, "capture");
+    // 等待选区蒙层真正从屏幕消失再抓屏:close/hide 是投递到主线程的异步操作,
+    // 立即抓屏会截到遮罩或销毁残帧,导致 OCR「未识别到文字」(spec 02 §7)。
+    tokio::time::sleep(Duration::from_millis(OVERLAY_CLEAR_DELAY_MS)).await;
     let t0 = Instant::now();
     let cap = tokio::task::spawn_blocking(move || capture::capture_region(region)).await;
     if !is_current(app, gen) {

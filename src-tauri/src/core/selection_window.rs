@@ -85,6 +85,18 @@ pub fn close(app: &AppHandle) -> Result<(), LenzError> {
     Ok(())
 }
 
+/// 立即隐藏全部选区蒙层窗口(orderOut)。截图前先隐藏:`hide` / `destroy` 都是投递到
+/// 主线程的异步操作,隐藏能更快地让蒙层无残帧地从屏幕消失,避免被截入或闪现白底
+/// (spec 02 §7)。
+pub fn hide_all(app: &AppHandle) {
+    let prefix = format!("{SELECTION_LABEL_PREFIX}-");
+    for (label, w) in app.webview_windows() {
+        if label == SELECTION_LABEL_PREFIX || label.starts_with(&prefix) {
+            let _ = w.hide();
+        }
+    }
+}
+
 /// 查询全部显示器(走任一已存在窗口,避免依赖 AppHandle 上不稳定的 monitor API)。
 fn query_monitors(app: &AppHandle) -> Result<Vec<Monitor>, LenzError> {
     let base = app
