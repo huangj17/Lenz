@@ -26,6 +26,9 @@ import type {
   OcrResult,
   OverlayClosedPayload,
   Rect,
+  ScreenshotErrorPayload,
+  ScreenshotProgressPayload,
+  ScreenshotResult,
   SelectionTextChangedPayload,
   StartupWarningPayload,
   TestEngineResult,
@@ -186,6 +189,16 @@ export const captureApi = {
   cancelSelection: () => invoke<void>("cancel_selection"),
 };
 
+/** 截图翻译 F2 命令(spec 06) */
+export const screenshotApi = {
+  /** 取消进行中的会话并隐藏 popup(ESC / 关闭) */
+  cancel: () => invoke<void>("cancel_screenshot"),
+  /** 打开系统「屏幕录制」设置(权限引导) */
+  openScreenSettings: () => invoke<void>("open_screen_settings"),
+  /** 内容渲染后按实际高度调整 popup 窗口(macOS 同时刷新窗口阴影,消除残影) */
+  resizePopup: (height: number) => invoke<void>("resize_popup", { height }),
+};
+
 /** OCR 命令(spec 03):截图区域 → 识别 */
 export const ocrApi = {
   run: (rect: Rect) => invoke<OcrResult>("run_ocr", { rect }),
@@ -218,6 +231,10 @@ export const Events = {
   ShortcutOverlay: "shortcut://overlay",
   SelectionTextChanged: "selection://text-changed",
   CaptureRegionSelected: "capture://region-selected",
+  CaptureRegionCancelled: "capture://region-cancelled",
+  ScreenshotProgress: "screenshot://progress",
+  ScreenshotResult: "screenshot://result",
+  ScreenshotError: "screenshot://error",
   OverlayClosed: "overlay://closed",
   ConfigChanged: "config://changed",
   StartupWarning: "app://startup-warning",
@@ -230,6 +247,10 @@ export interface EventPayloadMap {
   [Events.ShortcutOverlay]: void;
   [Events.SelectionTextChanged]: SelectionTextChangedPayload;
   [Events.CaptureRegionSelected]: CaptureRegionSelectedPayload;
+  [Events.CaptureRegionCancelled]: void;
+  [Events.ScreenshotProgress]: ScreenshotProgressPayload;
+  [Events.ScreenshotResult]: ScreenshotResult;
+  [Events.ScreenshotError]: ScreenshotErrorPayload;
   [Events.OverlayClosed]: OverlayClosedPayload;
   [Events.ConfigChanged]: ConfigChangedPayload;
   [Events.StartupWarning]: StartupWarningPayload;

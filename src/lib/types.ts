@@ -52,10 +52,16 @@ export interface LenzError {
 // 翻译引擎
 // ──────────────────────────────────────────────────────────────────────────
 
-export type TranslatorEngineKind = "openai" | "google" | "deepl" | "youdao";
+export type TranslatorEngineKind =
+  | "openai"
+  | "google"
+  | "deepl"
+  | "youdao"
+  | "microsoft"
+  | "apple";
 
 export interface TranslatorEngine {
-  /** uuid */
+  /** uuid 或内置 slug(如 "builtin-youdao") */
   id: string;
   /** 用户自定义名称 */
   name: string;
@@ -71,6 +77,12 @@ export interface TranslatorEngine {
   timeoutMs: number;
   /** 本地 LLM 通常 false */
   useProxy: boolean;
+  /** Azure 翻译区域(仅 microsoft 引擎用) */
+  region?: string;
+  /** LLM 最大输出 token(仅 openai);省略=不限 */
+  maxTokens?: number;
+  /** LLM 采样温度(仅 openai);省略=默认 0.1 */
+  temperature?: number;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -203,6 +215,41 @@ export interface CaptureRegionSelectedPayload extends Rect {
 /** `overlay://closed` */
 export interface OverlayClosedPayload {
   id: string;
+}
+
+// ── 截图翻译 F2 事件载荷(spec 06)──────────────────────────────────────────
+
+/** 各阶段耗时(毫秒) */
+export interface ScreenshotCost {
+  capture: number;
+  ocr: number;
+  translate: number;
+}
+
+/** `screenshot://result` */
+export interface ScreenshotResult {
+  original: string;
+  translation: string;
+  sourceLang: string | null;
+  targetLang: string;
+  engineId: string;
+  region: Rect;
+  cost: ScreenshotCost;
+}
+
+/** `screenshot://error` —— stage: capture/ocr/translate/timeout */
+export interface ScreenshotErrorPayload {
+  stage: "capture" | "ocr" | "translate" | "timeout";
+  /** permission / no_text / failed / timeout */
+  code: string;
+  message: string;
+  /** 翻译阶段失败时附 OCR 原文 */
+  original?: string;
+}
+
+/** `screenshot://progress` */
+export interface ScreenshotProgressPayload {
+  stage: "capture" | "ocr" | "translate";
 }
 
 /** `config://changed` —— 变更的 keypath 列表(如 ["shortcuts.selection"]) */

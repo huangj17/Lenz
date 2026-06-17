@@ -64,7 +64,46 @@
     "emptyDesc": "添加 LM Studio、Ollama 等本地引擎,或任意 OpenAI 兼容 / 云端服务。",
     "model": "模型",
     "systemPrompt": "System Prompt",
-    "test": "测试连接"
+    "test": "测试连接",
+    "testing": "测试中…",
+    "testOk": "{{ms}}ms · {{sample}}",
+    "testFail": "失败:{{error}}",
+    "name": "名称",
+    "type": "类型",
+    "timeout": "超时(毫秒)",
+    "useProxy": "走代理",
+    "region": "区域(Azure)",
+    "setDefault": "设为默认",
+    "delete": "删除",
+    "confirmDelete": "确认删除?",
+    "reorder": "拖动排序",
+    "newName": "新引擎",
+    "showKey": "显示",
+    "hideKey": "隐藏",
+    "keyHint": "明文保存于本地配置(MVP)",
+    "youdaoKeyHint": "格式:appKey:appSecret",
+    "urlPlaceholder": "https://…(留空用默认端点)",
+    "keyPlaceholder": "sk-…",
+    "modelPlaceholder": "如 gpt-4o-mini",
+    "appleNote": "苹果系统翻译当前为占位,尚未接入原生框架,无法测试。",
+    "warnName": "名称不能为空",
+    "warnModel": "需填写模型",
+    "warnKey": "需填写 API Key",
+    "warnYoudaoKey": "API Key 需为 appKey:appSecret 格式",
+    "warnRegion": "需填写区域(Azure)",
+    "maxTokens": "最大输出 token 数",
+    "maxTokensHint": "限制返回的最大 token 数;留空 = 不限",
+    "temperature": "温度",
+    "temperatureHint": "0–2,越低越稳定、越高越发散;留空 = 0.1",
+    "unlimited": "不限",
+    "kinds": {
+      "openai": "OpenAI 兼容",
+      "google": "Google",
+      "deepl": "DeepL",
+      "youdao": "有道",
+      "microsoft": "微软 Azure",
+      "apple": "苹果系统"
+    }
   },
   "ocr": {
     "engine": "引擎",
@@ -85,5 +124,32 @@
     "changelog": "更新日志",
     "checkUpdate": "检查更新",
     "privacy": "Lenz 完全运行在你的设备上。不上传任何数据、不采集埋点、无需账号。经由云端引擎(DeepSeek、Google 翻译等)的翻译仅发送给对应服务商。"
+  },
+  "capture": {
+    "hint": "拖动以框选区域",
+    "cancel": "取消"
+  },
+  "popup": {
+    "stage": {
+      "capture": "截图中…",
+      "ocr": "识别中…",
+      "translate": "翻译中…"
+    },
+    "original": "原文",
+    "detected": "识别为",
+    "chars": "字符",
+    "copy": "复制",
+    "copied": "已复制",
+    "retry": "重试",
+    "close": "关闭",
+    "via": "via {{engine}}",
+    "error": {
+      "permission": "需要屏幕录制权限",
+      "openSettings": "打开系统设置",
+      "noText": "未识别到文字,请重新框选。",
+      "translateFailed": "翻译失败:{{msg}}",
+      "timeout": "响应超时",
+      "generic": "发生错误"
+    }
   }
 }

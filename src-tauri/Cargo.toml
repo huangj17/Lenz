@@ -25,6 +25,8 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-log = "2"
 tauri-plugin-global-shortcut = "2"
+# 划词翻译(快捷键模式)读取剪贴板选中文本(spec 05 §3)。
+tauri-plugin-clipboard-manager = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -37,6 +39,11 @@ specta = { version = ">=2.0.0-rc, <3", features = ["uuid", "serde_json"] }
 async-trait = "0.1.89"
 image = "0.25.10"
 xcap = "0.9.6"
+# 翻译引擎 HTTP 客户端(spec 04)。native-tls 在 macOS=Security.framework /
+# Windows=SChannel,无需 OpenSSL,契合双平台目标;socks 启用 socks5 代理。
+reqwest = { version = "0.12", features = ["json", "socks"] }
+# 有道智云签名(spec 04 §6):SHA256 摘要。
+sha2 = "0.10"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.4"
@@ -46,7 +53,7 @@ objc2-foundation = "0.3.2"
 objc2-vision = "0.3.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.62.2", features = ["Media_Ocr", "Graphics_Imaging", "Storage_Streams", "Foundation", "Foundation_Collections", "Globalization"] }
+windows = { version = "0.62.2", features = ["Media_Ocr", "Graphics_Imaging", "Storage_Streams", "Foundation", "Foundation_Collections", "Globalization", "Win32_UI_Input_KeyboardAndMouse"] }
 
 [dev-dependencies]
 # 用于 OCR 单元测试:在内存位图上渲染高对比度文字后让 Vision 识别(无需屏幕权限)。

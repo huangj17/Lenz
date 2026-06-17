@@ -85,3 +85,70 @@ pub struct StartupWarning {
     /// 人类可读的失败说明。
     pub message: String,
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// 截图翻译 F2 事件载荷(spec 02 §3.3 / spec 06)
+// ──────────────────────────────────────────────────────────────────────────
+
+/// 前端 selection 窗口框选完成后回传(`capture://region-selected`,spec 02 §3.3)。
+/// 坐标为虚拟屏逻辑坐标。
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RegionSelectedPayload {
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+    /// 选区起点所在显示器 id(可选)。
+    #[serde(default)]
+    pub display_id: Option<i32>,
+    /// 触发来源(screenshot / overlay)。
+    pub trigger: TriggerKind,
+}
+
+/// 各阶段耗时(毫秒),随 `screenshot://result` 上报(spec 06 §2.6)。
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenshotCost {
+    pub capture: u32,
+    pub ocr: u32,
+    pub translate: u32,
+}
+
+/// `screenshot://result` 事件载荷(spec 06 §2.6)。
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenshotResult {
+    /// OCR 拼接原文。
+    pub original: String,
+    /// 译文。
+    pub translation: String,
+    pub source_lang: Option<String>,
+    pub target_lang: String,
+    pub engine_id: String,
+    /// 选区逻辑坐标(供 popup 定位参考)。
+    pub region: Rect,
+    pub cost: ScreenshotCost,
+}
+
+/// `screenshot://error` 事件载荷(spec 06 §4)。
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenshotError {
+    /// 失败阶段:`capture` / `ocr` / `translate` / `timeout`。
+    pub stage: String,
+    /// 细分码:`permission` / `no_text` / `failed` / `timeout`。
+    pub code: String,
+    pub message: String,
+    /// 翻译阶段失败时附带 OCR 原文,供 UI 展示原文 + 重试(spec 06 §4)。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original: Option<String>,
+}
+
+/// `screenshot://progress` 事件载荷(spec 06 §5)。
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenshotProgress {
+    /// 当前阶段:`capture` / `ocr` / `translate`。
+    pub stage: String,
+}

@@ -20,10 +20,12 @@ pub trait Translator: Send + Sync {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum EngineKind {
-    OpenAICompat,
+    OpenAICompat,   // 线缆值 "openai":LM Studio / Ollama / 智谱 / 硅基流动 / DeepSeek …
     Google,
     DeepL,
     Youdao,
+    Microsoft,      // 微软 Azure Translator(需 Key + region)
+    Apple,          // 苹果系统翻译(macOS 原生,当前占位,见 §11)
 }
 
 pub struct TranslateRequest {
@@ -80,10 +82,14 @@ Content-Type: application/json
     { "role": "system", "content": "{rendered_system_prompt}" },
     { "role": "user",   "content": "{text}" }
   ],
-  "temperature": 0.1,
+  "temperature": {engine.temperature ?? 0.1},
   "stream": false
+  // 当 engine.maxTokens 有值时附加 "max_tokens": {engine.maxTokens}
 }
 ```
+
+> `temperature` / `maxTokens` 为引擎可选字段(仅 OpenAI 兼容):`temperature` 缺省 0.1;
+> `maxTokens` 缺省不发(由服务端默认)。设置页在「模型 / System Prompt」下方提供这两项编辑。
 
 `rendered_system_prompt`:将 `systemPrompt` 中 `{sourceLang}` / `{targetLang}` 替换为实际语言名(使用 BCP-47 对应的英文全名,如 `Chinese Simplified`)。
 
@@ -142,8 +148,26 @@ OpenAI 引擎不做客户端语言检测;在 system prompt 里写 "auto-detect s
 文件:`core/translator/youdao.rs`
 
 - 接口:有道智云翻译 API。
-- 认证:HMAC-SHA256 签名,需 `appKey` + `appSecret`(配置中 `apiKey` 存 `appKey:appSecret` 形式)。
-- 批量:不支持,`supports_batch` 返回 `false`(manager 层自动逐条调用)。
+- 认证:signType=v3 的 **SHA256** 摘要 `sha256(appKey + truncate(q) + salt + curtime + appSecret)`,需 `appKey` + `appSecret`(配置中 `apiKey` 存 `appKey:appSecret` 形式)。
+  - `truncate(q)`:`len(q)<=20` 取原文,否则 `前10 + len + 后10`(按 Unicode 字符计)。
+  - 注:早期 spec 写「HMAC-SHA256」,实际接口为上述 SHA256 摘要,已按真实接口实现。
+- 批量:不支持,`supports_batch` 返回 `false`(引擎内部逐条串行)。
+
+## 6.1 微软 Azure Translator 实现
+
+文件:`core/translator/microsoft.rs`
+
+- 接口:Azure Translator Text API v3.0,`POST {host}/translate?api-version=3.0&to={to}[&from={from}]`,默认 host `https://api.cognitive.microsofttranslator.com`。
+- 认证:Header `Ocp-Apim-Subscription-Key: {apiKey}` +(区域资源必填)`Ocp-Apim-Subscription-Region: {region}`。`region` 为 `TranslatorEngine` 新增字段(仅本引擎用)。
+- 批量:支持,body 为 `[{"Text":"..."}, ...]`;响应 `[{translations:[{text}], detectedLanguage:{language}}]`。
+- 语言代码:`zh-CN`→`zh-Hans`、`zh-Hant`→`zh-Hant`,其余取主子标签。
+
+## 6.2 苹果系统翻译实现(占位)
+
+文件:`core/translator/apple.rs`
+
+- macOS `Translation` 框架无干净的无界面公开 API(`TranslationSession` 仅能经 SwiftUI 获取),当前为**占位**:可被配置 / 选中,`translate` 返回 `TranslateFailed("apple_not_implemented")`。
+- 后续接原生桥接(隐藏 SwiftUI 宿主 + 按需下载语言包),见 §11。
 
 ## 7. 代理支持
 
@@ -223,3 +247,24 @@ async fn test_engine(
 
 - [ ] OpenAI 批量翻译的 JSON 格式是否稳定——需在 M3 对多个模型做回归测试,决定是否加解析兜底。
 - [ ] 流式输出(streaming):为 P2 预留,Translator trait 可将来扩展 `translate_stream` 方法。
+- [ ] 苹果系统翻译原生桥接:macOS `Translation` 框架无头调用方案(隐藏 SwiftUI 宿主 / Shortcuts / 私有框架),含语言包下载与跨平台(Windows 无此引擎)处理。
+
+## 12. 内置默认引擎预设
+
+首次启动 / 重置时,`Config::default()` 预置以下引擎(`schema::default_engines()`);
+id 用稳定 slug(`builtin-*`),`apiKey` / `region` 留空待用户填写。schema v1→v2 迁移在
+`translator.engines` 为空时注入同一套预设。默认引擎 id = `builtin-youdao`。
+
+| id | 名称 | kind | 默认开启 | apiUrl | model | useProxy |
+|---|---|---|---|---|---|---|
+| builtin-youdao | 有道翻译 | youdao | ✅ | (默认端点) | — | false |
+| builtin-apple | 苹果翻译 | apple | ✅ | — | — | false |
+| builtin-zhipu | 智谱 GLM | openai | ✅ | `open.bigmodel.cn/api/paas/v4` | glm-4-flash | false |
+| builtin-siliconflow | 硅基流动 | openai | ✅ | `api.siliconflow.cn/v1` | Qwen/Qwen2.5-7B-Instruct | false |
+| builtin-google | Google 翻译 | google | ❌ | (默认端点) | — | true |
+| builtin-microsoft | 微软翻译 | microsoft | ❌ | (默认端点) | — | false |
+| builtin-ollama | Ollama | openai | ❌ | `localhost:11434/v1` | qwen2.5 | false |
+| builtin-lmstudio | LM Studio | openai | ❌ | `localhost:1234/v1` | — | false |
+
+> OpenAI 兼容端点组装(`chat_endpoint`)容忍三种形态:已含 `/chat/completions` 原样;
+> 已含版本段(`/v1`、`/api/paas/v4`)只补 `/chat/completions`;裸 host 补 `/v1/chat/completions`。

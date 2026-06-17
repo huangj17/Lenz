@@ -16,14 +16,14 @@ export const commands = {
 	resetConfig: () => typedError<Config_Serialize, LenzError>(__TAURI_INVOKE("reset_config")),
 	/**  列出已配置的翻译引擎(spec 01 §5)。 */
 	listEngines: () => typedError<TranslatorEngine_Serialize[], LenzError>(__TAURI_INVOKE("list_engines")),
-	/**  单条翻译。 */
+	/**  单条翻译(`texts` 通常长度 1)。路由到目标 / 默认引擎。 */
 	translateText: (req: TranslateRequest) => typedError<TranslateResponse, LenzError>(__TAURI_INVOKE("translate_text", { req })),
-	/**  批量翻译。 */
+	/**  批量翻译。与 `translate_text` 同路径,引擎内部决定单请求批量或逐条。 */
 	translateBatch: (req: TranslateRequest) => typedError<TranslateResponse, LenzError>(__TAURI_INVOKE("translate_batch", { req })),
 	/**
-	 *  测试引擎连通性(对传入引擎发送样例文本,返回延迟 / 结果)。
+	 *  测试引擎连通性:对传入(可能尚未保存的)引擎翻译 "Hello",返回延迟 / 结果。
 	 * 
-	 *  入参为完整引擎对象,以便测试尚未保存到配置的草稿引擎。
+	 *  代理取自当前已保存配置;失败时 `ok=false` 并带错误说明(spec 04 §8)。
 	 */
 	testEngine: (engine: TranslatorEngine_Deserialize) => typedError<TestEngineResult, LenzError>(__TAURI_INVOKE("test_engine", { engine })),
 	/**
@@ -34,10 +34,27 @@ export const commands = {
 	runOcr: (rect: Rect) => typedError<OcrResult, LenzError>(__TAURI_INVOKE("run_ocr", { rect })),
 	/**  采集指定屏幕区域(逻辑坐标),返回 PNG + 物理像素信息。 */
 	captureScreenRegion: (rect: Rect) => typedError<CaptureResult, LenzError>(__TAURI_INVOKE("capture_screen_region", { rect })),
-	/**  进入选区模式(创建 selection 蒙层窗口)。 */
+	/**  进入选区模式:创建覆盖全虚拟屏的 selection 蒙层窗口(spec 02 §4)。 */
 	startSelection: (trigger: TriggerKind) => typedError<null, LenzError>(__TAURI_INVOKE("start_selection", { trigger })),
-	/**  取消选区模式。 */
+	/**  取消选区模式:销毁 selection 窗口(spec 02 §4)。 */
 	cancelSelection: () => typedError<null, LenzError>(__TAURI_INVOKE("cancel_selection")),
+	/**  取消进行中的 F2 会话并隐藏 popup(spec 06 §6/§7)。 */
+	cancelScreenshot: () => typedError<null, LenzError>(__TAURI_INVOKE("cancel_screenshot")),
+	/**
+	 *  打开系统「屏幕录制」隐私设置,引导用户授权(spec 06 §4)。
+	 * 
+	 *  macOS 走 `x-apple.systempreferences` 深链;其余平台暂为 no-op。
+	 */
+	openScreenSettings: () => typedError<null, LenzError>(__TAURI_INVOKE("open_screen_settings")),
+	/**
+	 *  内容渲染后,按实际高度调整 popup 窗口(宽度固定,spec 06 §2.6 / spec 09 §3.1)。
+	 * 
+	 *  调整高度后把窗口夹回所在显示器内,避免长译文撑高后底部溢出屏幕、内容被截断。
+	 * 
+	 *  macOS:透明窗口在缩放后会残留旧尺寸的窗口阴影(表现为弹框旁边的灰块),
+	 *  故每次 resize 后强制 `invalidateShadow` 让窗口阴影重算,消除残影。
+	 */
+	resizePopup: (height: number | null) => typedError<null, LenzError>(__TAURI_INVOKE("resize_popup", { height })),
 	/**
 	 *  显示原图覆盖层。
 	 * 
@@ -103,7 +120,19 @@ export type Config_Serialize = {
 	ui: UiConfig,
 };
 
-export type EngineKind = "openai" | "google" | "deepl" | "youdao";
+export type EngineKind = 
+/**  OpenAI 兼容(LM Studio / Ollama / 智谱 / 硅基流动 / DeepSeek …)。 */
+"openai" | 
+/**  Google Cloud Translation v2(官方,需 Key)。 */
+"google" | 
+/**  DeepL Free / Pro。 */
+"deepl" | 
+/**  有道智云(signType=v3)。 */
+"youdao" | 
+/**  微软 Azure Translator(需 Key + region)。 */
+"microsoft" | 
+/**  苹果系统翻译(macOS 原生框架;当前为占位,见 spec 04 §11)。 */
+"apple";
 
 /**  Lenz 全局错误类型。所有 Tauri command 统一返回 `Result<T, LenzError>`。 */
 export type LenzError = 
@@ -296,6 +325,12 @@ export type TranslatorEngine_Deserialize = {
 	timeoutMs: number,
 	/**  是否走代理。本地 LLM 通常为 false。 */
 	useProxy: boolean,
+	/**  Azure 翻译所需区域(仅 Microsoft 引擎用),如 "eastasia";其余引擎为 None。 */
+	region: string | null,
+	/**  LLM 最大输出 token 数(仅 OpenAI 兼容);None = 不限,由服务端默认。 */
+	maxTokens: number | null,
+	/**  LLM 采样温度(仅 OpenAI 兼容);None = 引擎默认 0.1。 */
+	temperature: number | null,
 };
 
 /**  单个翻译引擎(spec 01 §2)。 */
@@ -317,6 +352,12 @@ export type TranslatorEngine_Serialize = {
 	timeoutMs: number,
 	/**  是否走代理。本地 LLM 通常为 false。 */
 	useProxy: boolean,
+	/**  Azure 翻译所需区域(仅 Microsoft 引擎用),如 "eastasia";其余引擎为 None。 */
+	region?: string | null,
+	/**  LLM 最大输出 token 数(仅 OpenAI 兼容);None = 不限,由服务端默认。 */
+	maxTokens?: number | null,
+	/**  LLM 采样温度(仅 OpenAI 兼容);None = 引擎默认 0.1。 */
+	temperature?: number | null,
 };
 
 /**

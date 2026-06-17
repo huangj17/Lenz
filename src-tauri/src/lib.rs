@@ -31,6 +31,10 @@ fn specta_builder() -> SpectaBuilder<tauri::Wry> {
         commands::capture::capture_screen_region,
         commands::capture::start_selection,
         commands::capture::cancel_selection,
+        // screenshot (F2)
+        commands::screenshot::cancel_screenshot,
+        commands::screenshot::open_screen_settings,
+        commands::screenshot::resize_popup,
         // overlay / selection / system
         commands::overlay::show_overlay,
         commands::overlay::close_overlay,
@@ -67,8 +71,19 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(crate::core::ocr::default_engine())
         .invoke_handler(specta.invoke_handler())
+        // 主窗口关闭(红灯 / Cmd+W)时隐藏而非销毁,保证托盘「打开主窗口 / 设置」
+        // 仍能找到并重新显示它(spec 10 §1.3)。
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .setup(|app| setup::setup(app))
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

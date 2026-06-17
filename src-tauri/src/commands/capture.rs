@@ -1,6 +1,9 @@
 //! 截图采集相关 Tauri commands(spec 02)。
 
+use tauri::AppHandle;
+
 use crate::core::capture::{capture_region, CaptureResult};
+use crate::core::selection_window;
 use crate::error::LenzError;
 use crate::types::{Rect, TriggerKind};
 
@@ -14,19 +17,16 @@ pub async fn capture_screen_region(rect: Rect) -> Result<CaptureResult, LenzErro
         .map_err(|e| LenzError::Internal(format!("capture join: {e}")))?
 }
 
-/// 进入选区模式(创建 selection 蒙层窗口)。
-// TODO(M4): 运行时创建覆盖全虚拟屏的 selection 窗口。
+/// 进入选区模式:创建覆盖全虚拟屏的 selection 蒙层窗口(spec 02 §4)。
 #[tauri::command]
 #[specta::specta]
-#[allow(unused_variables)]
-pub async fn start_selection(trigger: TriggerKind) -> Result<(), LenzError> {
-    Err(LenzError::not_implemented())
+pub async fn start_selection(trigger: TriggerKind, app: AppHandle) -> Result<(), LenzError> {
+    selection_window::open(&app, trigger)
 }
 
-/// 取消选区模式。
-// TODO(M4): 销毁 selection 窗口。
+/// 取消选区模式:销毁 selection 窗口(spec 02 §4)。
 #[tauri::command]
 #[specta::specta]
-pub async fn cancel_selection() -> Result<(), LenzError> {
-    Err(LenzError::not_implemented())
+pub async fn cancel_selection(app: AppHandle) -> Result<(), LenzError> {
+    selection_window::close(&app)
 }

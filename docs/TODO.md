@@ -128,44 +128,61 @@
 
 目标:OpenAI 兼容接口可用,配置体系完整。
 
+> **进度(2026-06-16)**:抽象层 + 管理器(3.1)、OpenAI 兼容(3.2)、传统 API
+> Google/DeepL/有道 + 微软 Azure(3.3)、代理(3.4)、commands(3.5)、错误映射(3.6)均已实现,
+> `cargo check` / `cargo clippy`(本模块无新增告警)/ 34 项单测(含纯函数 helper + 迁移)/
+> `pnpm typecheck` 全过。`reqwest`(native-tls + socks)+ `sha2` 已入依赖。
+> 另:新增 `EngineKind::{Microsoft, Apple}` 与 `region` 字段,内置 8 个默认引擎预设
+> (有道/苹果/智谱/硅基流动 默认开,谷歌/微软/ollama/LM Studio 默认关;schema v1→v2 迁移注入);
+> **苹果翻译为占位**(返回 `apple_not_implemented`),原生桥接待后续。
+> **3.7 验收已通过**(2026-06-16):对真实 Ollama(`qwen2.5:1.5b`)/ LM Studio 端点新增
+> 7 项 `#[ignore]` 门控验收测试(`mod acceptance`)全绿——端到端 / 批量 10 条 /
+> test_engine 57ms / 引擎热更新路由 / 代理强制 + 本地转发拦截(无 mitmproxy 时的等价证明)。
+
 ### 3.1 抽象与管理
-- [ ] `Translator` trait(→ spec 04 §1)
-- [ ] `EngineKind` 枚举(→ spec 04 §1)
-- [ ] `TranslatorManager`(含共享 `reqwest::Client` 与 `default_id`)(→ spec 04 §2)
-- [ ] `reload(configs, proxy)` 支持热更新(不重启)(→ spec 04 §2)
-- [ ] 订阅 `config://changed` 触发 reload(→ spec 01 §4.3)
+- [x] `Translator` trait(→ spec 04 §1) —— `core/translator/mod.rs`,含 id/name/kind/supports_batch/translate
+- [x] `EngineKind` 枚举(→ spec 04 §1) —— 复用 `config::schema::EngineKind`(openai/google/deepl/youdao)
+- [x] `TranslatorManager`(含共享 `reqwest::Client` 与 `default_id`)(→ spec 04 §2) —— 代理/直连双 client,id→引擎表
+- [x] `reload(configs, proxy)` 支持热更新(不重启)(→ spec 04 §2)
+- [x] 订阅 `config://changed` 触发 reload(→ spec 01 §4.3) —— `setup.rs` listen,仅 `translator.*`/`proxy.*`/整体重置触发
 
 ### 3.2 OpenAI 兼容
-- [ ] 单条翻译(chat completions 非流式)(→ spec 04 §3.1)
-- [ ] 默认 system prompt + `{sourceLang}`/`{targetLang}` 变量替换(→ spec 04 §3.1)
-- [ ] 批量翻译(JSON 数组)+ 解析兜底(失败降级为逐条串行)(→ spec 04 §3.2)
-- [ ] 超时字段尊重(`engine.timeoutMs`)
+- [x] 单条翻译(chat completions 非流式)(→ spec 04 §3.1) —— 端点容忍是否已含 `/v1`;空 apiKey 不带鉴权头(本地 LLM)
+- [x] 默认 system prompt + `{sourceLang}`/`{targetLang}` 变量替换(→ spec 04 §3.1) —— BCP-47 → 英文全名
+- [x] 批量翻译(JSON 数组)+ 解析兜底(失败降级为逐条串行)(→ spec 04 §3.2) —— 含去 ```json 围栏 + 长度校验
+- [x] 超时字段尊重(`engine.timeoutMs`) —— 每请求 `.timeout(timeoutMs)`
 
 ### 3.3 传统 API(P0 但可分批)
-- [ ] Google Translate v2(批量 `q[]`)(→ spec 04 §4)
-- [ ] DeepL(Free/Pro URL 切换 + 语言代码映射 `zh-CN` → `ZH`)(→ spec 04 §5)
-- [ ] 有道智云(HMAC-SHA256 签名,`appKey:appSecret` 拆分)(→ spec 04 §6)
+- [x] Google Translate v2(批量 `q[]`)(→ spec 04 §4) —— 含 `detectedSourceLanguage` + HTML 实体还原
+- [x] DeepL(Free/Pro URL 切换 + 语言代码映射 `zh-CN` → `ZH`)(→ spec 04 §5) —— key 尾 `:fx` 判 Free
+- [x] 有道智云(`appKey:appSecret` 拆分)(→ spec 04 §6) —— 注:实际为 signType=v3 的 **SHA256** 摘要(非 HMAC);`supports_batch=false`,引擎内逐条
+- [x] 微软 Azure Translator(批量 JSON + Key + region)(→ spec 04 §6.1) —— `TranslatorEngine` 新增 `region` 字段
+- [-] 苹果系统翻译(→ spec 04 §6.2/§11) —— **占位**:可配置/选中,`translate` 返回 `apple_not_implemented`;原生桥接列为后续
+- [x] 内置默认引擎预设(有道/苹果/智谱/硅基流动 开,谷歌/微软/ollama/LM Studio 关)(→ spec 04 §12) —— `default_engines()` + schema v1→v2 迁移注入 + 前端 `default-config.ts` 镜像
 
 ### 3.4 代理
-- [ ] `build_http_client(proxy)`(→ spec 04 §7)
-- [ ] `engine.useProxy = false` 时用无代理 client(本地 LLM 不走代理)(→ spec 04 §7)
+- [x] `build_http_client(proxy)`(→ spec 04 §7) —— http/https/socks5 + basic auth + bypass_local
+- [x] `engine.useProxy = false` 时用无代理 client(本地 LLM 不走代理)(→ spec 04 §7) —— 直连 client 额外 `.no_proxy()` 屏蔽环境变量代理
 
 ### 3.5 Tauri commands
-- [ ] `translate_text` / `translate_batch`(→ spec 04 §8)
-- [ ] `test_engine`(发送 "Hello" → 返回延迟/结果)(→ spec 04 §8)
-- [ ] `list_engines`(→ spec 01 §5)
+- [x] `translate_text` / `translate_batch`(→ spec 04 §8) —— 均路由 `TranslatorManager::translate`
+- [x] `test_engine`(发送 "Hello" → 返回延迟/结果)(→ spec 04 §8) —— 一次性引擎,代理取自当前配置;失败 `ok=false`
+- [x] `list_engines`(→ spec 01 §5) —— M1 已有
 
 ### 3.6 错误映射
-- [ ] 超时 → `Network("timeout")`(→ spec 04 §9)
-- [ ] 4xx → `TranslateFailed("auth"|"...")`;5xx → `"server_error"`(→ spec 04 §9)
-- [ ] 解析失败 → `"parse_error"`(→ spec 04 §9)
+- [x] 超时 → `Network("timeout")`(→ spec 04 §9)
+- [x] 4xx → `TranslateFailed("auth"|"...")`;5xx → `"server_error"`(→ spec 04 §9) —— 401/403→auth、429→rate_limit、其余 4xx→client_error
+- [x] 解析失败 → `"parse_error"`(→ spec 04 §9)
 
 ### 3.7 验收(M3 结束)
-- [ ] LM Studio / Ollama 本地端点接入,一段英文 → 中文端到端 OK(→ spec 04 §10)
-- [ ] 批量 10 条单次请求返回,长度一致(→ spec 04 §10)
-- [ ] 设置页"测试连接"按钮 ≤ 3s 返回结果(→ spec 04 §10)
-- [ ] 代理启用后通过 Charles/mitmproxy 验证流量走代理(→ spec 10 §8)
-- [ ] 引擎配置热更新后,下一次翻译使用新配置无需重启(→ spec 04 §10)
+> **验收方式**:把运行态手测固化为 `#[ignore]` 门控的真实端点测试(`core/translator/mod.rs` 的 `mod acceptance`,7 项)。运行:
+> `cargo test --manifest-path src-tauri/Cargo.toml --lib acceptance -- --ignored --nocapture --test-threads=1`。
+> **2026-06-16 全绿**(本机 Ollama `:11434` `qwen2.5:1.5b` + LM Studio `:1234`)。
+- [x] LM Studio / Ollama 本地端点接入,一段英文 → 中文端到端 OK(→ spec 04 §10) —— Ollama `Hello, world…`→`你好，世界。这是一个端到端翻译测试。`(248ms);LM Studio→`早上好，祝你有美好的一天。`(5665ms)
+- [x] 批量 10 条单次请求返回,长度一致(→ spec 04 §10) —— 10→10:`苹果/香蕉/猫/狗/房子/河流/山峰/书/音乐/朋友`,无空槽
+- [x] 设置页"测试连接"按钮 ≤ 3s 返回结果(→ spec 04 §10) —— `test_engine` 命令路径实测 57ms(暖模型);按钮 UI 接线见 M7 §7.3(已 [x])。注:冷启动含模型加载可能 >3s
+- [x] 代理启用后验证流量走代理(→ spec 10 §8) —— 注:本机无 Charles/mitmproxy,改用自带最小本地转发代理:正检流量过代理(hits=1→`你好`)+ 负检(死代理+不绕本地→连接失败,未静默直连),证同等性质
+- [x] 引擎配置热更新后,下一次翻译使用新配置无需重启(→ spec 04 §10) —— `reload` 切默认引擎 `hot-a`→`hot-b`,同一 manager 实例下次翻译即生效
 
 ---
 
@@ -173,49 +190,66 @@
 
 目标:F2 全流程可用(截图 → OCR → 翻译 → 弹框)。
 
+> **进度(2026-06-16)**:4.1~4.5 **代码完成**(`cargo build` / `cargo test --lib` 37 过 /
+> `cargo clippy` 本模块无新增告警 / `pnpm typecheck` / `vite build` 全过)。
+> 新增:`core/selection_window.rs`(运行时建/销选区窗口 + 虚拟屏并集)、
+> `core/screenshot.rs`(F2 pipeline + 会话代号取消 + 10s 超时 + `join_blocks` 单测×3)、
+> `commands/screenshot.rs`(`cancel_screenshot` / `open_screen_settings`);
+> 前端 `SelectionWindow`(canvas 选区)、`PopupWindow`(三态);
+> 事件 `screenshot://progress|result|error`、capability 增 `selection`/`overlay` 窗口。
+> **待办(4.6)**:GUI 运行态指标需 `pnpm tauri dev` + 屏幕录制授权 + 真实框选手测;
+> 多屏混合 DPR 选区精度沿用 spec 02 §9 开放问题(单屏 / 同 DPR 多屏按设计精确)。
+>
+> **打磨补充(2026-06-16)**:① 划词快捷键 Alt+D 接通(剪贴板模式,见 M5 §5.2);
+> ② 多屏 capture 改为**按重叠面积最大选屏**(`pick_monitor`),更准区分选区所在屏;
+> ③ popup 头部 `data-tauri-drag-region` 可拖动;
+> ④ popup / 选区蒙层样式对齐设计稿(`popup-f1/f2`、`capture-f2`):暖色毛玻璃卡片 +
+> Lens 头部 + 原文块(识别语言 chip + 字数)+ 语言切换条 + 引擎结果行(徽标 + 用时);
+> 选区加顶部指示条 + 十字辅助线。`.ln-popup` / `.ln-engine-badge` 入 `theme.css`。
+
 ### 4.1 选区蒙层
-- [ ] 运行时创建 `selection` 窗口覆盖全虚拟屏(→ spec 02 §3.1 / spec 09 §4.1)
-- [ ] 前端 canvas 实现:半透遮罩 + 镂空 + 选区边框 + 尺寸提示(→ spec 02 §3.2 / spec 09 §4.2)
-- [ ] 鼠标事件:down/move/up 绘制;ESC 取消(→ spec 02 §3.2)
-- [ ] `clientX/Y` + 窗口 `innerPosition()` → 虚拟屏逻辑坐标(→ spec 09 §4.3)
-- [ ] emit `capture://region-selected { x,y,w,h, displayId, trigger }`(→ spec 02 §3.3)
-- [ ] `w<4 || h<4` 视为点击取消,emit `capture://region-cancelled`(→ spec 02 §6)
-- [ ] `start_selection` / `cancel_selection` commands(→ spec 02 §4)
+- [x] 运行时创建 `selection` 窗口覆盖全虚拟屏(→ spec 02 §3.1 / spec 09 §4.1) —— `selection_window::open`,主线程构建 + 逻辑并集定位
+- [x] 前端 canvas 实现:半透遮罩 + 镂空 + 选区边框 + 尺寸提示(→ spec 02 §3.2 / spec 09 §4.2)
+- [x] 鼠标事件:down/move/up 绘制;ESC 取消(→ spec 02 §3.2)
+- [x] `clientX/Y` + 窗口逻辑原点(`outerPosition().toLogical`)→ 虚拟屏逻辑坐标(→ spec 09 §4.3)
+- [x] emit `capture://region-selected { x,y,w,h, trigger }`(→ spec 02 §3.3) —— 注:displayId 暂未填(可选)
+- [x] `w<4 || h<4` 视为点击取消,emit `capture://region-cancelled`(→ spec 02 §6)
+- [x] `start_selection` / `cancel_selection` commands(→ spec 02 §4)
 
 ### 4.2 F2 流程编排
-- [ ] 全局快捷键 `Alt+S` → `start_selection(Screenshot)`(→ spec 06 §2.1)
-- [ ] 接收 `capture://region-selected` → 销毁选区窗口 → 执行采集(→ spec 06 §2.2)
-- [ ] capture → OCR(按 `preferred_languages` + `min_confidence`)(→ spec 06 §2.3, §2.4)
-- [ ] OCR block 拼接(同行空格,跨行 `\n`)→ 送翻译(→ spec 06 §2.4)
-- [ ] OCR 为空 → emit `screenshot://error { stage: "ocr", code: "no_text" }`(→ spec 06 §2.4)
-- [ ] 翻译完成 → emit `screenshot://result { ... }`(→ spec 06 §2.6)
+- [x] 全局快捷键 `Alt+S` → 开选区(→ spec 06 §2.1) —— `shortcut://screenshot` 监听 → `selection_window::open(Screenshot)`
+- [x] 接收 `capture://region-selected` → 销毁选区窗口 → 执行采集(→ spec 06 §2.2)
+- [x] capture → OCR(按 `preferred_languages` + `min_confidence`)(→ spec 06 §2.3, §2.4)
+- [x] OCR block 拼接(同行空格,跨行 `\n`)→ 送翻译(→ spec 06 §2.4) —— `join_blocks`,3 项单测
+- [x] OCR 为空 → emit `screenshot://error { stage: "ocr", code: "no_text" }`(→ spec 06 §2.4)
+- [x] 翻译完成 → emit `screenshot://result { ... }`(→ spec 06 §2.6)
 
 ### 4.3 进度与取消
-- [ ] 关键节点 emit `screenshot://progress { stage }`(→ spec 06 §5)
-- [ ] `CancellationToken` per-session;新触发取消旧 token(→ spec 06 §7)
-- [ ] ESC 全局取消(任意阶段)(→ spec 06 §6)
-- [ ] 总超时 10s → `screenshot://error`(→ spec 06 §4)
+- [x] 关键节点 emit `screenshot://progress { stage }`(→ spec 06 §5)
+- [x] per-session 取消;新触发取消旧会话(→ spec 06 §7) —— `ScreenshotSession` 自增代号,await 点检查 `is_current`
+- [x] ESC 取消(任意阶段)(→ spec 06 §6) —— 选区窗口 ESC + popup ESC→`cancel_screenshot`;焦点恒在我方窗口故覆盖全程
+- [x] 总超时 10s → `screenshot://error`(→ spec 06 §4) —— `tokio::time::timeout` 包裹整条 pipeline
 
 ### 4.4 popup 弹框
-- [ ] popup 窗口静态配置(常驻隐藏)(→ spec 09 §3.1)
-- [ ] 布局:语言行 / 原文(可折叠)/ 译文 / 工具栏(→ spec 09 §3.2)
-- [ ] 状态:loading(骨架屏)/ success / error(→ spec 09 §3.3)
-- [ ] 监听 `screenshot://result` 与 `screenshot://error` → 渲染(→ spec 06 §3)
-- [ ] 动态高度 `window.setSize` 按内容调整(→ spec 09 §3.1)
-- [ ] 定位:选区下方 `y + h + 12`,水平居中;溢出则夹紧(→ spec 06 §3)
-- [ ] 点击窗口外/ESC → 隐藏(→ spec 09 §3.4)
-- [ ] 复制译文按钮(→ spec 09 §3.4)
+- [x] popup 窗口静态配置(常驻隐藏)(→ spec 09 §3.1) —— M1 已有
+- [x] 布局:语言行 / 原文(可折叠)/ 译文 / 工具栏(→ spec 09 §3.2)
+- [x] 状态:loading(骨架屏)/ success / error(→ spec 09 §3.3)
+- [x] 监听 `screenshot://result` 与 `screenshot://error` → 渲染(→ spec 06 §3)
+- [x] 动态高度按内容调整(→ spec 09 §3.1) —— `useLayoutEffect` 量测卡片高度,经 `resize_popup` 命令设尺寸;macOS 同时 `invalidateShadow` 消除透明窗缩放后残留的旧阴影(弹框旁灰块)。`.ln-popup` 改由原生窗口阴影投影,去掉被窗口留白裁切的 CSS box-shadow
+- [x] 定位:选区下方 `y + h + 12`,水平居中;溢出则夹紧(→ spec 06 §3) —— Rust `position_and_show_popup`,夹紧到所在屏
+- [x] 点击窗口外/ESC → 隐藏(→ spec 09 §3.4) —— `onFocusChanged`(loading 态不隐)+ ESC
+- [x] 复制译文按钮(→ spec 09 §3.4) —— `navigator.clipboard`
 
 ### 4.5 权限引导
-- [ ] macOS 屏幕录制权限缺失 → popup 展示引导 + "打开系统设置"按钮(→ spec 06 §4)
+- [x] macOS 屏幕录制权限缺失 → popup 展示引导 + "打开系统设置"按钮(→ spec 06 §4) —— `open_screen_settings` 深链 TCC 设置
 
-### 4.6 验收(M4 结束)
-- [ ] Alt+S → 进入截图模式 ≤ 300ms(→ spec 06 §8)
-- [ ] 框选 → 弹框占位出现 ≤ 500ms(→ spec 06 §8)
-- [ ] 框选 → 完整结果 ≤ 3s(本地 OCR + 本地 LLM)(→ spec 06 §8)
-- [ ] ESC 任意阶段可取消,不残留窗口(→ spec 06 §8)
-- [ ] 多屏 + 不同 DPR 选区准确(→ spec 02 §7)
-- [ ] 连续 Alt+S(未完成先前)→ 新会话正确取代旧会话(→ spec 06 §9)
+### 4.6 验收(M4 结束)—— GUI 运行态手测待
+- [ ] Alt+S → 进入截图模式 ≤ 300ms(→ spec 06 §8) —— 代码就绪,待运行态测
+- [ ] 框选 → 弹框占位出现 ≤ 500ms(→ spec 06 §8) —— popup 框选后立即 show(loading),待实测
+- [ ] 框选 → 完整结果 ≤ 3s(本地 OCR + 本地 LLM)(→ spec 06 §8) —— 参考 M2 OCR ~320ms + M3 本地 LLM <1s
+- [ ] ESC 任意阶段可取消,不残留窗口(→ spec 06 §8) —— 逻辑已实现,待运行态测
+- [ ] 多屏 + 不同 DPR 选区准确(→ spec 02 §7) —— 单屏/同 DPR 精确;混合 DPR 近似(spec 02 §9)
+- [ ] 连续 Alt+S(未完成先前)→ 新会话正确取代旧会话(→ spec 06 §9) —— 会话代号机制已实现,待运行态测
 
 ---
 
@@ -233,7 +267,9 @@
 - [ ] Windows:`OpenClipboard` + `GetClipboardData(CF_UNICODETEXT)`(→ spec 05 §2.2)
 
 ### 5.2 触发逻辑
-- [ ] 快捷键触发:读剪贴板 → emit `selection://triggered`(source: "shortcut")(→ spec 05 §3)
+- [x] 快捷键触发:读剪贴板 → 翻译 → popup(source: "shortcut")(→ spec 05 §3) —— M4 打磨期接通:Alt+D → `tauri-plugin-clipboard-manager` 读选中文本 → 复用 `screenshot://*` 事件渲染;注:改用 Rust 直接编排(未走 `selection://triggered` 事件),光标锚定待本里程碑
+- [x] 选中自动复制:Alt+D 先合成系统复制键(macOS `Cmd+C`/CGEvent、Windows `Ctrl+C`/SendInput,`core/keystroke.rs`)→ 轮询剪贴板变化 → 翻译(→ spec 05 §3) —— 双击/划词选中均覆盖;⚠️ macOS 需「辅助功能」权限,缺失则事件被静默丢弃、自动退化为读当前剪贴板/回显上次结果
+- [x] 无新选区(未选中/无权限)→ 回显上次结果(`LastResult` managed state 缓存 F1/F2 最近结果,重新 emit `screenshot://result`)(→ spec 05 §3) —— ⚠️ 与 spec 05 §10「无选中→toast」不同,按用户需求改为「再次按键复现上次内容」,spec 05 待同步
 - [ ] 自动触发:去抖 `popupDelayMs` + 长度过滤(1~5000)+ 去重(→ spec 05 §4)
 - [ ] emit `selection://triggered { text, source, cursorPos }`(→ spec 05 §5)
 - [ ] `toggle_selection_listener` command(→ spec 05 §8)
@@ -251,7 +287,7 @@
 ### 5.5 验收(M5 结束)
 - [ ] 选中 → 弹框出现 ≤ 500ms(→ spec 05 §10)
 - [ ] 快速连选三段,仅最后一段展示;同段不重复触发(→ spec 05 §11)
-- [ ] 无选中文本时按快捷键 → toast 提示(→ spec 05 §10)
+- [ ] 无选中文本时按快捷键 → 回显上次结果(原 spec 05 §10 为 toast 提示;按用户需求改为复现上次内容,⚠️ spec 05 §10/§11 待同步)
 - [ ] 弹框不超屏幕边界(→ spec 05 §10)
 - [ ] macOS 权限未授时弹引导(→ spec 05 §11)
 - [ ] Windows 基础路径跑通(若 UIA 稳定性不足可延后自动触发,保留快捷键触发)⚠️
@@ -321,13 +357,13 @@
 - [ ] 保存后立即重绑(订阅 `shortcuts.*` 变更)(→ spec 10 §2.4)
 
 ### 7.3 翻译引擎 Tab(设计中并入「服务 · 文本翻译」分段)
-- [ ] 左列:引擎列表(拖拽排序、enabled toggle、删除按钮)(→ spec 09 §2.3) —— 注:列表 UI(状态点/默认徽章/高亮)已有;拖拽/删除待
-- [ ] 右列:详情表单(名称/类型/URL/Key/Model/System Prompt/Timeout/UseProxy)(→ spec 09 §2.3) —— 注:展示态已有;可编辑表单待
-- [ ] 设为默认引擎按钮 → 更新 `translator.defaultEngineId`(→ spec 01 §2)
-- [ ] "测试连接"按钮 → `test_engine`(→ spec 04 §8) —— 注:按钮 UI 已有;接线待 M3 引擎就绪
-- [ ] 添加引擎按钮 → 空表单;保存前校验必填字段(→ spec 09 §2.3)
-- [ ] API Key 输入默认 `type="password"` + 显示 toggle(→ spec 01 §6)
-- [ ] 敏感字段明文保存的警示条(→ spec 01 §6)
+- [x] 左列:引擎列表(拖拽排序、enabled toggle、删除按钮)(→ spec 09 §2.3) —— HTML5 原生拖拽重排(整体回写 `translator.engines`)、enabled toggle、删除按钮均已接线
+- [x] 右列:详情表单(名称/类型/URL/Key/Model/System Prompt/Timeout/UseProxy)(→ spec 09 §2.3) —— 可编辑:文本失焦提交、开关/下拉即时提交;Model/SystemPrompt 仅 openai 显示,Region 仅 microsoft 显示,apple 显示占位说明
+- [x] 设为默认引擎按钮 → 更新 `translator.defaultEngineId`(→ spec 01 §2) —— 非默认引擎显示「设为默认」按钮
+- [x] "测试连接"按钮 → `test_engine`(→ spec 04 §8) —— 已接线:测当前草稿值,内联显示延迟/译文样例或失败原因
+- [x] 添加引擎按钮 → 空表单 + 必填校验(→ spec 09 §2.3) —— 新增 openai 草稿引擎并选中;按类型做必填校验(名称/模型/Key/region/有道格式),缺项内联非阻断提示
+- [x] API Key 输入默认 `type="password"` + 显示 toggle(→ spec 01 §6)
+- [ ] 敏感字段明文保存的警示条(→ spec 01 §6) —— 注:字段下方已有「明文保存于本地配置」提示文案;独立警示条待
 
 ### 7.4 OCR Tab(设计中并入「服务 · OCR」分段)
 - [x] 引擎选择(MVP 只有 system,展示 Apple Vision)(→ spec 09 §2.2)

@@ -115,11 +115,13 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* 透明窗口(popup / selection / overlay)不绘制底色 */
+/* 透明窗口(popup / selection / overlay)不绘制底色;窗口级不滚动
+ * (内容高度由 resize_popup 按卡片高度精确设定,长文本走卡片内的局部滚动区) */
 body[data-window="popup"],
 body[data-window="selection"],
 body[data-window="overlay"] {
   background: transparent;
+  overflow: hidden;
 }
 
 /* ── 设计 primitives(对齐 index.html 的 .ln-*)────────────────────── */
@@ -178,4 +180,21 @@ body[data-window="overlay"] {
 /* sage 状态点辉光 */
 .ln-glow {
   box-shadow: 0 0 6px var(--sage);
+}
+
+/* 划词 / 截图结果弹框:不透明暖色实心卡片(对齐 popup-f1 / popup-f2 设计)。
+ * 不透出背后桌面/应用,故用纯色底、不加毛玻璃模糊。窗口仍 transparent,
+ * 透明区仅圆角外的小三角;投影由原生窗口阴影(tauri.conf shadow:true)随圆角绘制。 */
+.ln-popup {
+  background: var(--warm-white);
+  border: 0.5px solid rgba(30, 24, 14, 0.08);
+}
+.dark .ln-popup {
+  background: #1a1814;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* 引擎徽标渐变(默认天空蓝;对齐设计 EngineRow badge) */
+.ln-engine-badge {
+  background: linear-gradient(135deg, #4ea3d9, #2d7fb3);
 }

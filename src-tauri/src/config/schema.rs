@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 /// 当前 schema 版本号,用于迁移(spec 01 §7)。
-pub const CURRENT_VERSION: u32 = 1;
+///
+/// v2:内置默认翻译引擎预设(有道/苹果/智谱/硅基流动 默认开启,
+/// 谷歌/微软/ollama/LM Studio 默认关闭)+ `TranslatorEngine.region` 字段。
+pub const CURRENT_VERSION: u32 = 2;
 
 /// 顶层配置。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -132,15 +135,32 @@ pub struct TranslatorEngine {
     pub timeout_ms: u32,
     /// 是否走代理。本地 LLM 通常为 false。
     pub use_proxy: bool,
+    /// Azure 翻译所需区域(仅 Microsoft 引擎用),如 "eastasia";其余引擎为 None。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+    /// LLM 最大输出 token 数(仅 OpenAI 兼容);None = 不限,由服务端默认。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
+    /// LLM 采样温度(仅 OpenAI 兼容);None = 引擎默认 0.1。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum EngineKind {
+    /// OpenAI 兼容(LM Studio / Ollama / 智谱 / 硅基流动 / DeepSeek …)。
     Openai,
+    /// Google Cloud Translation v2(官方,需 Key)。
     Google,
+    /// DeepL Free / Pro。
     Deepl,
+    /// 有道智云(signType=v3)。
     Youdao,
+    /// 微软 Azure Translator(需 Key + region)。
+    Microsoft,
+    /// 苹果系统翻译(macOS 原生框架;当前为占位,见 spec 04 §11)。
+    Apple,
 }
 
 /// 代理配置。
@@ -184,6 +204,90 @@ pub struct PopupUiConfig {
     pub show_original: bool,
 }
 
+/// 内置默认翻译引擎预设(spec 04 §12)。
+///
+/// 默认开启:有道、苹果、智谱、硅基流动;默认关闭:谷歌、微软、ollama、LM Studio。
+/// 凭据(`api_key` / `region`)留空待用户填写;id 用稳定 slug 便于跨安装引用。
+pub fn default_engines() -> Vec<TranslatorEngine> {
+    // 统一构造:api_key/region 留空、system_prompt 默认 None。
+    #[allow(clippy::too_many_arguments)]
+    fn e(
+        id: &str,
+        name: &str,
+        kind: EngineKind,
+        enabled: bool,
+        api_url: &str,
+        model: Option<&str>,
+        timeout_ms: u32,
+        use_proxy: bool,
+    ) -> TranslatorEngine {
+        TranslatorEngine {
+            id: id.into(),
+            name: name.into(),
+            kind,
+            enabled,
+            api_url: api_url.into(),
+            api_key: String::new(),
+            model: model.map(Into::into),
+            system_prompt: None,
+            timeout_ms,
+            use_proxy,
+            region: None,
+            max_tokens: None,
+            temperature: None,
+        }
+    }
+
+    vec![
+        // —— 默认开启 ——
+        e("builtin-youdao", "有道翻译", EngineKind::Youdao, true, "", None, 15_000, false),
+        e("builtin-apple", "苹果翻译", EngineKind::Apple, true, "", None, 15_000, false),
+        e(
+            "builtin-zhipu",
+            "智谱 GLM",
+            EngineKind::Openai,
+            true,
+            "https://open.bigmodel.cn/api/paas/v4",
+            Some("glm-4-flash"),
+            30_000,
+            false,
+        ),
+        e(
+            "builtin-siliconflow",
+            "硅基流动",
+            EngineKind::Openai,
+            true,
+            "https://api.siliconflow.cn/v1",
+            Some("Qwen/Qwen2.5-7B-Instruct"),
+            30_000,
+            false,
+        ),
+        // —— 默认关闭 ——
+        e("builtin-google", "Google 翻译", EngineKind::Google, false, "", None, 15_000, true),
+        e("builtin-microsoft", "微软翻译", EngineKind::Microsoft, false, "", None, 15_000, false),
+        e(
+            "builtin-ollama",
+            "Ollama",
+            EngineKind::Openai,
+            false,
+            "http://localhost:11434/v1",
+            Some("qwen2.5"),
+            60_000,
+            false,
+        ),
+        e(
+            "builtin-lmstudio",
+            "LM Studio",
+            EngineKind::Openai,
+            false,
+            "http://localhost:1234/v1",
+            None,
+            60_000,
+            false,
+        ),
+    ]
+}
+
 impl Default for Config {
     /// 首次启动生成的默认配置(spec 01 §3)。
     ///
@@ -217,10 +321,10 @@ impl Default for Config {
                 min_confidence: 0.3,
             },
             translator: TranslatorConfig {
-                default_engine_id: String::new(),
+                // 默认路由到有道(用户列表里第一个默认开启项);用户可在设置页改默认。
+                default_engine_id: "builtin-youdao".into(),
                 target_lang: "zh-CN".into(),
-                // 用户需手动添加第一个引擎。
-                engines: Vec::new(),
+                engines: default_engines(),
             },
             proxy: ProxyConfig {
                 enabled: false,

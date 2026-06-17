@@ -6,4 +6,5 @@ pub mod capture;
 pub mod config;
 pub mod ocr;
 pub mod overlay;
+pub mod screenshot;
 pub mod translate;

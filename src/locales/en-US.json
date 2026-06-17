@@ -64,7 +64,46 @@
     "emptyDesc": "Add a local engine like LM Studio or Ollama, or any OpenAI-compatible / cloud service.",
     "model": "Model",
     "systemPrompt": "System Prompt",
-    "test": "Test Connection"
+    "test": "Test Connection",
+    "testing": "Testing…",
+    "testOk": "{{ms}}ms · {{sample}}",
+    "testFail": "Failed: {{error}}",
+    "name": "Name",
+    "type": "Type",
+    "timeout": "Timeout (ms)",
+    "useProxy": "Use proxy",
+    "region": "Region (Azure)",
+    "setDefault": "Set default",
+    "delete": "Delete",
+    "confirmDelete": "Confirm delete?",
+    "reorder": "Drag to reorder",
+    "newName": "New engine",
+    "showKey": "Show",
+    "hideKey": "Hide",
+    "keyHint": "Stored in plain text locally (MVP)",
+    "youdaoKeyHint": "Format: appKey:appSecret",
+    "urlPlaceholder": "https://… (blank = default endpoint)",
+    "keyPlaceholder": "sk-…",
+    "modelPlaceholder": "e.g. gpt-4o-mini",
+    "appleNote": "Apple system translation is a placeholder — native bridge not wired yet, cannot test.",
+    "warnName": "Name is required",
+    "warnModel": "Model is required",
+    "warnKey": "API Key is required",
+    "warnYoudaoKey": "API Key must be appKey:appSecret",
+    "warnRegion": "Region is required (Azure)",
+    "maxTokens": "Max output tokens",
+    "maxTokensHint": "Cap tokens in the response; blank = unlimited",
+    "temperature": "Temperature",
+    "temperatureHint": "0–2; lower = stable, higher = creative; blank = 0.1",
+    "unlimited": "Unlimited",
+    "kinds": {
+      "openai": "OpenAI-compatible",
+      "google": "Google",
+      "deepl": "DeepL",
+      "youdao": "Youdao",
+      "microsoft": "Microsoft Azure",
+      "apple": "Apple system"
+    }
   },
   "ocr": {
     "engine": "Engine",
@@ -85,5 +124,32 @@
     "changelog": "Changelog",
     "checkUpdate": "Check for Updates",
     "privacy": "Lenz runs entirely on your device. No data upload, no telemetry, no account. Translations via cloud engines (DeepSeek, Google Translate, etc.) are sent only to those providers."
+  },
+  "capture": {
+    "hint": "Drag to select an area",
+    "cancel": "cancel"
+  },
+  "popup": {
+    "stage": {
+      "capture": "Capturing…",
+      "ocr": "Recognizing…",
+      "translate": "Translating…"
+    },
+    "original": "Original",
+    "detected": "Detected as",
+    "chars": "chars",
+    "copy": "Copy",
+    "copied": "Copied",
+    "retry": "Retry",
+    "close": "Close",
+    "via": "via {{engine}}",
+    "error": {
+      "permission": "Screen recording permission required",
+      "openSettings": "Open System Settings",
+      "noText": "No text found. Try selecting again.",
+      "translateFailed": "Translation failed: {{msg}}",
+      "timeout": "Response timed out",
+      "generic": "Something went wrong"
+    }
   }
 }
