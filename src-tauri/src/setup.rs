@@ -14,11 +14,12 @@ use tauri::{App, AppHandle, Emitter, Listener, Manager};
 
 use crate::config::{ConfigStore, EVENT_CONFIG_CHANGED};
 use crate::core::screenshot::{self, LastResult, ScreenshotSession};
+use crate::core::selection;
 use crate::core::selection_window;
 use crate::core::shortcut;
 use crate::core::translator::TranslatorManager;
 use crate::tray;
-use crate::types::{ConfigChangedPayload, StartupWarning, TriggerKind};
+use crate::types::{ConfigChangedPayload, SelectionDetected, StartupWarning, TriggerKind};
 
 /// `app://startup-warning` 事件名。
 const EVENT_STARTUP_WARNING: &str = "app://startup-warning";
@@ -60,8 +61,13 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     // 订阅 config://changed:translator.* / proxy.* 变更时热更新引擎(不重启,spec 01 §4.3)。
     let reload_handle = handle.clone();
     handle.listen(EVENT_CONFIG_CHANGED, move |event| {
-        if config_change_needs_reload(event.payload()) {
+        let payload = event.payload();
+        if config_change_needs_reload(payload) {
             reload_translators(&reload_handle);
+        }
+        // selection.* 变更(总开关 / 自动检测开关)→ 重新评估监听器启停。
+        if config_change_affects_selection(payload) {
+            selection::sync(&reload_handle);
         }
     });
 
@@ -69,6 +75,10 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(ScreenshotSession::default());
     // 最近一次翻译结果(划词快捷键「无新选区则回显上次内容」,spec 05 §3)。
     app.manage(LastResult::default());
+    // 划词监听器(spec 05 §2);按配置在 Step 4 启停。
+    app.manage(selection::SelectionListener::new());
+    // 划词指示图标的显示会话(自动隐藏代号,spec 05 §6)。
+    app.manage(crate::core::indicator::IndicatorSession::default());
 
     // F2 接线(spec 06):
     //  - Alt+S(shortcut://screenshot)→ 打开选区蒙层;
@@ -98,6 +108,22 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         screenshot::on_selection_shortcut(&h_word);
     });
 
+    // F1 自动模式:监听线程检测到划词/双击「手势」→ 直接在光标处浮出划词指示图标
+    // (不读剪贴板,spec 05 §6);真正的复制+翻译推迟到用户 hover/点击图标时(见
+    // `trigger_selection_translate`),以免在每次手势都合成 Cmd+C 干扰用户剪贴板。
+    let h_ind = handle.clone();
+    handle.listen(selection::EVENT_SELECTION_DETECTED, move |event| {
+        match serde_json::from_str::<SelectionDetected>(event.payload()) {
+            Ok(p) => crate::core::indicator::show_at(&h_ind, p.x, p.y),
+            Err(e) => log::warn!("selection-detected payload parse failed: {e}"),
+        }
+    });
+    // 点击图标外 → 立刻隐藏图标(失去选区即消失,spec 05 §6)。
+    let h_dismiss = handle.clone();
+    handle.listen(selection::EVENT_SELECTION_DISMISS, move |_| {
+        crate::core::indicator::hide(&h_dismiss);
+    });
+
     // Step 2:注册托盘。
     if let Err(e) = tray::build_tray(handle) {
         log::warn!("build tray failed: {e}");
@@ -110,11 +136,9 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         warn(app, "shortcuts", &format!("{e}"));
     }
 
-    // Step 4:启动划词监听(M1 占位)。
-    // TODO(M5): 据 config.selection.enabled / auto_detect 启停 SelectionListener。
-    if config.selection.enabled {
-        log::debug!("selection listener enabled in config (listener impl: M5)");
-    }
+    // Step 4:按 config.selection.enabled(托盘「划词监听」总开关)启停划词监听
+    // (spec 05 §1/§2)。默认 enabled=false → 不自动开启(opt-in,无权限惊扰)。
+    selection::sync(handle);
 
     // Step 5:按 openOnLaunch 决定是否显示 main 窗口。
     if config.app.open_on_launch {
@@ -155,6 +179,17 @@ fn config_change_needs_reload(payload: &str) -> bool {
         Ok(p) => p.keypaths.iter().any(|k| {
             k.is_empty() || k.starts_with("translator") || k.starts_with("proxy")
         }),
+        Err(_) => true,
+    }
+}
+
+/// 判断一次 `config://changed` 是否涉及 `selection.*`(或整体重置),需要重评监听器。
+fn config_change_affects_selection(payload: &str) -> bool {
+    match serde_json::from_str::<ConfigChangedPayload>(payload) {
+        Ok(p) => p
+            .keypaths
+            .iter()
+            .any(|k| k.is_empty() || k.starts_with("selection")),
         Err(_) => true,
     }
 }

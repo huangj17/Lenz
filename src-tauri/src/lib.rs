@@ -39,6 +39,8 @@ fn specta_builder() -> SpectaBuilder<tauri::Wry> {
         commands::overlay::show_overlay,
         commands::overlay::close_overlay,
         commands::overlay::toggle_selection_listener,
+        commands::overlay::trigger_selection_translate,
+        commands::overlay::open_accessibility_settings,
         commands::overlay::check_update,
     ])
 }

@@ -3,10 +3,11 @@ import { MainWindow } from "@/windows/main/MainWindow";
 import { PopupWindow } from "@/windows/popup/PopupWindow";
 import { SelectionWindow } from "@/windows/selection/SelectionWindow";
 import { OverlayWindow } from "@/windows/overlay/OverlayWindow";
+import { IndicatorWindow } from "@/windows/indicator/IndicatorWindow";
 import { useConfigSync } from "@/hooks/useConfigSync";
 import { useConfigStore } from "@/stores/config";
 
-export type WindowKind = "main" | "popup" | "selection" | "overlay";
+export type WindowKind = "main" | "popup" | "selection" | "overlay" | "indicator";
 
 /** 从 URL 查询参数解析当前窗口类型,默认 main */
 export function resolveWindowKind(search: string = window.location.search): WindowKind {
@@ -15,6 +16,7 @@ export function resolveWindowKind(search: string = window.location.search): Wind
     case "popup":
     case "selection":
     case "overlay":
+    case "indicator":
       return value;
     default:
       return "main";
@@ -29,6 +31,8 @@ function renderWindow(kind: WindowKind) {
       return <SelectionWindow />;
     case "overlay":
       return <OverlayWindow />;
+    case "indicator":
+      return <IndicatorWindow />;
     case "main":
     default:
       return <MainWindow />;

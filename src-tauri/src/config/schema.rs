@@ -301,7 +301,9 @@ impl Default for Config {
                 theme: Theme::System,
                 auto_start: false,
                 check_update: true,
-                open_on_launch: true,
+                // 菜单栏驻留工具:默认启动不弹主窗口,仅驻留托盘(隐私友好)。
+                // 同时规避 macOS 上「关闭 popup/选区小窗时,常驻可见的主窗口被顶到前台」。
+                open_on_launch: false,
             },
             shortcuts: ShortcutConfig {
                 selection: Some("Alt+D".into()),
@@ -310,7 +312,9 @@ impl Default for Config {
                 open_main: None,
             },
             selection: SelectionConfig {
-                enabled: true,
+                // 划词监听(划词指示图标)默认关闭,opt-in:用户在托盘勾选「划词监听」
+                // 后开启(需辅助功能权限)。Alt+D 快捷键划词不受影响,始终可用。
+                enabled: false,
                 // 避免误触;用户按需开启。
                 auto_detect: false,
                 popup_delay_ms: 300,

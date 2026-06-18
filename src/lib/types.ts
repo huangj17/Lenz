@@ -206,6 +206,18 @@ export interface SelectionTextChangedPayload {
   lang?: string;
 }
 
+/** `selection://detected` —— 监听到划词/双击选中,坐标为光标处全局逻辑坐标 */
+export interface SelectionDetectedPayload {
+  x: number;
+  y: number;
+}
+
+/** `selection://permission-required` —— 缺少辅助功能权限 */
+export interface PermissionRequiredPayload {
+  platform: string;
+  detail: string;
+}
+
 /** `capture://region-selected` */
 export interface CaptureRegionSelectedPayload extends Rect {
   displayId?: number;

@@ -66,9 +66,20 @@ export const commands = {
 	/**
 	 *  启停划词监听,并同步写入 `config.selection.enabled`(spec 05 §8 / spec 10 §1.2)。
 	 * 
-	 *  M1:实现配置写入与托盘勾选同步;实际监听线程的启停留待 M5。
+	 *  写配置 → emit `config://changed` → setup 订阅者据 `enabled && autoDetect` 启停
+	 *  `SelectionListener`(见 `core::selection::sync`);此处只负责配置与托盘勾选同步。
 	 */
 	toggleSelectionListener: (enabled: boolean) => typedError<null, LenzError>(__TAURI_INVOKE("toggle_selection_listener", { enabled })),
+	/**
+	 *  划词指示图标被 hover/点击时触发翻译(spec 05 §6)。
+	 * 
+	 *  先隐藏图标 → 等焦点回到用户原应用 → 复用快捷键划词编排(合成 Cmd+C → 轮询剪贴板
+	 *  → 翻译 → 光标处弹框)。复制只在用户真正 engage 图标时发生,故不会在每次划词手势
+	 *  干扰用户剪贴板。
+	 */
+	triggerSelectionTranslate: () => typedError<null, LenzError>(__TAURI_INVOKE("trigger_selection_translate")),
+	/**  打开系统「辅助功能」隐私设置,引导用户授权划词监听(spec 05 §2.1)。 */
+	openAccessibilitySettings: () => typedError<null, LenzError>(__TAURI_INVOKE("open_accessibility_settings")),
 	/**  手动 / 启动后触发检查更新(spec 10 §4)。M1 仅占位。 */
 	checkUpdate: () => typedError<null, LenzError>(__TAURI_INVOKE("check_update")),
 };

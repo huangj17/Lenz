@@ -53,8 +53,13 @@ fn open_inner(app: &AppHandle, trigger: TriggerKind) -> Result<(), LenzError> {
             .always_on_top(true)
             .skip_taskbar(true)
             .resizable(false)
-            // 仅首个窗口取焦(承载键盘 ESC);其余屏在点击时自然获焦。
+            // 仅首个窗口取焦(承载键盘 ESC)。
             .focused(i == 0)
+            // 关键:接受「首次鼠标」。多屏时只有 i==0 是 key 窗口,鼠标移到别的屏的
+            // 蒙层窗口(非活动)上,macOS 默认会把第一下 mousedown 吞去激活该窗口,
+            // 导致「切屏后要先点一下才能框选」。acceptsFirstMouse=YES 让非活动窗口的
+            // 首击直接派发给 WebView 内容,切屏即可框选(spec 02 §3;仅 macOS 生效)。
+            .accept_first_mouse(true)
             // 先隐藏构建,定位/定尺后再 show,避免默认位置闪现。
             .visible(false)
             .build()

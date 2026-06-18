@@ -42,8 +42,8 @@ export function MainWindow() {
     <div className="grid h-screen grid-cols-[200px_1fr] bg-bg text-fg">
       {/* 侧边栏 */}
       <aside className="ln-vibrancy flex flex-col gap-0.5 border-r-[0.5px] border-line px-2.5 py-3">
-        {/* macOS overlay 原生红绿灯留白 + 可拖拽 */}
-        <div data-tauri-drag-region className="h-3" />
+        {/* macOS overlay 原生红绿灯留白 + 可拖拽:留足高度让 logo 与红绿灯拉开间距 */}
+        <div data-tauri-drag-region className="h-7" />
         <div
           data-tauri-drag-region
           className="flex items-center gap-2 px-2 pb-2.5"

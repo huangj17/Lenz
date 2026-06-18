@@ -11,6 +11,22 @@
 
 use crate::error::LenzError;
 
+/// 当前是否有任一「快捷键修饰键」(⇧⌃⌥⌘ 或 Fn)处于物理按下状态。
+///
+/// 划词快捷键(Alt+D)触发时,用户的 Option 往往仍按着;若此刻合成 Cmd+C,被按住的
+/// 修饰键会并入合成事件 → 前台应用收到的是 `⌘⌥C` 而非 `⌘C`,复制不会发生。调用方据此
+/// 先等触发键松开再合成(spec 05 §3)。非 macOS 恒返回 false。
+pub fn modifiers_held() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        macos::modifiers_held()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
 /// 向前台应用合成一次系统「复制」快捷键。
 ///
 /// 返回 `Ok` 仅表示事件已派发,**不保证**前台应用真的复制了内容
@@ -40,6 +56,17 @@ mod macos {
 
     /// `kVK_ANSI_C` —— 字母 C 的虚拟键码。
     const KEY_C: u16 = 8;
+
+    /// 读取「会话合并态」修饰键标志,判断是否有 ⇧⌃⌥⌘/Fn 仍被按下。
+    pub fn modifiers_held() -> bool {
+        let cur = CGEventSource::flags_state(CGEventSourceStateID::CombinedSessionState);
+        let mods = CGEventFlags::MaskShift
+            | CGEventFlags::MaskControl
+            | CGEventFlags::MaskAlternate
+            | CGEventFlags::MaskCommand
+            | CGEventFlags::MaskSecondaryFn;
+        cur.intersects(mods)
+    }
 
     pub fn copy() -> Result<(), LenzError> {
         // HID 系统态事件源;构造失败也允许以 None 源发送。

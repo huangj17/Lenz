@@ -336,6 +336,10 @@ pub fn clamp_popup_into_monitor(app: &AppHandle, height: f64) {
 const COPY_POLL_INTERVAL: Duration = Duration::from_millis(20);
 const COPY_POLL_TIMEOUT: Duration = Duration::from_millis(180);
 
+/// 合成 Cmd+C 前等待触发快捷键的修饰键松开的轮询间隔与上限(spec 05 §3)。
+const MOD_WAIT_INTERVAL: Duration = Duration::from_millis(10);
+const MOD_WAIT_TIMEOUT: Duration = Duration::from_millis(400);
+
 /// 划词翻译(快捷键模式):自动复制前台选中文本 → 翻译 → popup。
 ///
 /// 流程(spec 05 §3):
@@ -351,57 +355,105 @@ pub fn on_selection_shortcut(app: &AppHandle) {
 }
 
 async fn handle_selection_shortcut(app: AppHandle) {
-    let before = app.clipboard().read_text().unwrap_or_default();
+    // ① 首选 Accessibility API 直读选中文本:不碰剪贴板、不合成按键,规避修饰键污染 /
+    //    同文字重复 / 焦点时序 / 剪贴板被覆盖等一系列问题(spec 05 §3)。AX 调用可能对
+    //    无响应目标应用造成同步 IPC 阻塞,放到 spawn_blocking 上跑,避免堵塞 async 运行时。
+    let ax = tokio::task::spawn_blocking(crate::core::selection_text::read_selected_text)
+        .await
+        .ok()
+        .flatten();
+    if let Some(text) = ax {
+        return translate_selection(&app, text).await;
+    }
 
-    // 合成复制按键(macOS 需「辅助功能」权限;失败仅记日志,后续靠剪贴板比较退化)。
+    // ② 兜底(AX 取不到,如部分 Chrome/Electron):合成 Cmd+C 读剪贴板。
+    //    Alt+D 触发时 Option 等修饰键往往仍按着,会并入合成的 Cmd+C(→ ⌘⌥C,前台不复制),
+    //    先等其松开;再用哨兵串法判定是否真复制到选区(不靠与旧剪贴板差异,规避同文字重复)。
+    wait_modifiers_released().await;
+    if let Some(text) = copy_selection_via_clipboard(&app).await {
+        return translate_selection(&app, text).await;
+    }
+
+    // ③ AX 与剪贴板都拿不到选区:回显上次结果(spec 05 §3 —— 再次按键复现上次内容)。
+    if let Some(last) = app.state::<LastResult>().get() {
+        app.state::<ScreenshotSession>().begin();
+        position_popup_at_cursor(&app);
+        let _ = app.emit(EVT_RESULT, last);
+    } else {
+        log::debug!("selection shortcut: AX 空 + 剪贴板无选区 + 无历史;忽略");
+    }
+}
+
+/// 拿到选中文本后的统一收尾:截断 5000 字(spec 05 §4)→ 新会话 + 光标处弹框 + 翻译。
+async fn translate_selection(app: &AppHandle, text: String) {
+    let text: String = text.chars().take(5000).collect();
+    let gen = app.state::<ScreenshotSession>().begin();
+    position_popup_at_cursor(app);
+    let _ = tokio::time::timeout(TOTAL_TIMEOUT, run_text_pipeline(app, text, gen)).await;
+}
+
+/// 合成 Cmd+C 前等待触发快捷键的修饰键松开,避免被仍按住的 Option/Cmd 等并入合成事件
+/// (spec 05 §3)。无修饰键按下时立即返回;最多等 `MOD_WAIT_TIMEOUT`,超时则尽力继续。
+async fn wait_modifiers_released() {
+    let deadline = Instant::now() + MOD_WAIT_TIMEOUT;
+    while keystroke::modifiers_held() {
+        if Instant::now() >= deadline {
+            log::debug!("selection shortcut: 修饰键 {MOD_WAIT_TIMEOUT:?} 内未松开,继续合成 Cmd+C");
+            break;
+        }
+        tokio::time::sleep(MOD_WAIT_INTERVAL).await;
+    }
+}
+
+/// 兜底:合成 Cmd+C 取前台选区(AX 读不到时用)。先写入唯一**哨兵串**占位,再合成
+/// Cmd+C;若随后剪贴板 != 哨兵,说明前台确实复制了选区(即便它恰好等于用户原剪贴板,
+/// 也不会像「与旧值比对」那样把重复同字误判为无选区);读毕**还原原剪贴板**(不留痕)。
+/// 返回选中文本;没复制到内容(无选区 / 无权限 / 修饰键仍污染)则返回 `None`。
+async fn copy_selection_via_clipboard(app: &AppHandle) -> Option<String> {
+    // 原剪贴板(可能非文本 → None,则无法精确还原,属少见边角)。
+    let original = app.clipboard().read_text().ok();
+    // 不可见字符包裹的哨兵,极不可能与真实选区相同。
+    const SENTINEL: &str = "\u{2063}lenz-selection-probe\u{2063}";
+    if app.clipboard().write_text(SENTINEL.to_string()).is_err() {
+        return None;
+    }
+
     if let Err(e) = keystroke::copy_selection() {
         log::warn!("synthesize copy keystroke failed: {e}");
     }
 
-    // 轮询等待系统把选中文本写入剪贴板(写入是异步的)。
-    let after = wait_clipboard_change(&app, &before).await;
-    let selection = after.trim();
-
-    // 有新选区:翻译之(长度上限 5000,spec 05 §4)。
-    if !selection.is_empty() && selection != before.trim() {
-        let text: String = selection.chars().take(5000).collect();
-        let gen = app.state::<ScreenshotSession>().begin();
-        position_popup_centered(&app);
-        let _ = tokio::time::timeout(TOTAL_TIMEOUT, run_text_pipeline(&app, text, gen)).await;
-        return;
-    }
-
-    // 无新选区:回显上次结果(spec 05 §3 —— 再次按键复现上次内容)。
-    if let Some(last) = app.state::<LastResult>().get() {
-        app.state::<ScreenshotSession>().begin();
-        position_popup_centered(&app);
-        let _ = app.emit(EVT_RESULT, last);
-        return;
-    }
-
-    // 既无新选区也无历史:回退翻译当前剪贴板内容(首次可用)。
-    if !selection.is_empty() {
-        let text: String = selection.chars().take(5000).collect();
-        let gen = app.state::<ScreenshotSession>().begin();
-        position_popup_centered(&app);
-        let _ = tokio::time::timeout(TOTAL_TIMEOUT, run_text_pipeline(&app, text, gen)).await;
-    } else {
-        log::debug!("selection shortcut: no selection, no clipboard, no history; ignored");
-    }
-}
-
-/// 轮询剪贴板直到内容相对 `before` 变化或超时;返回最终读到的内容。
-async fn wait_clipboard_change(app: &AppHandle, before: &str) -> String {
+    // 轮询等前台把选区写入剪贴板(写入是异步的);超时仍是哨兵 → 没复制到东西。
     let deadline = Instant::now() + COPY_POLL_TIMEOUT;
-    loop {
+    let copied = loop {
         let cur = app.clipboard().read_text().unwrap_or_default();
-        if cur != before && !cur.trim().is_empty() {
-            return cur;
+        if cur != SENTINEL {
+            break Some(cur);
         }
         if Instant::now() >= deadline {
-            return cur;
+            break None;
         }
         tokio::time::sleep(COPY_POLL_INTERVAL).await;
+    };
+
+    // 还原原剪贴板(贯彻「不主动改剪贴板」)。原剪贴板非文本(None)时无法精确还原,
+    // 但若此刻剪贴板仍是我们写入的哨兵(说明没复制到选区),必须清掉,避免把哨兵留给用户。
+    match original {
+        Some(s) => {
+            let _ = app.clipboard().write_text(s);
+        }
+        None => {
+            if app.clipboard().read_text().ok().as_deref() == Some(SENTINEL) {
+                let _ = app.clipboard().write_text(String::new());
+            }
+        }
+    }
+
+    let text = copied?;
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
     }
 }
 
@@ -453,8 +505,34 @@ async fn run_text_pipeline(app: &AppHandle, original: String, gen: u64) {
     );
 }
 
-/// 把 popup 居中显示在主显示器上 1/3 处(划词快捷键模式的 MVP 定位;
-/// 光标锚定见 M5 §7)。
+/// 划词弹框定位:锚定到当前光标右下方(+16,+16),按 popup 估算尺寸夹紧到所在
+/// 显示器工作区(spec 05 §7)。取不到光标位置(非 macOS / 失败)时回退居中。
+fn position_popup_at_cursor(app: &AppHandle) {
+    let Some((cx, cy)) = crate::core::cursor::current_logical() else {
+        return position_popup_centered(app);
+    };
+    let Some(popup) = app.get_webview_window(POPUP_LABEL) else {
+        log::warn!("popup window not found; cannot show selection result");
+        return;
+    };
+    let mut x = cx + 16.0;
+    let mut y = cy + 16.0;
+    if let Ok(bounds) = selection_window::logical_monitor_bounds(app) {
+        if let Some((lx, ly, lw, lh)) = bounds
+            .into_iter()
+            .find(|(mx, my, mw, mh)| cx >= *mx && cx < mx + mw && cy >= *my && cy < my + mh)
+        {
+            x = x.clamp(lx, (lx + lw - POPUP_WIDTH).max(lx));
+            y = y.clamp(ly, (ly + lh - POPUP_INIT_HEIGHT).max(ly));
+        }
+    }
+    let _ = popup.set_position(LogicalPosition::new(x, y));
+    let _ = popup.set_size(LogicalSize::new(POPUP_WIDTH, POPUP_INIT_HEIGHT));
+    let _ = popup.show();
+    let _ = popup.set_focus();
+}
+
+/// 把 popup 居中显示在主显示器上 1/3 处(取不到光标位置时的回退定位)。
 fn position_popup_centered(app: &AppHandle) {
     let Some(popup) = app.get_webview_window(POPUP_LABEL) else {
         log::warn!("popup window not found; cannot show selection result");

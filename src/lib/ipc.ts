@@ -25,10 +25,12 @@ import type {
   LenzErrorCode,
   OcrResult,
   OverlayClosedPayload,
+  PermissionRequiredPayload,
   Rect,
   ScreenshotErrorPayload,
   ScreenshotProgressPayload,
   ScreenshotResult,
+  SelectionDetectedPayload,
   SelectionTextChangedPayload,
   StartupWarningPayload,
   TestEngineResult,
@@ -210,10 +212,15 @@ export const overlayApi = {
   close: (id: string) => invoke<void>("close_overlay", { id }),
 };
 
-/** 划词监听开关(spec 05) */
+/** 划词监听(spec 05) */
 export const selectionApi = {
   toggleListener: (enabled: boolean) =>
     invoke<void>("toggle_selection_listener", { enabled }),
+  /** 划词指示图标被 hover/点击 → 合成复制 + 翻译并弹框 */
+  trigger: () => invoke<void>("trigger_selection_translate"),
+  /** 打开系统「辅助功能」设置(权限引导) */
+  openAccessibilitySettings: () =>
+    invoke<void>("open_accessibility_settings"),
 };
 
 /** 系统 / 更新命令(spec 10) */
@@ -230,6 +237,8 @@ export const Events = {
   ShortcutScreenshot: "shortcut://screenshot",
   ShortcutOverlay: "shortcut://overlay",
   SelectionTextChanged: "selection://text-changed",
+  SelectionDetected: "selection://detected",
+  SelectionPermissionRequired: "selection://permission-required",
   CaptureRegionSelected: "capture://region-selected",
   CaptureRegionCancelled: "capture://region-cancelled",
   ScreenshotProgress: "screenshot://progress",
@@ -246,6 +255,8 @@ export interface EventPayloadMap {
   [Events.ShortcutScreenshot]: void;
   [Events.ShortcutOverlay]: void;
   [Events.SelectionTextChanged]: SelectionTextChangedPayload;
+  [Events.SelectionDetected]: SelectionDetectedPayload;
+  [Events.SelectionPermissionRequired]: PermissionRequiredPayload;
   [Events.CaptureRegionSelected]: CaptureRegionSelectedPayload;
   [Events.CaptureRegionCancelled]: void;
   [Events.ScreenshotProgress]: ScreenshotProgressPayload;

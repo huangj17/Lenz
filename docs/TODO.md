@@ -257,11 +257,23 @@
 
 目标:F1 功能,macOS 优先,Windows 后补。
 
+> **设计调整(2026-06-18)·自动模式改「划词指示图标」**:spec 05 §1(选中松手即译)与 §2.1(剪贴板 changeCount)互相矛盾,经用户拍板,自动模式不做「选中即译」,改为 **Bob/Easydict 式划词图标**:监听到划词/双击选中手势后,在光标处浮出 Lenz 小图标,用户 **hover/点击图标** 才合成复制+翻译并弹框。更克制(不主动改剪贴板)。Alt+D 快捷键仍是显式划词主路径。**spec 05 §1/§2.1/§5/§10 待据此同步**。
+>
+> **本步进度(2026-06-18)·Increment 1**:① 弹框光标锚定(§7,`core/cursor.rs` + `position_popup_at_cursor`,已用于 Alt+D);② `SelectionListener`(managed state,start/stop/restart + `sync` 据 `selection.enabled`(托盘总开关,默认 false / opt-in)启停)+ macOS `CGEventTap`(listen-only,左键 down/up,拖拽位移≥4pt 或双击 clickState≥2 判为选中 → emit `selection://detected{x,y}`);③ `AXIsProcessTrusted` 权限检测 + emit `selection://permission-required`;④ `toggle_selection_listener` 真启停 + 托盘/启动/`config://changed` 接线。⚠️ CGEventTap 需「辅助功能」权限,后台无法实机验证,待用户授权后实测(看日志「划词监听已启动」+ 选中是否 emit detected)。**Increment 2(下一步)**:划词指示图标窗口(`?window=indicator`)消费 `selection://detected` 显示 logo + hover/点击触发翻译;前端权限引导;Windows 监听。
+>
+> **本步进度(2026-06-18)·Increment 2 完成**:① 静态 `indicator` 窗口(transparent/alwaysOnTop/`focus:false`/`acceptFirstMouse:true`)+ `core/indicator.rs`(`show_at` 在光标处定位+show **不取焦** + `IndicatorSession` 自动隐藏 2.5s;`hide`);② setup 订阅 `selection://detected` → `indicator::show_at`;③ 前端 `IndicatorWindow.tsx`(Lens 图标,**hover 或点击** → `trigger_selection_translate`,1s 去抖)+ `App.tsx` 路由 + `theme.css` 透明底;④ `trigger_selection_translate` 命令(hide 图标 → 等 120ms 焦点回原应用 → 复用 `on_selection_shortcut` 合成 Cmd+C+翻译+光标处弹框);⑤ 权限引导:`open_accessibility_settings` 命令 + 「启用监听但未授权」自动打开辅助功能设置面板;⑥ 前端契约同步(`bindings.ts` 重新生成 + `ipc.ts`/`types.ts` 镜像)。验证:`cargo build --bin lenz` 链接成功(`AXIsProcessTrusted` 经 `#[link(ApplicationServices)]` 解析)+ `pnpm typecheck` ✓。⚠️ **实机待验**:(a) CGEventTap 是否在授权后 emit detected;(b) **hover(pointerenter)在非活动图标窗是否触发**——点击有 `acceptFirstMouse` 兜底;(c) 点击图标后 hide→焦点回原应用→合成 Cmd+C 的时序是否稳。**仍缺**:§9 状态机形式化、前端动态权限横幅(目前靠自动打开设置 + 设置页静态 `permissionNote`)、Windows 监听、entitlements、§10/§11 验收实测。
+>
+> **修复(2026-06-18)·误触 + 即时隐藏**:① **误触**——划词手势不再直接显示图标,改为后台探测:`probe_selection_then_indicate` 合成 Cmd+C → 若剪贴板确变(确有选中文本)才暂存文本(`PendingSelection`)+ **还原剪贴板**(不留痕,非文本变动也一律还原以防污染)+ 显示图标;点按钮/菜单等非文本手势 Cmd+C 空操作 → 不显示。图标触发改为直接翻译暂存文本,不再 engage 时合成复制(消除焦点时序隐患)。② **即时隐藏**——监听线程维护图标可见态+矩形全局态(`indicator::is_visible/hit_test`),mouseDown 落在图标外即 emit `selection://dismiss` → 立刻隐藏(2.5s 自动隐藏降为兜底);落在图标内放行点击触发。残留边角:Finder 拖选文件可能仍误显(文件路径有文本表示),少见可接受。
+>
+> **回退(2026-06-18)·撤销「探测」,回到 §6「不读剪贴板」**:上条的后台探测有致命副作用——每次划词手势都合成 Cmd+C 并**还原剪贴板**,会**覆盖用户自己刚 Cmd+C 复制的内容**(「划词时复制不了别的文字」)。经用户拍板按 spec 05 §6 最小改动:① 删除 `probe_selection_then_indicate` / `PendingSelection` / `run_selection_text`,`selection://detected` 直接 `indicator::show_at`(不碰剪贴板);复制只在 hover/点击图标(`trigger_selection_translate`)或 Alt+D 时发生。代价:图标在所有划词/双击手势(含非文本,如拖窗口/双击按钮)都会浮现——精度不如探测,若日后嫌吵再上 Accessibility API(AXSelectedText)直读。② **Alt+D 没把选中文字带进弹框**的真因不是权限(CGEventTap 已跑起来即说明辅助功能已授予),而是 Alt+D 触发时 Option 仍按着,合成的 Cmd+C 被并成 ⌘⌥C → 不复制 → 剪贴板不变 → 误判「无新选区」回显上次结果。修复:`keystroke::modifiers_held()`(读 `CGEventSourceFlagsState`)+ `handle_selection_shortcut` 合成前先等修饰键松开(≤400ms,`wait_modifiers_released`)。
+>
+> **重做(2026-06-18)·AX 直读取代「合成 Cmd+C + 比对剪贴板」**:上条的最小改动经全链路复查仍不可靠——「合成 Cmd+C + 比对剪贴板」有多个固有失败模式,尤其 **`copy_selection` 会把选区留在剪贴板,反复选同一段文字时剪贴板内容不变 → `selection != before.trim()` 误判无选区 → 回显上次结果**(开发者反复测同一词必中,极可能就是「怎么选都不进弹框」)。经用户拍板改用 **macOS Accessibility API 直读选中文本**:新增 `core/selection_text.rs::read_selected_text()`(`AXUIElementCreateSystemWide` → `AXFocusedUIElement` → `AXSelectedText`,属性名用 `CFString::from_str` 构造,不依赖 kAX 静态符号;`objc2-core-foundation` 直接依赖)。`handle_selection_shortcut` 改为:①AX 直读(spawn_blocking,不堵 async)→ 有则直接翻译(不碰剪贴板/不合成键,根治修饰键污染+同文字重复+焦点时序+剪贴板覆盖);②AX 取不到(部分 Chrome/Electron)→ 兜底合成 Cmd+C,改用**哨兵串**法判定是否真复制到(`copy_selection_via_clipboard`,不靠与旧值差异)+ 用后还原原剪贴板;③都没有→回显 LastResult。`wait_clipboard_change` 删除。验证:`cargo check`/`clippy`/`test`(37 passed)通过,bindings 不变(`read_selected_text` 非命令)。⚠️ 仍待实机验证 AX 在常用 app 的覆盖与兜底回退。
+
 ### 5.1 监听层
-- [ ] `SelectionListener` 抽象(start/stop/restart)(→ spec 05 §2.3)
-- [ ] macOS:`CGEventTap` 监听 `kCGEventLeftMouseUp`(→ spec 05 §2.1)
-- [ ] macOS:`NSPasteboard.changeCount` 对比读取选中文本(→ spec 05 §2.1)
-- [ ] macOS:`AXIsProcessTrusted` 检测 + 首次触发引导 emit `selection://permission-required`(→ spec 05 §2.1)
+- [x] `SelectionListener` 抽象(start/stop/restart)(→ spec 05 §2.3) —— `core/selection.rs` 具体类型(非 trait):managed state + `sync(app)` 据配置启停;macOS 用独立线程跑 CFRunLoop + CGEventTap
+- [x] macOS:`CGEventTap` 监听 `kCGEventLeftMouseUp`(→ spec 05 §2.1) —— 同时监听 down 记录起点,判拖拽/双击;listen-only 不吞事件;被系统超时禁用时自动 re-enable
+- [ ] ~~macOS:`NSPasteboard.changeCount` 对比读取选中文本~~(→ spec 05 §2.1) —— ⚠️ 设计调整后不在监听层读剪贴板;改为图标交互时(Increment 2)合成 Cmd+C → 轮询剪贴板(复用 Alt+D 路径)
+- [x] macOS:`AXIsProcessTrusted` 检测 + 首次触发引导 emit `selection://permission-required`(→ spec 05 §2.1) —— `#[link(name="ApplicationServices")]` extern;无权限则不启动监听线程并 emit 引导事件(前端引导 UI 待 Increment 2)
 - [ ] macOS entitlements 声明 `com.apple.security.automation.apple-events`(→ spec 11 §4.1)
 - [ ] Windows:`SetWinEventHook` 监听 `EVENT_OBJECT_TEXTSELECTIONCHANGED` + `EVENT_SYSTEM_FOREGROUND`(→ spec 05 §2.2)
 - [ ] Windows:`OpenClipboard` + `GetClipboardData(CF_UNICODETEXT)`(→ spec 05 §2.2)
@@ -272,13 +284,13 @@
 - [x] 无新选区(未选中/无权限)→ 回显上次结果(`LastResult` managed state 缓存 F1/F2 最近结果,重新 emit `screenshot://result`)(→ spec 05 §3) —— ⚠️ 与 spec 05 §10「无选中→toast」不同,按用户需求改为「再次按键复现上次内容」,spec 05 待同步
 - [ ] 自动触发:去抖 `popupDelayMs` + 长度过滤(1~5000)+ 去重(→ spec 05 §4)
 - [ ] emit `selection://triggered { text, source, cursorPos }`(→ spec 05 §5)
-- [ ] `toggle_selection_listener` command(→ spec 05 §8)
-- [ ] 托盘"划词监听"toggle 同步状态(→ spec 10 §1.2)
+- [x] `toggle_selection_listener` command(→ spec 05 §8) —— 写 `selection.enabled` → `config://changed` 订阅者据 `selection.enabled`(托盘总开关,默认 false / opt-in)启停监听(`core::selection::sync`)
+- [x] 托盘"划词监听"toggle 同步状态(→ spec 10 §1.2) —— 复用同一 `config://changed` 路径,菜单勾选 + 监听器启停一并联动
 
 ### 5.3 popup 复用
-- [ ] 监听 `selection://triggered` → 复用同一 popup 实例(→ spec 05 §6)
-- [ ] 正在翻译中触发新文本 → 取消旧请求(→ spec 05 §6)
-- [ ] 定位:`cursorPos + (16,16)` 偏移 + 溢出夹紧(以 popup 尺寸估算)(→ spec 05 §7)
+- [x] 监听 `selection://triggered` → 复用同一 popup 实例(→ spec 05 §6) —— 改为:图标 hover/点击 → `trigger_selection_translate` → 复用 Alt+D 编排(同一 popup 窗口 + `screenshot://*` 事件渲染)
+- [x] 正在翻译中触发新文本 → 取消旧请求(→ spec 05 §6) —— 复用 `ScreenshotSession` 代号:每次 `on_selection_shortcut` 都 `begin()` 令旧流程在 await 点放弃
+- [x] 定位:`cursorPos + (16,16)` 偏移 + 溢出夹紧(以 popup 尺寸估算)(→ spec 05 §7) —— `position_popup_at_cursor`,已用于 Alt+D 划词路径(取不到光标回退居中);Increment 2 的图标触发翻译复用此定位
 
 ### 5.4 状态机
 - [ ] IDLE → WAITING → TRANSLATING → SHOWING 状态切换(→ spec 05 §9)

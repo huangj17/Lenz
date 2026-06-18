@@ -8,11 +8,14 @@
 #![allow(dead_code)]
 
 pub mod capture;
+pub mod cursor;
+pub mod indicator;
 pub mod keystroke;
 pub mod ocr;
 pub mod overlay;
 pub mod screenshot;
 pub mod selection;
+pub mod selection_text;
 pub mod selection_window;
 pub mod shortcut;
 pub mod translator;

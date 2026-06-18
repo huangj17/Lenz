@@ -39,6 +39,22 @@
         "shadow": true,
         "focus": false,
         "visible": false
+      },
+      {
+        "label": "indicator",
+        "url": "index.html?window=indicator",
+        "title": "Lenz Indicator",
+        "width": 36,
+        "height": 36,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false,
+        "focus": false,
+        "visible": false,
+        "acceptFirstMouse": true
       }
     ],
     "security": {

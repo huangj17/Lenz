@@ -152,3 +152,32 @@ pub struct ScreenshotProgress {
     /// 当前阶段:`capture` / `ocr` / `translate`。
     pub stage: String,
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// 划词监听 F1 事件载荷(spec 05 §2 / §5)
+// ──────────────────────────────────────────────────────────────────────────
+
+/// `selection://detected` 事件载荷:监听到一次「划词/双击选中」手势。
+///
+/// 坐标为光标松开处的全局显示逻辑坐标(top-left 原点,单位 point),供前端在该处
+/// 浮出划词指示图标(spec 05 §2.1 / §7)。此时**尚未**读取选中文本——只有用户
+/// hover/点击图标才会去复制并翻译,避免无谓地改动剪贴板。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectionDetected {
+    pub x: f64,
+    pub y: f64,
+}
+
+/// `selection://permission-required` 事件载荷(spec 05 §2.1)。
+///
+/// macOS 划词监听依赖「辅助功能(Accessibility)」权限;未授时 emit,前端引导用户
+/// 去系统设置开启。
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionRequired {
+    /// 平台标识:`macos` / `windows`。
+    pub platform: String,
+    /// 人类可读说明。
+    pub detail: String,
+}

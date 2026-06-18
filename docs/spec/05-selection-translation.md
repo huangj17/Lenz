@@ -2,6 +2,11 @@
 
 > 覆盖 PRD §2.2 F1 与 §3.4(划词监听)。定义选中文本监听、去抖、弹框触发与结果展示。
 
+> ⚠️ **设计变更(2026-06-18,以实现为准)**:自动模式由「选中即译」改为 **划词指示图标**(Bob/Easydict 式)。本文 §1(选中松手即译)、§2.1(`changeCount` 直接取文本)、§4(去抖直接 emit triggered)、§5(`selection://triggered`)、§10(无选中→toast)为旧设计,**实际实现见 `docs/TODO.md` M5 设计调整 + Increment 1/2 说明**:
+> - CGEventTap 监听左键 down/up,判「拖拽位移≥4pt 或双击 clickState≥2」为选中手势 → emit `selection://detected {x,y}`(**不读剪贴板**);
+> - 前端在光标处浮出 Lens 图标,用户 **hover/点击** → `trigger_selection_translate` → 合成 `Cmd+C` → 轮询剪贴板 → 翻译 → 复用 popup 在光标处弹框;
+> - 自动监听总开关 = `selection.enabled`(托盘「划词监听」,默认 false / opt-in);Alt+D 快捷键划词始终可用,不受开关影响。本文待整体回写。
+
 ---
 
 ## 1. 触发方式总览

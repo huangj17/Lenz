@@ -79,7 +79,7 @@ export function createDefaultConfig(): Config {
       theme: "system",
       autoStart: false,
       checkUpdate: true,
-      openOnLaunch: true,
+      openOnLaunch: false,
     },
     shortcuts: {
       selection: null,
@@ -88,7 +88,7 @@ export function createDefaultConfig(): Config {
       openMain: null,
     },
     selection: {
-      enabled: true,
+      enabled: false,
       autoDetect: false,
       popupDelayMs: 300,
     },
