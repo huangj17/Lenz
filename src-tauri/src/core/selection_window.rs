@@ -11,7 +11,7 @@
 //!
 //! macOS 要求窗口创建在主线程,故 `open` 把构建动作 dispatch 到主线程执行。
 
-use tauri::{AppHandle, Manager, Monitor, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, Monitor, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::error::LenzError;
 use crate::types::TriggerKind;
@@ -65,15 +65,44 @@ fn open_inner(app: &AppHandle, trigger: TriggerKind) -> Result<(), LenzError> {
             .build()
             .map_err(|e| LenzError::internal(format!("build {label}: {e}")))?;
 
-        win.set_position(*m.position())
-            .map_err(|e| LenzError::internal(format!("position {label}: {e}")))?;
-        win.set_size(*m.size())
-            .map_err(|e| LenzError::internal(format!("size {label}: {e}")))?;
+        position_and_size(&win, m)
+            .map_err(|e| LenzError::internal(format!("place {label}: {e}")))?;
         win.show()
             .map_err(|e| LenzError::internal(format!("show {label}: {e}")))?;
         if i == 0 {
             let _ = win.set_focus();
         }
+    }
+    Ok(())
+}
+
+/// 把蒙层窗口精确铺满目标显示器 `m`。
+///
+/// ⚠️ macOS 特有坑:NSWindow 用「全局逻辑点」坐标系。窗口是在**当前屏**(触发截图时
+/// 光标所在屏,常为小 Retina 内屏)上以隐藏态构建的,若此时直接对它 `set_position`/
+/// `set_size` 传**物理**坐标,tao 会按窗口**当前所在屏**的 scale 把物理换算成逻辑
+/// (即一律除以内屏的 2.0)。而外接普通 DPI 屏 scale=1.0(逻辑=物理),其物理尺寸被
+/// 错误地按 2.0 缩小,加之窗口 scale 变更是异步的,蒙层遂只铺满一小块 —— 混合缩放
+/// (小屏 Retina + 外接 27")下尤其明显。故 macOS 改用各屏**自身** scale 换算出的逻辑
+/// 坐标(与 `logical_monitor_bounds` 同源),让 NSWindow 拿到正确的全局逻辑点。
+///
+/// Windows:Win32 以物理像素做全局定位,直接用物理坐标即精确,无需换算。
+fn position_and_size(win: &WebviewWindow, m: &Monitor) -> tauri::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        let sf = m.scale_factor();
+        let p = m.position();
+        let s = m.size();
+        win.set_position(tauri::LogicalPosition::new(p.x as f64 / sf, p.y as f64 / sf))?;
+        win.set_size(tauri::LogicalSize::new(
+            s.width as f64 / sf,
+            s.height as f64 / sf,
+        ))?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        win.set_position(*m.position())?;
+        win.set_size(*m.size())?;
     }
     Ok(())
 }

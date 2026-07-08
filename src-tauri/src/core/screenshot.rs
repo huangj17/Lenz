@@ -350,25 +350,43 @@ async fn run_pipeline(app: &AppHandle, region: Rect, gen: u64) {
     );
 }
 
-/// 把 OCR 文本块按阅读顺序拼接(同一行用空格,换行用 `\n`)(spec 06 §2.4)。
+/// 把 OCR 文本块按阅读顺序拼接,尽量保留原排版(spec 06 §2.4):同一行的块用空格
+/// 相连;相邻行用 `\n`;当行间垂直空隙明显大于一整行时,判为段落分隔并保留一个空行
+/// (`\n\n`),使原文的分段结构在弹框与译文中都得到保留。每块先 `trim` 去首尾空白。
 fn join_blocks(blocks: &[OcrBlock]) -> String {
     let mut out = String::new();
     let mut prev_mid_y: Option<i32> = None;
+    // 「当前行」的底边与行高(同行多块取并集),换行时据此估算行间空隙判断是否分段。
+    let mut line_bottom = 0;
+    let mut line_h = 0;
     for b in blocks {
         let text = b.text.trim();
         if text.is_empty() {
             continue;
         }
         let mid_y = b.bbox.y + b.bbox.h / 2;
-        // 行高的一半作为同行判定阈值。
-        let same_line = match prev_mid_y {
-            Some(py) => (mid_y - py).abs() <= (b.bbox.h / 2).max(6),
-            None => false,
-        };
-        if !out.is_empty() {
-            out.push_str(if same_line { " " } else { "\n" });
+        let h = b.bbox.h.max(1);
+        // 行高的一半作为同行判定阈值(小字号下至少 6px)。
+        let same_line = matches!(prev_mid_y, Some(py) if (mid_y - py).abs() <= (h / 2).max(6));
+        if prev_mid_y.is_some() {
+            out.push_str(if same_line {
+                " "
+            } else if b.bbox.y - line_bottom > line_h.max(h) {
+                // 行间空隙超过一整行高 → 视为段落分隔,保留一个空行。
+                "\n\n"
+            } else {
+                "\n"
+            });
         }
         out.push_str(text);
+        // 更新「当前行」几何:同行并入其 bbox,换行则重置为本块。
+        if same_line {
+            line_bottom = line_bottom.max(b.bbox.y + h);
+            line_h = line_h.max(h);
+        } else {
+            line_bottom = b.bbox.y + h;
+            line_h = h;
+        }
         prev_mid_y = Some(mid_y);
     }
     out
@@ -508,23 +526,46 @@ async fn handle_selection_shortcut(app: AppHandle) {
     // ③ AX 与剪贴板都拿不到选区:回显上次结果(spec 05 §3 —— 再次按键复现上次内容)。
     if let Some(last) = app.state::<LastResult>().get() {
         log::info!("划词:无新选区,回显上次结果");
-        app.state::<ScreenshotSession>().begin();
-        position_popup_at_cursor(&app);
-        wait_popup_ready(&app).await;
-        let _ = app.emit(EVT_RESULT, last);
+        reshow_result(&app, last).await;
     } else {
         log::info!("划词:AX 空 + 剪贴板无选区 + 无历史;忽略(未选中文本或无权限)");
     }
 }
 
-/// 拿到选中文本后的统一收尾:截断 5000 字(spec 05 §4)→ 新会话 + 光标处弹框 + 翻译。
+/// 拿到选中文本后的统一收尾(F1 各路径——AX 直读 / 剪贴板兜底 / 图标预读——的唯一汇聚点)。
+///
+/// spec 05 §4 的「长度过滤 + 去重」在此集中落地:
+/// - **长度过滤**:先 `trim`,空串直接忽略(下界 ≥1);再截断到 5000 字(上界)。
+/// - **去重**:原文与「上次翻译结果」完全相同 → 直接回显缓存,不再重复请求引擎
+///   (满足验收「同段不重复触发」,且省一次 LLM 调用)。
+///
+/// 通过过滤后:新会话代号 + 光标处弹框 + 翻译。
 async fn translate_selection(app: &AppHandle, text: String) {
-    let text: String = text.chars().take(5000).collect();
+    let text: String = text.trim().chars().take(5000).collect();
+    if text.is_empty() {
+        return;
+    }
+    // 去重:同一段原文重复选中/点击 → 回显缓存结果,不重复翻译。
+    if let Some(last) = app.state::<LastResult>().get() {
+        if last.original == text {
+            log::info!("划词:原文与上次相同,回显缓存结果(去重,不重复翻译)");
+            return reshow_result(app, last).await;
+        }
+    }
     let gen = app.state::<ScreenshotSession>().begin();
     position_popup_at_cursor(app);
     // 首帧投递前等待 popup webview 就绪,避免冷启动首次触发丢掉 progress/result(方案 A)。
     wait_popup_ready(app).await;
     let _ = tokio::time::timeout(TOTAL_TIMEOUT, run_text_pipeline(app, text, gen)).await;
+}
+
+/// 回显一份已有结果到光标处 popup(「无新选区回显上次」与「同原文去重」共用)。
+/// 起一个新会话代号令进行中的旧流程作废,再在光标处摆出 popup 并重发 result 事件。
+async fn reshow_result(app: &AppHandle, result: ScreenshotResult) {
+    app.state::<ScreenshotSession>().begin();
+    position_popup_at_cursor(app);
+    wait_popup_ready(app).await;
+    let _ = app.emit(EVT_RESULT, result);
 }
 
 /// 合成 Cmd+C 前等待触发快捷键的修饰键松开,避免被仍按住的 Option/Cmd 等并入合成事件
@@ -774,6 +815,14 @@ mod tests {
         // 第二块明显下移 → 换行相连。
         let blocks = vec![block("Line1", 0, 100, 50, 20), block("Line2", 0, 140, 50, 20)];
         assert_eq!(join_blocks(&blocks), "Line1\nLine2");
+    }
+
+    #[test]
+    fn keeps_blank_line_between_paragraphs() {
+        // 行间空隙(top2-bottom1)超过一整行高 → 段落间保留空行。
+        // 行高 20:紧邻行 gap=20(=行高)仍是单换行;此处 gap=40>20 → 空行。
+        let blocks = vec![block("Para1", 0, 100, 50, 20), block("Para2", 0, 160, 50, 20)];
+        assert_eq!(join_blocks(&blocks), "Para1\n\nPara2");
     }
 
     #[test]

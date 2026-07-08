@@ -179,8 +179,8 @@ export function SelectionWindow() {
           <LensMark size={14} />
           <span>{t("capture.hint")}</span>
           <span className="h-3 w-px bg-white/20" />
-          <span className="flex items-center gap-1.5 text-[11px] opacity-75">
-            <Kbd keys={["esc"]} /> {t("capture.cancel")}
+          <span className="flex items-center gap-1.5 text-[11px] text-white/90">
+            <Kbd keys={["esc"]} onDark /> {t("capture.cancel")}
           </span>
         </div>
       </div>

@@ -351,7 +351,12 @@ export function PopupWindow() {
         title={t("popup.resizeWidth")}
         className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-ew-resize touch-none"
       />
-      <div ref={cardRef} className="ln-popup overflow-hidden rounded-[11px]">
+      {/* max-h 与下方 resizeToContent 的 480 夹紧值一致:内容超高时卡片本身封顶,
+          由译文区(flex-1 min-h-0)内部滚动吸收溢出,底部 footer 始终固定可见。 */}
+      <div
+        ref={cardRef}
+        className="ln-popup flex max-h-[480px] flex-col overflow-hidden rounded-[11px]"
+      >
         <Header onClose={() => void hidePopup()} onDragStart={bumpDragGuard} />
 
         {view.kind === "loading" && (
@@ -419,8 +424,8 @@ export function PopupWindow() {
               </div>
             </div>
 
-            {/* 引擎结果行 */}
-            <div className="border-l-2 border-accent px-3 py-2.5">
+            {/* 引擎结果行(卡片封顶时,本块作为可伸缩滚动区吸收溢出) */}
+            <div className="flex min-h-0 flex-1 flex-col border-l-2 border-accent px-3 py-2.5">
               <div className="flex items-center gap-2">
                 <span className="ln-engine-badge grid h-[18px] w-[18px] place-items-center rounded font-mono text-[9px] font-bold text-white">
                   {badgeOf(engineName(panel.engineId))}
@@ -445,7 +450,7 @@ export function PopupWindow() {
               </div>
               {succ ? (
                 <>
-                  <p className="mt-2 max-h-56 select-text overflow-y-auto whitespace-pre-wrap pl-[26px] text-[13.5px] leading-relaxed text-fg">
+                  <p className="mt-2 min-h-0 flex-1 select-text overflow-y-auto whitespace-pre-wrap pl-[26px] text-[13.5px] leading-relaxed text-fg">
                     {succ.translation}
                   </p>
                   <div className="mt-2.5 flex items-center gap-3 pl-[26px]">

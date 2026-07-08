@@ -218,11 +218,11 @@ export function Icon({
 }
 
 /** macOS 键帽组合(如 ⌥ D) */
-export function Kbd({ keys }: { keys: string[] }) {
+export function Kbd({ keys, onDark = false }: { keys: string[]; onDark?: boolean }) {
   return (
     <span className="inline-flex items-center gap-[3px]">
       {keys.map((k, i) => (
-        <span key={i} className="ln-kbd">
+        <span key={i} className={onDark ? "ln-kbd ln-kbd--on-dark" : "ln-kbd"}>
           {k}
         </span>
       ))}

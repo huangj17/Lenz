@@ -60,7 +60,7 @@ popup 窗口展示原文 + 译文                    [前端 popup 窗口]
   - `preferred_languages`:取 `config.ocr.preferredLanguages`,若为空则由 OCR 引擎自动。
   - `min_confidence`:取 `config.ocr.minConfidence`(默认 0.5)。
 - 结果合并:把所有 `block.text` 按阅读顺序拼接(竖排语言按列序,横排按行序)。
-  - 拼接分隔符:同行 block 用空格,换行 block 用 `\n`。
+  - 拼接分隔符:同行 block 用空格,相邻行用 `\n`;行间垂直空隙超过一整行高时判为段落分隔,保留一个空行 `\n\n`(尽量保留原文分段)。
   - 拼接文本作为 `translate_text` 的输入;同时保留原始 `blocks` 数组供弹框显示原文。
 - OCR 结果为空 → emit `screenshot://error { stage: "ocr", code: "no_text" }`。
 

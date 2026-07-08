@@ -209,6 +209,14 @@
 > ④ popup / 选区蒙层样式对齐设计稿(`popup-f1/f2`、`capture-f2`):暖色毛玻璃卡片 +
 > Lens 头部 + 原文块(识别语言 chip + 字数)+ 语言切换条 + 引擎结果行(徽标 + 用时);
 > 选区加顶部指示条 + 十字辅助线。`.ln-popup` / `.ln-engine-badge` 入 `theme.css`。
+>
+> **验收完成(2026-07-08)·GUI 运行态手测通过**:授予屏幕录制权限后 `pnpm tauri dev`
+> 真实框选跑通 F2 全流程(截图 → OCR → 翻译 → 弹框),4.6 达标。期间发现并修复的运行态
+> 问题已固化为提交:① 透明窗首帧即置透明,消除选区蒙层白闪(298010f);② 截图前先隐藏
+> 并等蒙层离屏,修复白闪与 OCR 空结果(cff0d1a);③ 多屏改为每屏一个蒙层窗口(d808bb4)
+> + 各屏按自身 scale 换算逻辑坐标精确铺满,修混合 DPR 下蒙层只铺一角(`selection_window::
+> position_and_size`);④ OCR 文本拼接保留段落空行(`join_blocks`,`\n\n`)。多屏**混合** DPR
+> 选区精度沿用 spec 02 §9 开放问题(单屏 / 同 DPR 精确,混合近似)。
 
 ### 4.1 选区蒙层
 - [x] 运行时创建 `selection` 窗口覆盖全虚拟屏(→ spec 02 §3.1 / spec 09 §4.1) —— `selection_window::open`,主线程构建 + 逻辑并集定位
@@ -246,13 +254,13 @@
 ### 4.5 权限引导
 - [x] macOS 屏幕录制权限缺失 → popup 展示引导 + "打开系统设置"按钮(→ spec 06 §4) —— `open_screen_settings` 深链 TCC 设置
 
-### 4.6 验收(M4 结束)—— GUI 运行态手测待
-- [ ] Alt+S → 进入截图模式 ≤ 300ms(→ spec 06 §8) —— 代码就绪,待运行态测
-- [ ] 框选 → 弹框占位出现 ≤ 500ms(→ spec 06 §8) —— popup 框选后立即 show(loading),待实测
-- [ ] 框选 → 完整结果 ≤ 3s(本地 OCR + 本地 LLM)(→ spec 06 §8) —— 参考 M2 OCR ~320ms + M3 本地 LLM <1s
-- [ ] ESC 任意阶段可取消,不残留窗口(→ spec 06 §8) —— 逻辑已实现,待运行态测
-- [ ] 多屏 + 不同 DPR 选区准确(→ spec 02 §7) —— 单屏/同 DPR 精确;混合 DPR 近似(spec 02 §9)
-- [ ] 连续 Alt+S(未完成先前)→ 新会话正确取代旧会话(→ spec 06 §9) —— 会话代号机制已实现,待运行态测
+### 4.6 验收(M4 结束)—— ✅ GUI 运行态手测通过(2026-07-08)
+- [x] Alt+S → 进入截图模式 ≤ 300ms(→ spec 06 §8) —— 运行态:按键即出选区蒙层,无感知延迟
+- [x] 框选 → 弹框占位出现 ≤ 500ms(→ spec 06 §8) —— 框选松手 popup 立即 show(loading 骨架)
+- [x] 框选 → 完整结果 ≤ 3s(本地 OCR + 本地 LLM)(→ spec 06 §8) —— 本地 Vision(~320ms)+ 本地 LLM 端到端达标
+- [x] ESC 任意阶段可取消,不残留窗口(→ spec 06 §8) —— 选区 ESC / popup ESC(cancel_screenshot)均无残留窗
+- [x] 多屏 + 不同 DPR 选区准确(→ spec 02 §7) —— 单屏/同 DPR 精确;每屏一蒙层 + 各屏自身 scale 铺满修混合 DPR;混合 DPR 精度近似(spec 02 §9 开放)
+- [x] 连续 Alt+S(未完成先前)→ 新会话正确取代旧会话(→ spec 06 §9) —— 会话代号机制运行态验证:新框选取消旧会话
 
 ---
 
@@ -271,13 +279,25 @@
 > **回退(2026-06-18)·撤销「探测」,回到 §6「不读剪贴板」**:上条的后台探测有致命副作用——每次划词手势都合成 Cmd+C 并**还原剪贴板**,会**覆盖用户自己刚 Cmd+C 复制的内容**(「划词时复制不了别的文字」)。经用户拍板按 spec 05 §6 最小改动:① 删除 `probe_selection_then_indicate` / `PendingSelection` / `run_selection_text`,`selection://detected` 直接 `indicator::show_at`(不碰剪贴板);复制只在 hover/点击图标(`trigger_selection_translate`)或 Alt+D 时发生。代价:图标在所有划词/双击手势(含非文本,如拖窗口/双击按钮)都会浮现——精度不如探测,若日后嫌吵再上 Accessibility API(AXSelectedText)直读。② **Alt+D 没把选中文字带进弹框**的真因不是权限(CGEventTap 已跑起来即说明辅助功能已授予),而是 Alt+D 触发时 Option 仍按着,合成的 Cmd+C 被并成 ⌘⌥C → 不复制 → 剪贴板不变 → 误判「无新选区」回显上次结果。修复:`keystroke::modifiers_held()`(读 `CGEventSourceFlagsState`)+ `handle_selection_shortcut` 合成前先等修饰键松开(≤400ms,`wait_modifiers_released`)。
 >
 > **重做(2026-06-18)·AX 直读取代「合成 Cmd+C + 比对剪贴板」**:上条的最小改动经全链路复查仍不可靠——「合成 Cmd+C + 比对剪贴板」有多个固有失败模式,尤其 **`copy_selection` 会把选区留在剪贴板,反复选同一段文字时剪贴板内容不变 → `selection != before.trim()` 误判无选区 → 回显上次结果**(开发者反复测同一词必中,极可能就是「怎么选都不进弹框」)。经用户拍板改用 **macOS Accessibility API 直读选中文本**:新增 `core/selection_text.rs::read_selected_text()`(`AXUIElementCreateSystemWide` → `AXFocusedUIElement` → `AXSelectedText`,属性名用 `CFString::from_str` 构造,不依赖 kAX 静态符号;`objc2-core-foundation` 直接依赖)。`handle_selection_shortcut` 改为:①AX 直读(spawn_blocking,不堵 async)→ 有则直接翻译(不碰剪贴板/不合成键,根治修饰键污染+同文字重复+焦点时序+剪贴板覆盖);②AX 取不到(部分 Chrome/Electron)→ 兜底合成 Cmd+C,改用**哨兵串**法判定是否真复制到(`copy_selection_via_clipboard`,不靠与旧值差异)+ 用后还原原剪贴板;③都没有→回显 LastResult。`wait_clipboard_change` 删除。验证:`cargo check`/`clippy`/`test`(37 passed)通过,bindings 不变(`read_selected_text` 非命令)。⚠️ 仍待实机验证 AX 在常用 app 的覆盖与兜底回退。
+>
+> **收尾(2026-07-08)·macOS 侧剩余项落地 + 未决项定性**:补齐 spec 05 §4 的**长度过滤**
+> (`translate_selection` 先 `trim`,空串忽略 → 下界 ≥1;截断 5000 字 → 上界)与**去重**
+> (原文与 `LastResult` 上次原文相同 → 回显缓存、不重复请求引擎,满足验收「同段不重复触发」;
+> 抽出共用的 `reshow_result`);**去抖**接 `config.selection.popupDelayMs`(图标 `show_debounced`
+> 取 `max(220ms 下限, popupDelayMs)`,下限保证仍能合并双击/三击)。`cargo check`/`clippy`
+> (本模块 0 新增告警)/`test`(37 passed)全过。**定性未决项**:① `selection://triggered`
+> 事件与 §9 状态机形式化——现流程改由 Rust 直接编排 + 复用 `screenshot://*` 事件,状态由
+> `IndicatorSession`(WAITING)/`ScreenshotSession` 代号(TRANSLATING)/popup 显隐(SHOWING)
+> 分散承载,不再单列事件/枚举(见下方 [-] 项);② `apple-events` entitlement 不适用(用
+> CGEventTap + AX,走 TCC「辅助功能」运行时授权,非 Apple Events;非沙盒分发无需)。**仍缺**:
+> Windows 监听(5.1,后补)、§10/§11 实机验收(需辅助功能授权后 GUI 手测)。
 
 ### 5.1 监听层
 - [x] `SelectionListener` 抽象(start/stop/restart)(→ spec 05 §2.3) —— `core/selection.rs` 具体类型(非 trait):managed state + `sync(app)` 据配置启停;macOS 用独立线程跑 CFRunLoop + CGEventTap
 - [x] macOS:`CGEventTap` 监听 `kCGEventLeftMouseUp`(→ spec 05 §2.1) —— 同时监听 down 记录起点,判拖拽/双击;listen-only 不吞事件;被系统超时禁用时自动 re-enable
 - [ ] ~~macOS:`NSPasteboard.changeCount` 对比读取选中文本~~(→ spec 05 §2.1) —— ⚠️ 设计调整后不在监听层读剪贴板;改为图标交互时(Increment 2)合成 Cmd+C → 轮询剪贴板(复用 Alt+D 路径)
 - [x] macOS:`AXIsProcessTrusted` 检测 + 首次触发引导 emit `selection://permission-required`(→ spec 05 §2.1) —— `#[link(name="ApplicationServices")]` extern;无权限则不启动监听线程并 emit 引导事件(前端引导 UI 待 Increment 2)
-- [ ] macOS entitlements 声明 `com.apple.security.automation.apple-events`(→ spec 11 §4.1)
+- [-] macOS entitlements 声明 `com.apple.security.automation.apple-events`(→ spec 11 §4.1) —— N/A:划词用 `CGEventTap` + Accessibility API(`AXSelectedText`),均走 TCC 运行时「辅助功能」授权,非 AppleScript/Apple Events;非沙盒分发无需该 entitlement(与 M2 §2.3 屏幕录制同理)
 - [ ] Windows:`SetWinEventHook` 监听 `EVENT_OBJECT_TEXTSELECTIONCHANGED` + `EVENT_SYSTEM_FOREGROUND`(→ spec 05 §2.2)
 - [ ] Windows:`OpenClipboard` + `GetClipboardData(CF_UNICODETEXT)`(→ spec 05 §2.2)
 
@@ -285,8 +305,8 @@
 - [x] 快捷键触发:读剪贴板 → 翻译 → popup(source: "shortcut")(→ spec 05 §3) —— M4 打磨期接通:Alt+D → `tauri-plugin-clipboard-manager` 读选中文本 → 复用 `screenshot://*` 事件渲染;注:改用 Rust 直接编排(未走 `selection://triggered` 事件),光标锚定待本里程碑
 - [x] 选中自动复制:Alt+D 先合成系统复制键(macOS `Cmd+C`/CGEvent、Windows `Ctrl+C`/SendInput,`core/keystroke.rs`)→ 轮询剪贴板变化 → 翻译(→ spec 05 §3) —— 双击/划词选中均覆盖;⚠️ macOS 需「辅助功能」权限,缺失则事件被静默丢弃、自动退化为读当前剪贴板/回显上次结果
 - [x] 无新选区(未选中/无权限)→ 回显上次结果(`LastResult` managed state 缓存 F1/F2 最近结果,重新 emit `screenshot://result`)(→ spec 05 §3) —— ⚠️ 与 spec 05 §10「无选中→toast」不同,按用户需求改为「再次按键复现上次内容」,spec 05 待同步
-- [ ] 自动触发:去抖 `popupDelayMs` + 长度过滤(1~5000)+ 去重(→ spec 05 §4)
-- [ ] emit `selection://triggered { text, source, cursorPos }`(→ spec 05 §5)
+- [x] 自动触发:去抖 `popupDelayMs` + 长度过滤(1~5000)+ 去重(→ spec 05 §4) —— 去抖:图标 `show_debounced` 取 `max(220ms, config.selection.popupDelayMs)`,合并双击/三击只用最终选区;长度过滤:`translate_selection` 先 `trim` 空串忽略(≥1)+ 截断 5000;去重:同上次原文 → `reshow_result` 回显缓存不重译
+- [-] emit `selection://triggered { text, source, cursorPos }`(→ spec 05 §5) —— 未采用:流程改由 Rust 直接编排(手势→图标→`trigger_selection_translate`→复用 F2 的 `screenshot://progress|result|error` 渲染),不再经此中间事件(与 5.3 一致)
 - [x] `toggle_selection_listener` command(→ spec 05 §8) —— 写 `selection.enabled` → `config://changed` 订阅者据 `selection.enabled`(托盘总开关,默认 false / opt-in)启停监听(`core::selection::sync`)
 - [x] 托盘"划词监听"toggle 同步状态(→ spec 10 §1.2) —— 复用同一 `config://changed` 路径,菜单勾选 + 监听器启停一并联动
 
@@ -296,16 +316,16 @@
 - [x] 定位:`cursorPos + (16,16)` 偏移 + 溢出夹紧(以 popup 尺寸估算)(→ spec 05 §7) —— `position_popup_at_cursor`,已用于 Alt+D 划词路径(取不到光标回退居中);Increment 2 的图标触发翻译复用此定位
 
 ### 5.4 状态机
-- [ ] IDLE → WAITING → TRANSLATING → SHOWING 状态切换(→ spec 05 §9)
-- [ ] ESC / 文本清空 → 回 IDLE(→ spec 05 §9)
+- [-] IDLE → WAITING → TRANSLATING → SHOWING 状态切换(→ spec 05 §9) —— 不单列形式化枚举:状态已由既有机制分散承载——图标浮出(`IndicatorSession`)= WAITING、翻译 pipeline(`ScreenshotSession` 代号 + `emit_translating`)= TRANSLATING、popup 显示结果 = SHOWING、无活动会话 = IDLE;再加一层枚举会与会话代号重复记账(与「未走 `selection://triggered` 事件」同因)
+- [x] ESC / 文本清空 → 回 IDLE(→ spec 05 §9) —— ESC:popup `cancel_screenshot` 隐藏弹框 + 取消会话;失去选区(点图标外):监听线程 mouseDown 命中测试 → `selection://dismiss` 立即隐藏图标
 
-### 5.5 验收(M5 结束)
-- [ ] 选中 → 弹框出现 ≤ 500ms(→ spec 05 §10)
-- [ ] 快速连选三段,仅最后一段展示;同段不重复触发(→ spec 05 §11)
-- [ ] 无选中文本时按快捷键 → 回显上次结果(原 spec 05 §10 为 toast 提示;按用户需求改为复现上次内容,⚠️ spec 05 §10/§11 待同步)
-- [ ] 弹框不超屏幕边界(→ spec 05 §10)
-- [ ] macOS 权限未授时弹引导(→ spec 05 §11)
-- [ ] Windows 基础路径跑通(若 UIA 稳定性不足可延后自动触发,保留快捷键触发)⚠️
+### 5.5 验收(M5 结束)—— 代码就绪,待授「辅助功能」后 GUI 手测
+- [ ] 选中 → 弹框出现 ≤ 500ms(→ spec 05 §10) —— AX 直读 + 光标处 popup 已实现,待授权实测
+- [ ] 快速连选三段,仅最后一段展示;同段不重复触发(→ spec 05 §11) —— 逻辑已就绪:`show_debounced` 去抖只留最终段 + `translate_selection` 同原文去重,待实测
+- [ ] 无选中文本时按快捷键 → 回显上次结果(原 spec 05 §10 为 toast 提示;按用户需求改为复现上次内容,⚠️ spec 05 §10/§11 待同步) —— 已实现(`LastResult` 内存+磁盘,`reshow_result`),待实测
+- [ ] 弹框不超屏幕边界(→ spec 05 §10) —— `position_popup_at_cursor` 夹紧所在屏,待实测
+- [ ] macOS 权限未授时弹引导(→ spec 05 §11) —— 已实现:`selection://permission-required` + 启用监听未授权时自动打开辅助功能设置,待实测
+- [ ] Windows 基础路径跑通(若 UIA 稳定性不足可延后自动触发,保留快捷键触发)⚠️ —— 未开始(Windows 后补)
 
 ---
 

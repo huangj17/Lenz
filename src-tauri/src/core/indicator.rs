@@ -25,10 +25,11 @@ const OFFSET_X: f64 = 6.0;
 const OFFSET_Y: f64 = 16.0;
 /// 无操作自动隐藏时延(毫秒;主要消失路径是「点别处即隐藏」,此为兜底)。
 const AUTO_HIDE_MS: u64 = 2500;
-/// 检测去抖时延(毫秒):双击/三击等连续点击会逐下触发检测,等这段时间内无新点击
+/// 检测去抖时延下限(毫秒):双击/三击等连续点击会逐下触发检测,等这段时间内无新点击
 /// 才真正浮出图标 + 预读,避免用「中间一下」的半截选区(如三击第 2 下的单词)翻译。
-/// 取值略大于 macOS 常见多击间隔。
-const DETECT_DEBOUNCE_MS: u64 = 260;
+/// 实际时延取 `max(此下限, config.selection.popupDelayMs)`(spec 05 §4「去抖 popupDelayMs」),
+/// 下限保证略大于 macOS 常见多击间隔,即便用户把 popupDelayMs 调得很小也能合并多击。
+const DETECT_DEBOUNCE_FLOOR_MS: u64 = 220;
 
 /// 检测去抖代号:每次划词手势自增;去抖任务据此判断期间是否又来了新点击。
 static DETECT_GEN: AtomicU64 = AtomicU64::new(0);
@@ -85,9 +86,15 @@ pub fn take_captured() -> Option<String> {
 /// 2 下的半截单词翻译)。位置用最后一次手势的落点。
 pub fn show_debounced(app: &AppHandle, x: f64, y: f64) {
     let my = DETECT_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    // 去抖时延 = max(下限, 配置的 popupDelayMs);读配置失败则用下限兜底。
+    let delay = app
+        .state::<crate::config::ConfigStore>()
+        .get()
+        .map(|c| (c.selection.popup_delay_ms as u64).max(DETECT_DEBOUNCE_FLOOR_MS))
+        .unwrap_or(DETECT_DEBOUNCE_FLOOR_MS);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(DETECT_DEBOUNCE_MS)).await;
+        tokio::time::sleep(Duration::from_millis(delay)).await;
         // 期间又来了新点击(多击未结束)→ 作废本次,交由更晚的手势处理。
         if DETECT_GEN.load(Ordering::SeqCst) != my {
             return;
