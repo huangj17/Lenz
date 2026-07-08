@@ -131,6 +131,18 @@ pub struct ScreenshotResult {
     pub cost: ScreenshotCost,
 }
 
+/// `screenshot://translating` 事件载荷:进入翻译阶段、原文已知但译文未出时先发一份,
+/// 让 popup 立即渲染「原文 + 语言条 + 引擎行(右侧转圈)」的完整布局,而非整块骨架
+/// (spec 06 §2.6 / spec 09 §3)。`sourceLang` 此刻可能未检测(None)。
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenshotTranslating {
+    pub original: String,
+    pub source_lang: Option<String>,
+    pub target_lang: String,
+    pub engine_id: String,
+}
+
 /// `screenshot://error` 事件载荷(spec 06 §4)。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

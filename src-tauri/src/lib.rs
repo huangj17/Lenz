@@ -35,6 +35,7 @@ fn specta_builder() -> SpectaBuilder<tauri::Wry> {
         commands::screenshot::cancel_screenshot,
         commands::screenshot::open_screen_settings,
         commands::screenshot::resize_popup,
+        commands::screenshot::resize_popup_width,
         // overlay / selection / system
         commands::overlay::show_overlay,
         commands::overlay::close_overlay,

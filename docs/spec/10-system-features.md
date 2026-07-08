@@ -1,6 +1,6 @@
 # Spec 10 · 系统功能
 
-> 覆盖 PRD §2.3(状态栏图标、自动启动、检查更新、代理设置)与 §4(快捷键)。
+> 覆盖 PRD §2.3(状态栏图标、自动启动、检查更新)与 §4(快捷键)。
 
 ---
 
@@ -31,7 +31,7 @@
 退出
 ```
 
-- "划词监听"是 toggle:点击调 `toggle_selection_listener`,更新 `config.selection.enabled`,菜单项勾选状态同步。
+- "划词监听"是 toggle:点击调 `toggle_selection_listener`,更新 `config.selection.enabled`,菜单项勾选状态同步。设置页「通用 · 划词」也提供同一开关(「划词显示翻译图标」),与本菜单项共用 `config.selection.enabled`,双向同步(见 spec 09 §2.2、spec 05 §1)。
 - 快捷键显示:从 `config.shortcuts` 读取,若为 null 则不显示。
 
 ### 1.3 实现
@@ -142,33 +142,11 @@ async fn check_update(app: AppHandle) -> Result<(), LenzError> {
 
 `tauri.conf.json` 中配置 `updater.endpoints`:指向 GitHub Releases 的 `latest.json`(由 CI 自动生成)。
 
-## 5. 代理设置
+## 5. 代理设置(已移除)
 
-代理配置在 `config.proxy.*`,详见 [Spec 01 §2](./01-config-storage.md)。
-
-### 5.1 reqwest Client 重建
-
-- `TranslatorManager` 内维护共享 `reqwest::Client`。
-- 监听 `config://changed` 包含 `proxy.*` → 重建 client(见 [Spec 04 §7](./04-translator.md))。
-- 本地引擎(`useProxy = false`)始终使用无代理 client。
-
-### 5.2 前端设置 UI
-
-通用 Tab → 代理区块:
-
-```
-[✓] 启用代理
-
-协议: [HTTP ▾]  地址: [________]  端口: [____]
-
-用户名(可选): [________]   密码(可选): [••••••••]  [显示]
-
-[✓] 本地地址不经代理
-
-[测试连接]
-```
-
-"测试连接":向 `https://www.google.com`(或配置的测试 URL)发一个 HEAD 请求,显示延迟或错误。
+> 应用内代理功能已移除:不再提供代理配置(`config.proxy.*`、引擎 `useProxy` 均已删除),设置页也不再有代理区块。**编号 §5 保留不复用**,与 spec 08 的处理方式一致。
+>
+> 翻译引擎共享一个 `reqwest::Client`,沿用 reqwest 默认行为(尊重系统环境变量代理);如需代理访问云端引擎,由用户在系统/环境层配置。详见 [Spec 04 §7](./04-translator.md)。
 
 ## 6. 语言与主题
 
@@ -192,7 +170,6 @@ async fn check_update(app: AppHandle) -> Result<(), LenzError> {
 - [ ] 快捷键修改后立即生效,不需重启。
 - [ ] 自启开关修改后,重启系统验证是否自动运行。
 - [ ] 检查更新:有新版本时弹框;无新版本时 toast "已是最新版"。
-- [ ] 代理启用后,翻译 API 请求经过代理(用 Charles/mitmproxy 验证)。
 
 ## 9. 开放问题
 

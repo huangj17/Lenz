@@ -6,12 +6,12 @@ import { Icon } from "@/components/Icon";
 import { useConfigStore } from "@/stores/config";
 import type { LocaleSetting, ThemeSetting } from "@/lib/types";
 
-/** 通用 —— 启动 / 外观 / 网络(对齐设计 GeneralPane) */
+/** 通用 —— 启动 / 外观(对齐设计 GeneralPane) */
 export function GeneralPane() {
   const { t } = useTranslation();
   const config = useConfigStore((s) => s.config);
   const patch = useConfigStore((s) => s.patch);
-  const { app, proxy } = config;
+  const { app, selection } = config;
 
   return (
     <div>
@@ -45,6 +45,21 @@ export function GeneralPane() {
         </Card>
       </Section>
 
+      <Section title={t("general.selection")}>
+        <Card>
+          <Row
+            last
+            label={t("general.selectionIndicator")}
+            hint={t("general.selectionIndicatorHint")}
+          >
+            <Toggle
+              checked={selection.enabled}
+              onCheckedChange={(v) => void patch({ selection: { enabled: v } })}
+            />
+          </Row>
+        </Card>
+      </Section>
+
       <Section title={t("general.appearance")}>
         <Card>
           <Row label={t("theme.label")}>
@@ -64,18 +79,6 @@ export function GeneralPane() {
               value={app.locale}
               onChange={(v) => void patch({ app: { locale: v } })}
             />
-          </Row>
-        </Card>
-      </Section>
-
-      <Section title={t("general.network")} description={t("general.proxyHint")}>
-        <Card>
-          <Row last label={t("general.proxy")}>
-            <span className="font-mono text-xs text-sub">
-              {proxy.enabled
-                ? `${proxy.scheme}://${proxy.host || "…"}:${proxy.port}`
-                : t("general.proxyOff")}
-            </span>
           </Row>
         </Card>
       </Section>

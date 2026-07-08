@@ -49,7 +49,7 @@
 - [x] 损坏 config 的备份与重建逻辑(→ spec 01 §4.1)
 - [x] JSON Merge Patch 的 `set_config` command(线缆用 String 承载,规避 specta)(→ spec 01 §5)
 - [x] `config://changed` 事件 + keypath 标记(→ spec 01 §4.2)
-- [x] 各监听方订阅模板(→ spec 01 §4.3) —— 注:已接 config://changed + 前端主题/语言订阅 + 托盘重建;快捷键热重绑→M7、自启/代理→M8
+- [x] 各监听方订阅模板(→ spec 01 §4.3) —— 注:已接 config://changed + 前端主题/语言订阅 + 托盘重建;快捷键热重绑→M7、自启→M8
 - [x] schema 迁移框架:`migrate(old, version)` 占位(→ spec 01 §7)
 - [x] 测试(→ spec 01 §9) —— 注:merge patch / 损坏 fallback 已有单测;并发 / 含中文路径 TODO
 
@@ -138,13 +138,17 @@
 > **3.7 验收已通过**(2026-06-16):对真实 Ollama(`qwen2.5:1.5b`)/ LM Studio 端点新增
 > 7 项 `#[ignore]` 门控验收测试(`mod acceptance`)全绿——端到端 / 批量 10 条 /
 > test_engine 57ms / 引擎热更新路由 / 代理强制 + 本地转发拦截(无 mitmproxy 时的等价证明)。
+>
+> **更新(2026-07-07):应用内代理功能已移除**——`ProxyConfig` / 引擎 `useProxy` 删除,
+> `reload` 去掉 proxy 参数,双 client 合并为单 client(reqwest 默认,尊重环境变量代理),
+> 相关验收测试(代理强制 / 本地转发)与 `reqwest` 的 `socks` 特性一并删除。见 spec 04 §7 / spec 10 §5。
 
 ### 3.1 抽象与管理
 - [x] `Translator` trait(→ spec 04 §1) —— `core/translator/mod.rs`,含 id/name/kind/supports_batch/translate
 - [x] `EngineKind` 枚举(→ spec 04 §1) —— 复用 `config::schema::EngineKind`(openai/google/deepl/youdao)
-- [x] `TranslatorManager`(含共享 `reqwest::Client` 与 `default_id`)(→ spec 04 §2) —— 代理/直连双 client,id→引擎表
-- [x] `reload(configs, proxy)` 支持热更新(不重启)(→ spec 04 §2)
-- [x] 订阅 `config://changed` 触发 reload(→ spec 01 §4.3) —— `setup.rs` listen,仅 `translator.*`/`proxy.*`/整体重置触发
+- [x] `TranslatorManager`(含共享 `reqwest::Client` 与 `default_id`)(→ spec 04 §2) —— 所有引擎共享单 client,id→引擎表
+- [x] `reload(configs, default_id)` 支持热更新(不重启)(→ spec 04 §2)
+- [x] 订阅 `config://changed` 触发 reload(→ spec 01 §4.3) —— `setup.rs` listen,仅 `translator.*`/整体重置触发
 
 ### 3.2 OpenAI 兼容
 - [x] 单条翻译(chat completions 非流式)(→ spec 04 §3.1) —— 端点容忍是否已含 `/v1`;空 apiKey 不带鉴权头(本地 LLM)
@@ -160,13 +164,12 @@
 - [-] 苹果系统翻译(→ spec 04 §6.2/§11) —— **占位**:可配置/选中,`translate` 返回 `apple_not_implemented`;原生桥接列为后续
 - [x] 内置默认引擎预设(有道/苹果/智谱/硅基流动 开,谷歌/微软/ollama/LM Studio 关)(→ spec 04 §12) —— `default_engines()` + schema v1→v2 迁移注入 + 前端 `default-config.ts` 镜像
 
-### 3.4 代理
-- [x] `build_http_client(proxy)`(→ spec 04 §7) —— http/https/socks5 + basic auth + bypass_local
-- [x] `engine.useProxy = false` 时用无代理 client(本地 LLM 不走代理)(→ spec 04 §7) —— 直连 client 额外 `.no_proxy()` 屏蔽环境变量代理
+### 3.4 代理(已移除)
+- [-] 应用内代理功能已移除(2026-07-07)(→ spec 04 §7) —— 原 `build_http_client(proxy)` / `useProxy` / 双 client 全部删除,改为共享单 client(reqwest 默认,尊重系统环境变量代理);如需代理由用户在系统层配置
 
 ### 3.5 Tauri commands
 - [x] `translate_text` / `translate_batch`(→ spec 04 §8) —— 均路由 `TranslatorManager::translate`
-- [x] `test_engine`(发送 "Hello" → 返回延迟/结果)(→ spec 04 §8) —— 一次性引擎,代理取自当前配置;失败 `ok=false`
+- [x] `test_engine`(发送 "Hello" → 返回延迟/结果)(→ spec 04 §8) —— 一次性引擎;失败 `ok=false`
 - [x] `list_engines`(→ spec 01 §5) —— M1 已有
 
 ### 3.6 错误映射
@@ -181,7 +184,7 @@
 - [x] LM Studio / Ollama 本地端点接入,一段英文 → 中文端到端 OK(→ spec 04 §10) —— Ollama `Hello, world…`→`你好，世界。这是一个端到端翻译测试。`(248ms);LM Studio→`早上好，祝你有美好的一天。`(5665ms)
 - [x] 批量 10 条单次请求返回,长度一致(→ spec 04 §10) —— 10→10:`苹果/香蕉/猫/狗/房子/河流/山峰/书/音乐/朋友`,无空槽
 - [x] 设置页"测试连接"按钮 ≤ 3s 返回结果(→ spec 04 §10) —— `test_engine` 命令路径实测 57ms(暖模型);按钮 UI 接线见 M7 §7.3(已 [x])。注:冷启动含模型加载可能 >3s
-- [x] 代理启用后验证流量走代理(→ spec 10 §8) —— 注:本机无 Charles/mitmproxy,改用自带最小本地转发代理:正检流量过代理(hits=1→`你好`)+ 负检(死代理+不绕本地→连接失败,未静默直连),证同等性质
+- [-] ~~代理启用后验证流量走代理~~(代理功能已移除,2026-07-07;相关验收测试已删除)
 - [x] 引擎配置热更新后,下一次翻译使用新配置无需重启(→ spec 04 §10) —— `reload` 切默认引擎 `hot-a`→`hot-b`,同一 manager 实例下次翻译即生效
 
 ---
@@ -353,7 +356,7 @@
 
 目标:主窗口 UI + 所有配置项完整。
 
-> **状态:部分完成**。设置页**视觉/布局**已在设计还原阶段提前严格实现(commit 7d780ae,对齐 `docs/design`);本里程碑剩余 = **编辑/交互功能 + 真实数据绑定**(录制、引擎增删改、滑块、test_engine 接线、代理表单、外链等)。
+> **状态:部分完成**。设置页**视觉/布局**已在设计还原阶段提前严格实现(commit 7d780ae,对齐 `docs/design`);本里程碑剩余 = **编辑/交互功能 + 真实数据绑定**(录制、引擎增删改、滑块、test_engine 接线、外链等)。代理表单随代理功能移除(2026-07-07)。
 
 ### 7.1 通用 Tab
 - [x] 语言选择(system / zh-CN / en-US)(→ spec 09 §2.2)
@@ -361,7 +364,7 @@
 - [ ] 自启 toggle → `tauri-plugin-autostart`(→ spec 10 §3) —— 注:UI toggle 已接 config;autostart 插件→M8
 - [x] 启动时打开主窗口 toggle(→ spec 01 §3)
 - [x] 检查更新 toggle(→ spec 10 §4)
-- [ ] 代理区块:启用 toggle + 协议/地址/端口/账号/密码 + bypassLocal + "测试连接"(→ spec 10 §5.2) —— 注:通用页仅展示代理地址,完整表单待
+- [-] ~~代理区块~~（代理功能已移除，2026-07-07；通用页不再有网络/代理区块）
 
 ### 7.2 快捷键 Tab
 - [ ] 每功能一行:显示 + 录制按钮 + 清空(→ spec 09 §2.4) —— 注:行展示 + Kbd + "修改"按钮 UI 已有;录制/清空功能待
@@ -370,7 +373,7 @@
 
 ### 7.3 翻译引擎 Tab(设计中并入「服务 · 文本翻译」分段)
 - [x] 左列:引擎列表(拖拽排序、enabled toggle、删除按钮)(→ spec 09 §2.3) —— HTML5 原生拖拽重排(整体回写 `translator.engines`)、enabled toggle、删除按钮均已接线
-- [x] 右列:详情表单(名称/类型/URL/Key/Model/System Prompt/Timeout/UseProxy)(→ spec 09 §2.3) —— 可编辑:文本失焦提交、开关/下拉即时提交;Model/SystemPrompt 仅 openai 显示,Region 仅 microsoft 显示,apple 显示占位说明
+- [x] 右列:详情表单(名称/类型/URL/Key/Model/System Prompt/Timeout)(→ spec 09 §2.3) —— 可编辑:文本失焦提交、开关/下拉即时提交;Model/SystemPrompt 仅 openai 显示,Region 仅 microsoft 显示,apple 显示占位说明(UseProxy 随代理功能移除)
 - [x] 设为默认引擎按钮 → 更新 `translator.defaultEngineId`(→ spec 01 §2) —— 非默认引擎显示「设为默认」按钮
 - [x] "测试连接"按钮 → `test_engine`(→ spec 04 §8) —— 已接线:测当前草稿值,内联显示延迟/译文样例或失败原因
 - [x] 添加引擎按钮 → 空表单 + 必填校验(→ spec 09 §2.3) —— 新增 openai 草稿引擎并选中;按类型做必填校验(名称/模型/Key/region/有道格式),缺项内联非阻断提示
@@ -391,14 +394,14 @@
 
 ### 7.7 验收(M7 结束)
 - [x] 所有 Tab 无白屏(→ spec 09 §7) —— 注:`tsc` / `vite build` 通过
-- [ ] 改任意配置 → 重启后生效 + 不需要重启的热更新项(快捷键/代理/引擎/主题)即时生效(→ spec 01 §8) —— 注:主题/语言即时;其余待
+- [ ] 改任意配置 → 重启后生效 + 不需要重启的热更新项(快捷键/引擎/主题)即时生效(→ spec 01 §8) —— 注:主题/语言即时;其余待
 - [ ] 深/浅 + 中/英四象限 UI 无硬编码穿帮(→ spec 09 §7) —— 注:i18n 已全量化;运行时四象限肉眼验收待
 
 ---
 
 ## M8 · 完善(W11)
 
-目标:主题、i18n、自启、更新、代理等全部打磨到可发布。
+目标:主题、i18n、自启、更新等全部打磨到可发布。
 
 ### 8.1 国际化
 - [ ] 所有 UI 文字抽到语言包(禁止硬编码)(→ spec 09 §6.4)
@@ -417,9 +420,8 @@
 - [ ] 弹框展示版本 + changelog + 浏览器打开 Release 页(不自动下载)(→ spec 10 §4.2)
 - [ ] `tauri.conf.json` 配置 `updater.endpoints` 指向 `latest.json`(→ spec 10 §4.3)
 
-### 8.4 代理联动
-- [ ] `config.proxy.*` 变更 → `TranslatorManager` 重建 http_client(→ spec 04 §7)
-- [ ] `engine.useProxy = false` 的引擎用无代理 client(→ spec 04 §7)
+### 8.4 代理联动(已移除)
+- [-] 应用内代理功能已移除(2026-07-07),本节取消(→ spec 04 §7)
 
 ### 8.5 日志
 - [ ] 日志轮转(5MB × 3 份)(→ spec 11 §5)
@@ -430,7 +432,6 @@
 - [ ] 系统主题切换后三种窗口(main/popup/overlay)都正确跟随(→ spec 09 §7)
 - [ ] 自启开关重启系统后验证生效(→ spec 10 §8)
 - [ ] 有新版本弹框,无新版本 toast(→ spec 10 §8)
-- [ ] 代理启用后翻译请求抓包验证(→ spec 10 §8)
 
 ---
 

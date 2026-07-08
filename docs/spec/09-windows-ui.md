@@ -35,7 +35,7 @@ macOS:`titleBarStyle: "overlay"`(隐藏标题栏,前端用 `data-tauri-drag-regi
 
 | Tab | 路由 | 内容 |
 |---|---|---|
-| 通用 | `/settings/general` | 语言、主题、自启、更新、代理 |
+| 通用 | `/settings/general` | 语言、主题、自启、更新、划词图标开关 |
 | 快捷键 | `/settings/shortcuts` | 各功能快捷键录制/清空 |
 | 服务 | `/settings/services` | 分段控件切换:文本翻译(引擎列表+编辑器)/ OCR(后端、精度、识别语言) |
 | 关于 | `/settings/about` | 版本、开源协议、GitHub 链接 |
@@ -49,7 +49,6 @@ macOS:`titleBarStyle: "overlay"`(隐藏标题栏,前端用 `data-tauri-drag-regi
   - 名称、类型(下拉)、API URL、API Key(password 输入)、模型名(LLM 类)。
   - System Prompt(LLM 类,多行文本框,含变量说明)。
   - 超时时间(数字 + "ms" 单位)。
-  - 使用代理(toggle)。
   - "测试连接"按钮 → 调 `test_engine` command,显示延迟 / 错误。
 - 底部"添加引擎"按钮 → 新建空表单。
 
@@ -82,6 +81,8 @@ macOS:`titleBarStyle: "overlay"`(隐藏标题栏,前端用 `data-tauri-drag-regi
 ```
 
 高度动态调整:内容渲染后通过 `window.setSize` 更新。
+
+宽度可调 + 记忆:卡片右缘有一个宽度调节手柄,用户拖拽实时改变窗口宽度(命令 `resize_popup_width`,夹紧 300~720);拖拽结束时把最终宽度 `patch` 进 `ui.popup.width` 持久化,下次打开 popup 由后端按该宽度摆放(`core::screenshot::popup_width`)。故窗口配置的 `width: 360` 仅为默认/首次宽度,`resizable:false` 指不走系统原生缩放(改用自定义手柄)。
 
 ### 3.2 布局
 

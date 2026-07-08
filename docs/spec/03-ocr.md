@@ -172,4 +172,4 @@ async fn run_ocr(
 ## 10. 扩展点
 
 - 未来新增 Tesseract 实现:`core/ocr/tesseract.rs`,实现同一 trait,通过 `config.ocr.engine = "tesseract"` 切换。
-- 云端 OCR(Azure / Google Vision):同样走 trait,但需要尊重代理与隐私声明。
+- 云端 OCR(Azure / Google Vision):同样走 trait,但需要注意隐私声明。

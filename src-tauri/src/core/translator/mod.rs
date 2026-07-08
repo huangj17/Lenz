@@ -2,7 +2,7 @@
 //!
 //! `Translator` trait 抽象单/批量翻译;各引擎实现见同目录子模块
 //! (`openai` / `google` / `deepl` / `youdao`)。`TranslatorManager` 维护
-//! 「id → 引擎」表与默认引擎 id,并按 `ProxyConfig` 构建共享 `reqwest::Client`,
+//! 「id → 引擎」表与默认引擎 id,共享一个 `reqwest::Client`,
 //! 支持订阅 `config://changed` 后 `reload` 热更新(不重启进程)。
 
 mod apple;
@@ -21,7 +21,7 @@ use async_trait::async_trait;
 use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 
-use crate::config::schema::{EngineKind, ProxyConfig, ProxyScheme, TranslatorEngine};
+use crate::config::schema::{EngineKind, TranslatorEngine};
 use crate::error::LenzError;
 use crate::types::{TranslateRequest, TranslateResponse};
 
@@ -59,23 +59,17 @@ impl TranslatorManager {
     /// 按当前配置构建并注入引擎(spec 04 §2)。覆盖式重建,可重复调用以热更新。
     ///
     /// - 仅纳入 `enabled` 的引擎;
-    /// - `use_proxy` 的引擎用代理 client,其余(本地 LLM)用直连 client;
+    /// - 所有引擎共享同一个 `reqwest::Client`;
     /// - 解析默认引擎:配置指定且存在则用之,否则取任一已启用引擎。
-    pub fn reload(&self, engines: &[TranslatorEngine], default_id: &str, proxy: &ProxyConfig) {
-        let proxied = build_http_client(proxy);
-        let direct = build_direct_client();
+    pub fn reload(&self, engines: &[TranslatorEngine], default_id: &str) {
+        let client = build_http_client();
 
         let mut map: HashMap<String, Arc<dyn Translator>> = HashMap::new();
         for cfg in engines {
             if !cfg.enabled {
                 continue;
             }
-            let client = if cfg.use_proxy && proxy.enabled {
-                proxied.clone()
-            } else {
-                direct.clone()
-            };
-            map.insert(cfg.id.clone(), build_engine(cfg.clone(), client));
+            map.insert(cfg.id.clone(), build_engine(cfg.clone(), client.clone()));
         }
 
         let resolved_default = if !default_id.is_empty() && map.contains_key(default_id) {
@@ -137,15 +131,8 @@ impl Default for TranslatorManager {
 }
 
 /// 为 `test_engine` 命令构造一次性引擎(不入 manager,可测草稿引擎)。
-///
-/// 按 `useProxy` + 当前代理配置选择 client。
-pub fn build_test_engine(cfg: TranslatorEngine, proxy: &ProxyConfig) -> Arc<dyn Translator> {
-    let client = if cfg.use_proxy && proxy.enabled {
-        build_http_client(proxy)
-    } else {
-        build_direct_client()
-    };
-    build_engine(cfg, client)
+pub fn build_test_engine(cfg: TranslatorEngine) -> Arc<dyn Translator> {
+    build_engine(cfg, build_http_client())
 }
 
 /// 工厂:据 `kind` 构造对应引擎实现(spec 04 §1)。
@@ -164,56 +151,17 @@ fn build_engine(cfg: TranslatorEngine, client: reqwest::Client) -> Arc<dyn Trans
 // HTTP client 构建(spec 04 §7)
 // ──────────────────────────────────────────────────────────────────────────
 
-/// 按 `ProxyConfig` 构建带代理的 client;构建失败回退直连并记日志。
-pub fn build_http_client(proxy: &ProxyConfig) -> reqwest::Client {
-    let mut builder = reqwest::Client::builder().timeout(Duration::from_secs(30));
-
-    if proxy.enabled && !proxy.host.is_empty() {
-        let url = format!("{}://{}:{}", proxy_scheme_str(proxy.scheme), proxy.host, proxy.port);
-        match reqwest::Proxy::all(&url) {
-            Ok(mut p) => {
-                if let (Some(u), Some(pw)) = (&proxy.username, &proxy.password) {
-                    p = p.basic_auth(u, pw);
-                }
-                // bypass_local:本地地址不走代理(本地 LLM 多用直连 client,这里
-                // 仅兜底走代理 client 的本地请求)。
-                if proxy.bypass_local {
-                    if let Some(no_proxy) = reqwest::NoProxy::from_string("localhost,127.0.0.1,::1")
-                    {
-                        p = p.no_proxy(Some(no_proxy));
-                    }
-                }
-                builder = builder.proxy(p);
-            }
-            Err(e) => log::warn!("invalid proxy url {url}: {e}"),
-        }
-    }
-
-    builder.build().unwrap_or_else(|e| {
-        log::warn!("build proxied http client failed: {e}; using default");
-        reqwest::Client::new()
-    })
-}
-
-/// 直连 client(无代理),用于 `useProxy = false` 的本地 LLM 引擎。
-fn build_direct_client() -> reqwest::Client {
+/// 构建共享 `reqwest::Client`(30s 超时);构建失败回退默认 client。
+///
+/// 不做任何应用内代理配置:沿用 reqwest 默认行为(尊重系统环境变量代理)。
+pub fn build_http_client() -> reqwest::Client {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
-        // 即便系统环境变量设了 *_PROXY 也不走代理:本地 LLM 必须直连。
-        .no_proxy()
         .build()
         .unwrap_or_else(|e| {
-            log::warn!("build direct http client failed: {e}; using default");
+            log::warn!("build http client failed: {e}; using default");
             reqwest::Client::new()
         })
-}
-
-fn proxy_scheme_str(scheme: ProxyScheme) -> &'static str {
-    match scheme {
-        ProxyScheme::Http => "http",
-        ProxyScheme::Https => "https",
-        ProxyScheme::Socks5 => "socks5",
-    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -344,12 +292,6 @@ mod tests {
     }
 
     #[test]
-    fn proxy_scheme_strings() {
-        assert_eq!(proxy_scheme_str(ProxyScheme::Socks5), "socks5");
-        assert_eq!(proxy_scheme_str(ProxyScheme::Http), "http");
-    }
-
-    #[test]
     fn status_mapping() {
         assert!(matches!(
             status_to_error(StatusCode::UNAUTHORIZED, ""),
@@ -392,9 +334,6 @@ mod tests {
 #[cfg(test)]
 mod acceptance {
     use super::*;
-    use std::io::{Read, Write};
-    use std::net::{TcpListener, TcpStream};
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Instant;
 
     const OLLAMA_URL: &str = "http://localhost:11434/v1";
@@ -408,7 +347,7 @@ mod acceptance {
     }
 
     /// 构造一个 OpenAI 兼容引擎配置。
-    fn engine(id: &str, url: &str, model: &str, use_proxy: bool) -> TranslatorEngine {
+    fn engine(id: &str, url: &str, model: &str) -> TranslatorEngine {
         TranslatorEngine {
             id: id.into(),
             name: id.into(),
@@ -419,23 +358,10 @@ mod acceptance {
             model: Some(model.into()),
             system_prompt: None,
             timeout_ms: 60_000,
-            use_proxy,
             region: None,
             max_tokens: None,
             // 翻译验收要可复现:温度归零。
             temperature: Some(0.0),
-        }
-    }
-
-    fn no_proxy() -> ProxyConfig {
-        ProxyConfig {
-            enabled: false,
-            scheme: ProxyScheme::Http,
-            host: String::new(),
-            port: 0,
-            username: None,
-            password: None,
-            bypass_local: true,
         }
     }
 
@@ -453,7 +379,7 @@ mod acceptance {
     #[tokio::test]
     #[ignore = "requires local Ollama (:11434, qwen2.5:1.5b)"]
     async fn acc_ollama_end_to_end() {
-        let t = build_test_engine(engine("acc-ollama", OLLAMA_URL, OLLAMA_MODEL, false), &no_proxy());
+        let t = build_test_engine(engine("acc-ollama", OLLAMA_URL, OLLAMA_MODEL));
         let resp = t
             .translate(en_to_zh(&["Hello, world. This is an end-to-end translation test."]))
             .await
@@ -468,10 +394,7 @@ mod acceptance {
     #[tokio::test]
     #[ignore = "requires local LM Studio (:1234)"]
     async fn acc_lmstudio_end_to_end() {
-        let t = build_test_engine(
-            engine("acc-lmstudio", LMSTUDIO_URL, LMSTUDIO_MODEL, false),
-            &no_proxy(),
-        );
+        let t = build_test_engine(engine("acc-lmstudio", LMSTUDIO_URL, LMSTUDIO_MODEL));
         let resp = t
             .translate(en_to_zh(&["Good morning, have a nice day."]))
             .await
@@ -491,7 +414,7 @@ mod acceptance {
             "apple", "banana", "cat", "dog", "house", "river", "mountain", "book", "music",
             "friend",
         ];
-        let t = build_test_engine(engine("acc-batch", OLLAMA_URL, OLLAMA_MODEL, false), &no_proxy());
+        let t = build_test_engine(engine("acc-batch", OLLAMA_URL, OLLAMA_MODEL));
         let resp = t
             .translate(en_to_zh(&inputs))
             .await
@@ -513,12 +436,12 @@ mod acceptance {
     #[tokio::test]
     #[ignore = "requires local Ollama (:11434)"]
     async fn acc_test_engine_under_3s() {
-        let cfg = engine("acc-latency", OLLAMA_URL, OLLAMA_MODEL, false);
+        let cfg = engine("acc-latency", OLLAMA_URL, OLLAMA_MODEL);
         // 预热:把模型加载成本排除在计时外(按钮场景下模型通常已驻留)。
-        let warm = build_test_engine(cfg.clone(), &no_proxy());
+        let warm = build_test_engine(cfg.clone());
         let _ = warm.translate(en_to_zh(&["warm up"])).await;
         // 正式计时:复刻 `test_engine` 命令路径(build_test_engine + translate "Hello")。
-        let t = build_test_engine(cfg, &no_proxy());
+        let t = build_test_engine(cfg);
         let started = Instant::now();
         let resp = t
             .translate(en_to_zh(&["Hello"]))
@@ -535,171 +458,17 @@ mod acceptance {
     #[ignore = "requires local Ollama (:11434)"]
     async fn acc_hot_reload_routing() {
         let mgr = TranslatorManager::new();
-        let a = engine("hot-a", OLLAMA_URL, OLLAMA_MODEL, false);
-        let b = engine("hot-b", OLLAMA_URL, OLLAMA_MODEL, false);
+        let a = engine("hot-a", OLLAMA_URL, OLLAMA_MODEL);
+        let b = engine("hot-b", OLLAMA_URL, OLLAMA_MODEL);
 
         // 初始:默认引擎 hot-a。
-        mgr.reload(&[a.clone(), b.clone()], "hot-a", &no_proxy());
+        mgr.reload(&[a.clone(), b.clone()], "hot-a");
         let r1 = mgr.translate(en_to_zh(&["Hello"])).await.expect("t1");
         assert_eq!(r1.engine_id, "hot-a", "should route to initial default");
 
         // 热更新:仅切默认引擎,manager 实例不变、进程不重启。
-        mgr.reload(&[a, b], "hot-b", &no_proxy());
+        mgr.reload(&[a, b], "hot-b");
         let r2 = mgr.translate(en_to_zh(&["Hello"])).await.expect("t2");
         assert_eq!(r2.engine_id, "hot-b", "next translate must use reloaded config");
-    }
-
-    // ── §3.7 点 4:代理(无 mitmproxy → 自带本地转发代理 + 强制性负检)─────────
-
-    /// 代理被强制生效的负向验证:`use_proxy=true` + 指向死端口的代理 +
-    /// 不绕过本地,则请求必须失败而非静默直连成功。
-    #[tokio::test]
-    #[ignore = "requires local Ollama (:11434)"]
-    async fn acc_proxy_is_enforced() {
-        let proxy = ProxyConfig {
-            enabled: true,
-            scheme: ProxyScheme::Http,
-            host: "127.0.0.1".into(),
-            port: 1, // 几乎必然无监听
-            username: None,
-            password: None,
-            bypass_local: false, // 关键:不绕过本地,确保走代理
-        };
-        let t = build_test_engine(engine("acc-proxy-dead", OLLAMA_URL, OLLAMA_MODEL, true), &proxy);
-        let res = t.translate(en_to_zh(&["Hello"])).await;
-        println!("[proxy-enforced] result = {res:?}");
-        assert!(
-            res.is_err(),
-            "with a dead proxy + bypass_local=false the request must fail, not go direct"
-        );
-    }
-
-    /// 正向验证:本机起一个最小 HTTP 转发代理,引擎流量必须经它中转且翻译成功。
-    /// 等价于 Charles/mitmproxy 抓包看到请求过代理,但完全自包含、可复现。
-    #[tokio::test]
-    #[ignore = "requires local Ollama (:11434)"]
-    async fn acc_proxy_relay_succeeds() {
-        let (port, hits) = spawn_forward_proxy();
-        let proxy = ProxyConfig {
-            enabled: true,
-            scheme: ProxyScheme::Http,
-            host: "127.0.0.1".into(),
-            port,
-            username: None,
-            password: None,
-            bypass_local: false,
-        };
-        let t = build_test_engine(engine("acc-proxy-relay", OLLAMA_URL, OLLAMA_MODEL, true), &proxy);
-        let resp = t
-            .translate(en_to_zh(&["Hello"]))
-            .await
-            .expect("translate through local proxy should succeed");
-        let n = hits.load(Ordering::SeqCst);
-        println!("[proxy-relay] proxy hits={n} -> {}", resp.translations[0]);
-        assert!(n >= 1, "the request must traverse the local proxy at least once");
-        assert!(!resp.translations[0].trim().is_empty());
-    }
-
-    /// 起一个极简 HTTP 正向代理线程,返回(端口, 命中计数器)。
-    /// 仅处理明文 HTTP 的 absolute-form 请求(本地 LLM 场景足够)。
-    fn spawn_forward_proxy() -> (u16, std::sync::Arc<AtomicUsize>) {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind proxy");
-        let port = listener.local_addr().unwrap().port();
-        let hits = std::sync::Arc::new(AtomicUsize::new(0));
-        let hits_loop = hits.clone();
-        std::thread::spawn(move || {
-            for conn in listener.incoming() {
-                let Ok(client) = conn else { continue };
-                let h = hits_loop.clone();
-                std::thread::spawn(move || {
-                    let _ = forward_one(client, h);
-                });
-            }
-        });
-        (port, hits)
-    }
-
-    /// 读取一个代理请求 → 改写为 origin-form + `Connection: close` → 转发到上游 →
-    /// 把响应原样回传客户端;成功转发后命中计数 +1。
-    fn forward_one(mut client: TcpStream, hits: std::sync::Arc<AtomicUsize>) -> std::io::Result<()> {
-        // 读到头部结束(\r\n\r\n)。
-        let mut buf = Vec::new();
-        let mut tmp = [0u8; 4096];
-        let head_end = loop {
-            let n = client.read(&mut tmp)?;
-            if n == 0 {
-                return Ok(());
-            }
-            buf.extend_from_slice(&tmp[..n]);
-            if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
-                break pos + 4;
-            }
-            if buf.len() > 64 * 1024 {
-                return Ok(());
-            }
-        };
-        let head = String::from_utf8_lossy(&buf[..head_end]).to_string();
-        let request_line = head.lines().next().unwrap_or("");
-        let mut parts = request_line.split_whitespace();
-        let method = parts.next().unwrap_or("GET");
-        let uri = parts.next().unwrap_or("/");
-        let (host, hport, path) = parse_absolute_uri(uri);
-
-        // Content-Length → 读齐 body。
-        let mut content_len = 0usize;
-        for l in head.lines() {
-            if let Some(v) = l.to_ascii_lowercase().strip_prefix("content-length:") {
-                content_len = v.trim().parse().unwrap_or(0);
-            }
-        }
-        let mut body = buf[head_end..].to_vec();
-        while body.len() < content_len {
-            let n = client.read(&mut tmp)?;
-            if n == 0 {
-                break;
-            }
-            body.extend_from_slice(&tmp[..n]);
-        }
-
-        // 改写请求:absolute-form → origin-form;强制 Connection: close 便于读到 EOF。
-        let mut out = format!("{method} {path} HTTP/1.1\r\n");
-        for l in head.lines().skip(1) {
-            if l.is_empty() {
-                continue;
-            }
-            let lower = l.to_ascii_lowercase();
-            if lower.starts_with("proxy-connection:") || lower.starts_with("connection:") {
-                continue;
-            }
-            out.push_str(l);
-            out.push_str("\r\n");
-        }
-        out.push_str("Connection: close\r\n\r\n");
-
-        let mut upstream = TcpStream::connect((host.as_str(), hport))?;
-        upstream.write_all(out.as_bytes())?;
-        upstream.write_all(&body)?;
-        upstream.flush()?;
-        hits.fetch_add(1, Ordering::SeqCst);
-
-        std::io::copy(&mut upstream, &mut client)?;
-        Ok(())
-    }
-
-    /// 解析 `http://host:port/path` → (host, port, path)。
-    fn parse_absolute_uri(uri: &str) -> (String, u16, String) {
-        let rest = uri
-            .strip_prefix("http://")
-            .or_else(|| uri.strip_prefix("https://"))
-            .unwrap_or(uri);
-        let (authority, path) = match rest.find('/') {
-            Some(i) => (&rest[..i], &rest[i..]),
-            None => (rest, "/"),
-        };
-        let (host, port) = match authority.rsplit_once(':') {
-            Some((h, p)) => (h.to_string(), p.parse().unwrap_or(80)),
-            None => (authority.to_string(), 80),
-        };
-        (host, port, path.to_string())
     }
 }

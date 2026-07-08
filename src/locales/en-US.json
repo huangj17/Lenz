@@ -35,10 +35,9 @@
     "openOnLaunch": "Open main window on launch",
     "openOnLaunchHint": "When off, stays in the menu bar only",
     "appearance": "Appearance",
-    "network": "Network",
-    "proxy": "Proxy",
-    "proxyHint": "Applies to cloud engines only — local requests bypass it",
-    "proxyOff": "Off"
+    "selection": "Text selection",
+    "selectionIndicator": "Show translate icon on selection",
+    "selectionIndicatorHint": "Float a small icon at the cursor after selecting text; click to translate (needs Accessibility permission)"
   },
   "shortcuts": {
     "selection": "Word translation",
@@ -57,7 +56,7 @@
     "ocr": "OCR"
   },
   "engines": {
-    "desc": "Stack multiple engines and set a default. Local models keep every request on-device; cloud engines use your proxy settings.",
+    "desc": "Stack multiple engines and set a default. Local models keep every request on-device.",
     "add": "Add Service",
     "default": "Default",
     "emptyTitle": "No translation service yet",
@@ -71,7 +70,6 @@
     "name": "Name",
     "type": "Type",
     "timeout": "Timeout (ms)",
-    "useProxy": "Use proxy",
     "region": "Region (Azure)",
     "setDefault": "Set default",
     "delete": "Delete",
@@ -142,6 +140,8 @@
     "copied": "Copied",
     "retry": "Retry",
     "close": "Close",
+    "translating": "Translating",
+    "resizeWidth": "Drag to resize width",
     "via": "via {{engine}}",
     "error": {
       "permission": "Screen recording permission required",

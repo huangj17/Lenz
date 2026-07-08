@@ -114,7 +114,7 @@ export function EnginesPane() {
   // 任意编辑都让上一次测试结果失效(避免「改了配置却还显示 ✓」)。
   const invalidateTest = () => setTestResult(null);
 
-  // 即时提交(下拉 / useProxy 等离散操作):更新草稿并整体回写。
+  // 即时提交(下拉等离散操作):更新草稿并整体回写。
   const commitNow = (partial: Partial<TranslatorEngine>) => {
     if (!draft) return;
     invalidateTest();
@@ -266,7 +266,6 @@ export function EnginesPane() {
       apiKey: "",
       model: "",
       timeoutMs: 30000,
-      useProxy: false,
     };
     void writeEngines([...liveTranslator().engines, ne]);
     setSelectedId(ne.id);

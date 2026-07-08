@@ -53,7 +53,6 @@ Bob 是 macOS 上广受好评的翻译工具,但:
 | 主题 | P1 | 深/浅色 |
 | 自动启动 | P1 | 系统启动时自动运行 |
 | 检查更新 | P1 | GitHub Release 轮询 |
-| 代理设置 | P0 | 支持 HTTP/SOCKS5 代理 |
 
 ---
 
@@ -204,7 +203,7 @@ interface OCRResult {
 
 #### 主窗口(设置页)
 - Tab 结构:
-  - **通用**:启动/更新/主题/语言/代理
+  - **通用**:启动/更新/主题/语言、划词显示翻译图标开关(与托盘「划词监听」同一开关)
   - **快捷键**:各功能快捷键自定义
   - **翻译引擎**:引擎列表 + 增删改
   - **OCR**:OCR 相关设置(引擎、语言包)
@@ -221,10 +220,7 @@ interface OCRResult {
 - 拉取 GitHub Releases API
 - 有新版本弹框提示(不强制更新)
 
-#### 代理设置
-- 支持 HTTP / HTTPS / SOCKS5
-- 可配置:地址、端口、用户名/密码
-- 作用范围:翻译 API 调用(不影响本地 LM Studio 请求)
+> 应用内代理设置已移除:不再内置代理配置。翻译请求沿用 reqwest 默认行为(尊重系统环境变量代理);如需代理访问云端引擎,由用户在系统/环境层配置。
 
 ---
 
@@ -255,7 +251,7 @@ tauri-plugin-updater = "2"
 tauri-plugin-clipboard-manager = "2"
 
 # 网络
-reqwest = { version = "0.12", features = ["json", "socks"] }
+reqwest = { version = "0.12", features = ["json"] }
 
 # OCR(原生桥接,通过 FFI)
 # macOS: objc2 + Vision framework

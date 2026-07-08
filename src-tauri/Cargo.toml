@@ -41,7 +41,7 @@ image = "0.25.10"
 xcap = "0.9.6"
 # 翻译引擎 HTTP 客户端(spec 04)。native-tls 在 macOS=Security.framework /
 # Windows=SChannel,无需 OpenSSL,契合双平台目标;socks 启用 socks5 代理。
-reqwest = { version = "0.12", features = ["json", "socks"] }
+reqwest = { version = "0.12", features = ["json"] }
 # 有道智云签名(spec 04 §6):SHA256 摘要。
 sha2 = "0.10"
 

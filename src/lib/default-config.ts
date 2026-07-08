@@ -17,7 +17,6 @@ function builtinEngines(): TranslatorEngine[] {
     apiUrl: string,
     model: string | undefined,
     timeoutMs: number,
-    useProxy: boolean,
   ): TranslatorEngine => ({
     id,
     name,
@@ -27,13 +26,12 @@ function builtinEngines(): TranslatorEngine[] {
     apiKey: "",
     ...(model ? { model } : {}),
     timeoutMs,
-    useProxy,
   });
 
   return [
     // —— 默认开启 ——
-    e("builtin-youdao", "有道翻译", "youdao", true, "", undefined, 15000, false),
-    e("builtin-apple", "苹果翻译", "apple", true, "", undefined, 15000, false),
+    e("builtin-youdao", "有道翻译", "youdao", true, "", undefined, 15000),
+    e("builtin-apple", "苹果翻译", "apple", true, "", undefined, 15000),
     e(
       "builtin-zhipu",
       "智谱 GLM",
@@ -42,7 +40,6 @@ function builtinEngines(): TranslatorEngine[] {
       "https://open.bigmodel.cn/api/paas/v4",
       "glm-4-flash",
       30000,
-      false,
     ),
     e(
       "builtin-siliconflow",
@@ -52,11 +49,10 @@ function builtinEngines(): TranslatorEngine[] {
       "https://api.siliconflow.cn/v1",
       "Qwen/Qwen2.5-7B-Instruct",
       30000,
-      false,
     ),
     // —— 默认关闭 ——
-    e("builtin-google", "Google 翻译", "google", false, "", undefined, 15000, true),
-    e("builtin-microsoft", "微软翻译", "microsoft", false, "", undefined, 15000, false),
+    e("builtin-google", "Google 翻译", "google", false, "", undefined, 15000),
+    e("builtin-microsoft", "微软翻译", "microsoft", false, "", undefined, 15000),
     e(
       "builtin-ollama",
       "Ollama",
@@ -65,9 +61,8 @@ function builtinEngines(): TranslatorEngine[] {
       "http://localhost:11434/v1",
       "qwen2.5",
       60000,
-      false,
     ),
-    e("builtin-lmstudio", "LM Studio", "openai", false, "http://localhost:1234/v1", undefined, 60000, false),
+    e("builtin-lmstudio", "LM Studio", "openai", false, "http://localhost:1234/v1", undefined, 60000),
   ];
 }
 
@@ -102,17 +97,11 @@ export function createDefaultConfig(): Config {
       targetLang: "zh-CN",
       engines: builtinEngines(),
     },
-    proxy: {
-      enabled: false,
-      scheme: "http",
-      host: "",
-      port: 0,
-      bypassLocal: true,
-    },
     ui: {
       popup: {
         fontSize: 14,
         showOriginal: true,
+        width: 360,
       },
     },
   };

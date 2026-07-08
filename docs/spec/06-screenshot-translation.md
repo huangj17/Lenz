@@ -22,6 +22,9 @@ capture_screen_region(rect)                  [Rust core/capture]
 run_ocr(input, opts)                         [Rust core/ocr]
   │  返回 OcrResult { blocks, detected_language }
   ▼
+emit screenshot://translating { ... }        [Rust → frontend popup]
+  │  原文已知、译文未出 → popup 显示原文 + 引擎行转圈
+  ▼
 translate_text(texts=joined, ...)            [Rust core/translator]
   │  返回 TranslateResponse
   ▼
@@ -63,10 +66,25 @@ popup 窗口展示原文 + 译文                    [前端 popup 窗口]
 
 ### 2.5 翻译
 
+- 进入翻译阶段前(原文已知、译文未出)先 emit `screenshot://translating`(载荷见下),
+  让 popup 立即渲染「原文 + 语言条 + 引擎行」完整布局、仅引擎行右侧转圈,而非整块骨架。
 - 调 `translate_text`:
   - `source_lang = detected_language`(来自 OCR),若为 null 则让引擎自动检测。
   - `target_lang = config.translator.targetLang`。
 - 翻译失败 → emit `screenshot://error { stage: "translate", ... }`。
+
+```ts
+// screenshot://translating 事件载荷(原文已知、译文未出)
+interface ScreenshotTranslating {
+  original: string;
+  sourceLang: string | null;   // F2 为 OCR 检测值;F1 划词为 null
+  targetLang: string;
+  engineId: string;            // 即将使用的引擎(默认引擎 id)
+}
+```
+
+> F1 划词翻译(spec 05)无截图/OCR 阶段,直接在翻译前 emit 本事件;两条路径共用
+> popup 的同一套「原文 + 引擎行转圈」加载布局。
 
 ### 2.6 结果推送
 
@@ -85,7 +103,7 @@ interface ScreenshotResult {
 
 ## 3. popup 窗口展示
 
-popup 窗口监听 `screenshot://result` 与 `screenshot://error`。
+popup 窗口监听 `screenshot://progress`、`screenshot://translating`、`screenshot://result` 与 `screenshot://error`。
 
 布局(见 [Spec 09](./09-windows-ui.md)):
 - 顶部语言标识行:`{sourceLang} → {targetLang}`。
@@ -110,10 +128,14 @@ popup 窗口监听 `screenshot://result` 与 `screenshot://error`。
 从选区完成到结果显示期间,popup 需立即出现(占位)并显示进度:
 
 ```
-[截图中…] → [识别中…] → [翻译中…] → 结果
+[截图中…] → [识别中…] → [翻译中(原文 + 引擎行转圈)] → 结果
 ```
 
-Rust 侧在关键节点 emit `screenshot://progress { stage: "capture"|"ocr"|"translate" }`。
+- `capture` / `ocr` 阶段(尚无文本):emit `screenshot://progress { stage }`,popup 显示整块骨架占位。
+- `translate` 阶段(原文已知):改 emit `screenshot://translating`(见 §2.5),popup 显示
+  「原文 + 语言条 + 引擎行右侧转圈」的完整布局,译文区留骨架占位;译文到达
+  (`screenshot://result`)后转圈变 `✓ 耗时`、译文就地填入。故 translate 阶段**不再**走
+  整块骨架的 `progress`。
 
 ## 6. 状态机
 

@@ -7,8 +7,22 @@
 
 use tauri::{AppHandle, LogicalSize, Manager, State};
 
-use crate::core::screenshot::{clamp_popup_into_monitor, ScreenshotSession, POPUP_WIDTH};
+use crate::core::screenshot::{
+    clamp_popup_into_monitor, ScreenshotSession, POPUP_MAX_WIDTH, POPUP_MIN_WIDTH, POPUP_WIDTH,
+};
 use crate::error::LenzError;
+
+/// 读 popup 当前逻辑尺寸 `(w, h)`;取不到时回退默认宽 + 0 高。
+fn popup_logical_size(popup: &tauri::WebviewWindow) -> (f64, f64) {
+    let scale = popup.scale_factor().unwrap_or(1.0);
+    popup
+        .outer_size()
+        .map(|s| {
+            let l = s.to_logical::<f64>(scale);
+            (l.width, l.height)
+        })
+        .unwrap_or((POPUP_WIDTH, 0.0))
+}
 
 /// 取消进行中的 F2 会话并隐藏 popup(spec 06 §6/§7)。
 #[tauri::command]
@@ -44,9 +58,10 @@ pub async fn open_screen_settings() -> Result<(), LenzError> {
     Ok(())
 }
 
-/// 内容渲染后,按实际高度调整 popup 窗口(宽度固定,spec 06 §2.6 / spec 09 §3.1)。
+/// 内容渲染后,按实际高度调整 popup 窗口(宽度保持当前值,spec 06 §2.6 / spec 09 §3.1)。
 ///
 /// 调整高度后把窗口夹回所在显示器内,避免长译文撑高后底部溢出屏幕、内容被截断。
+/// 宽度沿用窗口当前宽度(尊重用户拖拽调节后的宽度,`ui.popup.width`),不再写死常量。
 ///
 /// macOS:透明窗口在缩放后会残留旧尺寸的窗口阴影(表现为弹框旁边的灰块),
 /// 故每次 resize 后强制 `invalidateShadow` 让窗口阴影重算,消除残影。
@@ -54,8 +69,27 @@ pub async fn open_screen_settings() -> Result<(), LenzError> {
 #[specta::specta]
 pub async fn resize_popup(height: f64, app: AppHandle) -> Result<(), LenzError> {
     if let Some(popup) = app.get_webview_window("popup") {
-        let _ = popup.set_size(LogicalSize::new(POPUP_WIDTH, height));
+        let (w, _) = popup_logical_size(&popup);
+        let _ = popup.set_size(LogicalSize::new(w, height));
         clamp_popup_into_monitor(&app, height);
+    }
+    #[cfg(target_os = "macos")]
+    invalidate_popup_shadow(&app);
+    Ok(())
+}
+
+/// 用户拖拽 popup 右缘调节宽度:夹紧到 [MIN, MAX],保持当前高度,重新夹回显示器内。
+///
+/// 仅实时调整窗口尺寸;宽度的**持久化**由前端在拖拽结束时 `patch(ui.popup.width)` 完成
+/// (下次打开 popup 时后端按 `ui.popup.width` 摆放,见 `core::screenshot::popup_width`)。
+#[tauri::command]
+#[specta::specta]
+pub async fn resize_popup_width(width: f64, app: AppHandle) -> Result<(), LenzError> {
+    if let Some(popup) = app.get_webview_window("popup") {
+        let (_, h) = popup_logical_size(&popup);
+        let w = width.clamp(POPUP_MIN_WIDTH, POPUP_MAX_WIDTH);
+        let _ = popup.set_size(LogicalSize::new(w, h));
+        clamp_popup_into_monitor(&app, h);
     }
     #[cfg(target_os = "macos")]
     invalidate_popup_shadow(&app);

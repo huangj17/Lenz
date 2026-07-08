@@ -21,12 +21,24 @@ use crate::core::translator::TranslatorManager;
 use crate::core::{capture, keystroke, selection_window};
 use crate::types::{
     RegionSelectedPayload, Rect, ScreenshotCost, ScreenshotError, ScreenshotProgress,
-    ScreenshotResult, TranslateRequest, TriggerKind,
+    ScreenshotResult, ScreenshotTranslating, TranslateRequest, TriggerKind,
 };
 
 const POPUP_LABEL: &str = "popup";
-/// popup 窗口逻辑宽度(前端 `resize_popup` 命令复用,见 `commands::screenshot`)。
+/// popup 窗口默认逻辑宽度(用户未拖拽调宽时;可被 `ui.popup.width` 覆盖)。
 pub const POPUP_WIDTH: f64 = 360.0;
+/// 用户可拖拽调节的宽度下/上限(逻辑像素)。
+pub const POPUP_MIN_WIDTH: f64 = 300.0;
+pub const POPUP_MAX_WIDTH: f64 = 720.0;
+
+/// 当前生效的 popup 宽度:读 `ui.popup.width` 并夹紧到 [MIN, MAX];读配置失败回退默认。
+pub fn popup_width(app: &AppHandle) -> f64 {
+    app.state::<ConfigStore>()
+        .get()
+        .ok()
+        .map(|c| (c.ui.popup.width as f64).clamp(POPUP_MIN_WIDTH, POPUP_MAX_WIDTH))
+        .unwrap_or(POPUP_WIDTH)
+}
 /// loading 态初始高度(前端渲染后会 setSize 精修)。
 const POPUP_INIT_HEIGHT: f64 = 150.0;
 /// 选区与 popup 的垂直间距(spec 06 §2.6)。
@@ -38,8 +50,16 @@ const TOTAL_TIMEOUT: Duration = Duration::from_millis(10_000);
 const OVERLAY_CLEAR_DELAY_MS: u64 = 150;
 
 const EVT_PROGRESS: &str = "screenshot://progress";
+const EVT_TRANSLATING: &str = "screenshot://translating";
 const EVT_RESULT: &str = "screenshot://result";
 const EVT_ERROR: &str = "screenshot://error";
+
+/// popup webview 挂载完监听后 emit 的就绪信号(前端 `PopupWindow` → 后端)。
+pub const EVENT_POPUP_READY: &str = "popup://ready";
+
+/// popup 就绪信号最长等待;超时仍继续投递(宁可丢首帧也不卡死)。
+const POPUP_READY_TIMEOUT: Duration = Duration::from_secs(3);
+const POPUP_READY_POLL: Duration = Duration::from_millis(20);
 
 /// F2 会话代号(spec 06 §7)。作为 Tauri managed state 注入。
 #[derive(Default)]
@@ -64,9 +84,14 @@ impl ScreenshotSession {
 
 /// 最近一次成功的翻译结果(F1/F2 通用)。作为 managed state 注入。
 ///
-/// 用于划词快捷键的「无新选区则回显上次内容」(见 `on_selection_shortcut`)。
+/// 用于划词快捷键的「无新选区则回显上次内容」(见 `on_selection_shortcut`)。内存态之外
+/// 还持久化到磁盘(`last-result.json`),使**应用重启后**按 Alt+D(无选区/剪贴板空)仍能
+/// 回显上次结果。
 #[derive(Default)]
 pub struct LastResult(Mutex<Option<ScreenshotResult>>);
+
+/// 持久化文件名(位于 `app_config_dir()`,与 `config.json` 同目录)。
+const LAST_RESULT_FILE: &str = "last-result.json";
 
 impl LastResult {
     fn set(&self, r: &ScreenshotResult) {
@@ -76,6 +101,84 @@ impl LastResult {
     }
     fn get(&self) -> Option<ScreenshotResult> {
         self.0.lock().ok().and_then(|g| g.clone())
+    }
+
+    /// 把当前内存中的结果写盘(best-effort,失败仅记日志,不影响主流程)。
+    fn persist(&self, app: &AppHandle) {
+        let Some(result) = self.get() else { return };
+        let Ok(dir) = app.path().app_config_dir() else {
+            return;
+        };
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            log::warn!("persist last-result: create dir failed: {e}");
+            return;
+        }
+        match serde_json::to_string(&result) {
+            Ok(json) => {
+                if let Err(e) = std::fs::write(dir.join(LAST_RESULT_FILE), json) {
+                    log::warn!("persist last-result: write failed: {e}");
+                }
+            }
+            Err(e) => log::warn!("persist last-result: serialize failed: {e}"),
+        }
+    }
+
+    /// 启动时从磁盘加载上次结果到内存(缺失/损坏则静默留空)。
+    pub fn hydrate(&self, app: &AppHandle) {
+        let Ok(dir) = app.path().app_config_dir() else {
+            return;
+        };
+        let path = dir.join(LAST_RESULT_FILE);
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            return; // 首次运行无文件,正常。
+        };
+        match serde_json::from_str::<ScreenshotResult>(&raw) {
+            Ok(r) => {
+                if let Ok(mut g) = self.0.lock() {
+                    *g = Some(r);
+                }
+                log::info!("已加载上次翻译结果(供 Alt+D 回显)");
+            }
+            Err(e) => log::warn!("hydrate last-result: 解析失败,忽略: {e}"),
+        }
+    }
+}
+
+/// popup webview 是否至少就绪过一次(其 `screenshot://*` 监听已挂上)。作为 managed state 注入。
+///
+/// 关闭「冷启动首帧竞态」:第一次划词/截图时,popup webview 可能尚未订阅
+/// `screenshot://result`,后端一旦 emit 就丢帧(Tauri 不向迟到订阅者重放),表现为
+/// 首次触发弹窗不出内容。popup 挂载完成后 emit `popup://ready`;后端在首帧投递前
+/// 用 `wait_popup_ready` 短暂等待此信号(已就绪则零成本)。
+#[derive(Default)]
+pub struct PopupReady(std::sync::atomic::AtomicBool);
+
+impl PopupReady {
+    /// 标记 popup 已就绪(收到 `popup://ready` 时调用)。幂等。
+    pub fn mark(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+    fn is_ready(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+/// 在首帧 emit 前等待 popup webview 就绪(见 [`PopupReady`])。已就绪立即返回;
+/// 每 `POPUP_READY_POLL` 轮询一次,最多等 `POPUP_READY_TIMEOUT` 后放弃继续投递。
+async fn wait_popup_ready(app: &AppHandle) {
+    if app.state::<PopupReady>().is_ready() {
+        return;
+    }
+    let deadline = Instant::now() + POPUP_READY_TIMEOUT;
+    loop {
+        if app.state::<PopupReady>().is_ready() {
+            return;
+        }
+        if Instant::now() >= deadline {
+            log::warn!("popup 就绪信号 {POPUP_READY_TIMEOUT:?} 内未到,继续投递(首帧可能丢失)");
+            return;
+        }
+        tokio::time::sleep(POPUP_READY_POLL).await;
     }
 }
 
@@ -135,6 +238,10 @@ fn start_f2(app: AppHandle, region: Rect) {
 
 /// 截图 → OCR → 翻译,逐阶段 emit 进度 / 结果 / 错误。
 async fn run_pipeline(app: &AppHandle, region: Rect, gen: u64) {
+    // 首帧投递前等待 popup webview 就绪,避免冷启动首次截图丢掉 progress/result(方案 A)。
+    // popup 已在 `on_region_selected` 同步 show;此处仅门控随后的 emit。
+    wait_popup_ready(app).await;
+
     let cfg = match app.state::<ConfigStore>().get() {
         Ok(c) => c,
         Err(e) => return emit_error(app, "capture", "failed", &e.to_string(), None),
@@ -190,7 +297,14 @@ async fn run_pipeline(app: &AppHandle, region: Rect, gen: u64) {
     let cost_ocr = t1.elapsed().as_millis() as u32;
 
     // ── 翻译 ──
-    emit_progress(app, "translate");
+    // 原文(OCR 结果)已知:发 translating,让 popup 显示原文 + 引擎行转圈,而非整块骨架。
+    emit_translating(
+        app,
+        &original,
+        ocr.detected_language.clone(),
+        &cfg.translator.target_lang,
+        &cfg.translator.default_engine_id,
+    );
     let t2 = Instant::now();
     let translator = {
         let mgr = app.state::<TranslatorManager>();
@@ -267,7 +381,8 @@ fn position_and_show_popup(app: &AppHandle, region: &Rect) {
         return;
     };
 
-    let mut x = region.x as f64 + region.w as f64 / 2.0 - POPUP_WIDTH / 2.0;
+    let w = popup_width(app);
+    let mut x = region.x as f64 + region.w as f64 / 2.0 - w / 2.0;
     let mut y = region.y as f64 + region.h as f64 + POPUP_GAP;
 
     // 夹紧到包含选区中心的显示器工作区;放不下则改置选区上方。
@@ -278,7 +393,7 @@ fn position_and_show_popup(app: &AppHandle, region: &Rect) {
             .into_iter()
             .find(|(mx, my, mw, mh)| cx >= *mx && cx < mx + mw && cy >= *my && cy < my + mh)
         {
-            x = x.clamp(lx, (lx + lw - POPUP_WIDTH).max(lx));
+            x = x.clamp(lx, (lx + lw - w).max(lx));
             if y + POPUP_INIT_HEIGHT > ly + lh {
                 y = (region.y as f64 - POPUP_INIT_HEIGHT - POPUP_GAP).max(ly);
             }
@@ -286,7 +401,7 @@ fn position_and_show_popup(app: &AppHandle, region: &Rect) {
     }
 
     let _ = popup.set_position(LogicalPosition::new(x, y));
-    let _ = popup.set_size(LogicalSize::new(POPUP_WIDTH, POPUP_INIT_HEIGHT));
+    let _ = popup.set_size(LogicalSize::new(w, POPUP_INIT_HEIGHT));
     let _ = popup.show();
     let _ = popup.set_focus();
 }
@@ -305,12 +420,17 @@ pub fn clamp_popup_into_monitor(app: &AppHandle, height: f64) {
         return;
     };
     let pos = phys.to_logical::<f64>(scale);
+    // 用窗口当前实际宽度(尊重用户拖拽后的宽度),而非固定常量。
+    let w = popup
+        .outer_size()
+        .map(|s| s.to_logical::<f64>(scale).width)
+        .unwrap_or_else(|_| popup_width(app));
 
     let Ok(bounds) = selection_window::logical_monitor_bounds(app) else {
         return;
     };
     // 选包含弹框中心的显示器;落在缝隙里则兜底用第一块。
-    let cx = pos.x + POPUP_WIDTH / 2.0;
+    let cx = pos.x + w / 2.0;
     let cy = pos.y + height / 2.0;
     let Some((mx, my, mw, mh)) = bounds
         .iter()
@@ -321,7 +441,7 @@ pub fn clamp_popup_into_monitor(app: &AppHandle, height: f64) {
         return;
     };
 
-    let x = pos.x.clamp(mx, (mx + mw - POPUP_WIDTH).max(mx));
+    let x = pos.x.clamp(mx, (mx + mw - w).max(mx));
     let y = pos.y.clamp(my, (my + mh - height).max(my));
     if (x - pos.x).abs() > 0.5 || (y - pos.y).abs() > 0.5 {
         let _ = popup.set_position(LogicalPosition::new(x, y));
@@ -354,6 +474,15 @@ pub fn on_selection_shortcut(app: &AppHandle) {
     });
 }
 
+/// 直接用已拿到的选中文本翻译(划词图标点击时,复用图标浮出瞬间 AX 预读的缓存)。
+/// 跳过实时读取,规避「点击图标夺焦后读到错内容」。
+pub fn translate_with_text(app: &AppHandle, text: String) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        translate_selection(&app, text).await;
+    });
+}
+
 async fn handle_selection_shortcut(app: AppHandle) {
     // ① 首选 Accessibility API 直读选中文本:不碰剪贴板、不合成按键,规避修饰键污染 /
     //    同文字重复 / 焦点时序 / 剪贴板被覆盖等一系列问题(spec 05 §3)。AX 调用可能对
@@ -363,6 +492,7 @@ async fn handle_selection_shortcut(app: AppHandle) {
         .ok()
         .flatten();
     if let Some(text) = ax {
+        log::info!("划词:AX 直读命中 {} 字", text.chars().count());
         return translate_selection(&app, text).await;
     }
 
@@ -371,16 +501,19 @@ async fn handle_selection_shortcut(app: AppHandle) {
     //    先等其松开;再用哨兵串法判定是否真复制到选区(不靠与旧剪贴板差异,规避同文字重复)。
     wait_modifiers_released().await;
     if let Some(text) = copy_selection_via_clipboard(&app).await {
+        log::info!("划词:剪贴板兜底命中 {} 字", text.chars().count());
         return translate_selection(&app, text).await;
     }
 
     // ③ AX 与剪贴板都拿不到选区:回显上次结果(spec 05 §3 —— 再次按键复现上次内容)。
     if let Some(last) = app.state::<LastResult>().get() {
+        log::info!("划词:无新选区,回显上次结果");
         app.state::<ScreenshotSession>().begin();
         position_popup_at_cursor(&app);
+        wait_popup_ready(&app).await;
         let _ = app.emit(EVT_RESULT, last);
     } else {
-        log::debug!("selection shortcut: AX 空 + 剪贴板无选区 + 无历史;忽略");
+        log::info!("划词:AX 空 + 剪贴板无选区 + 无历史;忽略(未选中文本或无权限)");
     }
 }
 
@@ -389,6 +522,8 @@ async fn translate_selection(app: &AppHandle, text: String) {
     let text: String = text.chars().take(5000).collect();
     let gen = app.state::<ScreenshotSession>().begin();
     position_popup_at_cursor(app);
+    // 首帧投递前等待 popup webview 就绪,避免冷启动首次触发丢掉 progress/result(方案 A)。
+    wait_popup_ready(app).await;
     let _ = tokio::time::timeout(TOTAL_TIMEOUT, run_text_pipeline(app, text, gen)).await;
 }
 
@@ -463,7 +598,14 @@ async fn run_text_pipeline(app: &AppHandle, original: String, gen: u64) {
         Ok(c) => c,
         Err(e) => return emit_error(app, "translate", "failed", &e.to_string(), Some(original)),
     };
-    emit_progress(app, "translate");
+    // 原文已知:发 translating,让 popup 立即显示原文 + 引擎行转圈(F1 无截图/OCR 阶段)。
+    emit_translating(
+        app,
+        &original,
+        None,
+        &cfg.translator.target_lang,
+        &cfg.translator.default_engine_id,
+    );
     let t = Instant::now();
     let translator = {
         let mgr = app.state::<TranslatorManager>();
@@ -515,6 +657,7 @@ fn position_popup_at_cursor(app: &AppHandle) {
         log::warn!("popup window not found; cannot show selection result");
         return;
     };
+    let w = popup_width(app);
     let mut x = cx + 16.0;
     let mut y = cy + 16.0;
     if let Ok(bounds) = selection_window::logical_monitor_bounds(app) {
@@ -522,12 +665,12 @@ fn position_popup_at_cursor(app: &AppHandle) {
             .into_iter()
             .find(|(mx, my, mw, mh)| cx >= *mx && cx < mx + mw && cy >= *my && cy < my + mh)
         {
-            x = x.clamp(lx, (lx + lw - POPUP_WIDTH).max(lx));
+            x = x.clamp(lx, (lx + lw - w).max(lx));
             y = y.clamp(ly, (ly + lh - POPUP_INIT_HEIGHT).max(ly));
         }
     }
     let _ = popup.set_position(LogicalPosition::new(x, y));
-    let _ = popup.set_size(LogicalSize::new(POPUP_WIDTH, POPUP_INIT_HEIGHT));
+    let _ = popup.set_size(LogicalSize::new(w, POPUP_INIT_HEIGHT));
     let _ = popup.show();
     let _ = popup.set_focus();
 }
@@ -538,16 +681,17 @@ fn position_popup_centered(app: &AppHandle) {
         log::warn!("popup window not found; cannot show selection result");
         return;
     };
+    let w = popup_width(app);
     let mut x = 200.0;
     let mut y = 200.0;
     if let Ok(bounds) = selection_window::logical_monitor_bounds(app) {
         if let Some((lx, ly, lw, lh)) = bounds.into_iter().next() {
-            x = lx + (lw - POPUP_WIDTH) / 2.0;
+            x = lx + (lw - w) / 2.0;
             y = ly + lh / 3.0;
         }
     }
     let _ = popup.set_position(LogicalPosition::new(x, y));
-    let _ = popup.set_size(LogicalSize::new(POPUP_WIDTH, POPUP_INIT_HEIGHT));
+    let _ = popup.set_size(LogicalSize::new(w, POPUP_INIT_HEIGHT));
     let _ = popup.show();
     let _ = popup.set_focus();
 }
@@ -556,9 +700,11 @@ fn is_current(app: &AppHandle, gen: u64) -> bool {
     app.state::<ScreenshotSession>().is_current(gen)
 }
 
-/// emit `screenshot://result` 并缓存为「上次结果」(供划词快捷键回显)。
+/// emit `screenshot://result` 并缓存为「上次结果」(供划词快捷键回显)。内存 + 磁盘各存一份。
 fn emit_result(app: &AppHandle, result: ScreenshotResult) {
-    app.state::<LastResult>().set(&result);
+    let last = app.state::<LastResult>();
+    last.set(&result);
+    last.persist(app);
     let _ = app.emit(EVT_RESULT, result);
 }
 
@@ -567,6 +713,25 @@ fn emit_progress(app: &AppHandle, stage: &str) {
         EVT_PROGRESS,
         ScreenshotProgress {
             stage: stage.to_string(),
+        },
+    );
+}
+
+/// 进入翻译阶段:原文/目标语言/引擎已知,先发一份让 popup 渲染完整布局 + 引擎行转圈。
+fn emit_translating(
+    app: &AppHandle,
+    original: &str,
+    source_lang: Option<String>,
+    target_lang: &str,
+    engine_id: &str,
+) {
+    let _ = app.emit(
+        EVT_TRANSLATING,
+        ScreenshotTranslating {
+            original: original.to_string(),
+            source_lang,
+            target_lang: target_lang.to_string(),
+            engine_id: engine_id.to_string(),
         },
     );
 }

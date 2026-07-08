@@ -25,11 +25,25 @@ const OFFSET_X: f64 = 6.0;
 const OFFSET_Y: f64 = 16.0;
 /// 无操作自动隐藏时延(毫秒;主要消失路径是「点别处即隐藏」,此为兜底)。
 const AUTO_HIDE_MS: u64 = 2500;
+/// 检测去抖时延(毫秒):双击/三击等连续点击会逐下触发检测,等这段时间内无新点击
+/// 才真正浮出图标 + 预读,避免用「中间一下」的半截选区(如三击第 2 下的单词)翻译。
+/// 取值略大于 macOS 常见多击间隔。
+const DETECT_DEBOUNCE_MS: u64 = 260;
+
+/// 检测去抖代号:每次划词手势自增;去抖任务据此判断期间是否又来了新点击。
+static DETECT_GEN: AtomicU64 = AtomicU64::new(0);
 
 /// 图标当前是否可见(供监听线程在 mouseDown 时快速判断)。
 static VISIBLE: AtomicBool = AtomicBool::new(false);
 /// 图标当前屏幕矩形 `(x, y, w, h)`(逻辑坐标);命中测试用。
 static RECT: Mutex<(f64, f64, f64, f64)> = Mutex::new((0.0, 0.0, 0.0, 0.0));
+/// 图标浮出瞬间(源应用仍在前台)AX 直读到的选中文本缓存。
+///
+/// 点击图标会让 Lenz 夺焦,之后再读系统级焦点元素的 `AXSelectedText` 就会读到错的内容
+/// (读到 Lenz 自己的窗口)。故在检测到划词手势、图标浮出时就把选中文本抓下来存这里,
+/// 点击时优先取用;取不到再退回实时兜底。AX 直读不碰剪贴板,不违反「不在每次手势合成
+/// Cmd+C」的约束(spec 05 §6)。
+static CAPTURED: Mutex<Option<String>> = Mutex::new(None);
 
 /// 图标显示会话代号:每次 `show_at` 自增,自动隐藏任务据此判断是否仍当前
 /// (重新定位 / 用户触发 / 主动隐藏都会令旧的隐藏任务失效)。作为 managed state 注入。
@@ -61,12 +75,56 @@ pub fn hit_test(x: f64, y: f64) -> bool {
     x >= rx && x < rx + rw && y >= ry && y < ry + rh
 }
 
+/// 取走并清空缓存的选中文本(点击图标触发翻译时消费)。
+pub fn take_captured() -> Option<String> {
+    CAPTURED.lock().unwrap().take()
+}
+
+/// 去抖版的图标显示:检测到划词手势后调用。等 `DETECT_DEBOUNCE_MS` 内无新点击,才真正
+/// 浮出图标并预读选区——把双击/三击等连续点击合并成一次,只用最终选区(避免用三击第
+/// 2 下的半截单词翻译)。位置用最后一次手势的落点。
+pub fn show_debounced(app: &AppHandle, x: f64, y: f64) {
+    let my = DETECT_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(DETECT_DEBOUNCE_MS)).await;
+        // 期间又来了新点击(多击未结束)→ 作废本次,交由更晚的手势处理。
+        if DETECT_GEN.load(Ordering::SeqCst) != my {
+            return;
+        }
+        let gen = show_at(&app, x, y);
+        capture_selection_async(&app, gen);
+    });
+}
+
+/// 图标浮出后异步 AX 直读当前选中文本并缓存(源应用此刻仍在前台)。
+///
+/// AX 调用可能对无响应目标应用同步阻塞,放 `spawn_blocking`。仅当仍是 `gen` 对应的
+/// 图标会话时才写入,避免旧会话的迟到结果污染新会话(如快速连续两次划词)。
+pub fn capture_selection_async(app: &AppHandle, gen: u64) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let text = tokio::task::spawn_blocking(crate::core::selection_text::read_selected_text)
+            .await
+            .ok()
+            .flatten();
+        if let Some(t) = text {
+            if app.state::<IndicatorSession>().is_current(gen) {
+                log::info!("划词图标:浮出时 AX 预读命中 {} 字", t.chars().count());
+                *CAPTURED.lock().unwrap() = Some(t);
+            }
+        }
+    });
+}
+
 /// 在 `(x, y)`(全局逻辑坐标,选区松开点)附近显示划词指示图标;`AUTO_HIDE_MS`
-/// 内无操作则自动隐藏。
-pub fn show_at(app: &AppHandle, x: f64, y: f64) {
+/// 内无操作则自动隐藏。返回本次显示的会话代号(供 `capture_selection_async` 门控)。
+pub fn show_at(app: &AppHandle, x: f64, y: f64) -> u64 {
+    // 新会话:清空上次遗留的预读缓存,避免跨会话误用。
+    *CAPTURED.lock().unwrap() = None;
     let Some(win) = app.get_webview_window(LABEL) else {
         log::warn!("indicator window not found");
-        return;
+        return 0;
     };
 
     let mut px = x + OFFSET_X;
@@ -98,6 +156,7 @@ pub fn show_at(app: &AppHandle, x: f64, y: f64) {
             hide(&app2);
         }
     });
+    gen
 }
 
 /// 隐藏图标并令自动隐藏计时失效(点别处 / 用户触发翻译 / 自动到时调用)。

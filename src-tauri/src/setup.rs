@@ -13,7 +13,7 @@
 use tauri::{App, AppHandle, Emitter, Listener, Manager};
 
 use crate::config::{ConfigStore, EVENT_CONFIG_CHANGED};
-use crate::core::screenshot::{self, LastResult, ScreenshotSession};
+use crate::core::screenshot::{self, LastResult, PopupReady, ScreenshotSession};
 use crate::core::selection;
 use crate::core::selection_window;
 use crate::core::shortcut;
@@ -54,11 +54,10 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     translator_manager.reload(
         &config.translator.engines,
         &config.translator.default_engine_id,
-        &config.proxy,
     );
     app.manage(translator_manager);
 
-    // 订阅 config://changed:translator.* / proxy.* 变更时热更新引擎(不重启,spec 01 §4.3)。
+    // 订阅 config://changed:translator.* 变更时热更新引擎(不重启,spec 01 §4.3)。
     let reload_handle = handle.clone();
     handle.listen(EVENT_CONFIG_CHANGED, move |event| {
         let payload = event.payload();
@@ -74,7 +73,12 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     // F2 截图翻译会话代号(取消机制,spec 06 §7)。
     app.manage(ScreenshotSession::default());
     // 最近一次翻译结果(划词快捷键「无新选区则回显上次内容」,spec 05 §3)。
-    app.manage(LastResult::default());
+    // 从磁盘 hydrate,使应用重启后按 Alt+D(无选区/剪贴板空)仍能回显上次结果。
+    let last_result = LastResult::default();
+    last_result.hydrate(handle);
+    app.manage(last_result);
+    // popup 就绪标志(冷启动首帧竞态,见 `screenshot::PopupReady`)。
+    app.manage(PopupReady::default());
     // 划词监听器(spec 05 §2);按配置在 Step 4 启停。
     app.manage(selection::SelectionListener::new());
     // 划词指示图标的显示会话(自动隐藏代号,spec 05 §6)。
@@ -101,6 +105,13 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // popup webview 挂载完监听后发来的就绪信号 → 置位标志,关闭冷启动首帧竞态
+    // (方案 A;见 `screenshot::PopupReady`)。
+    let h_ready = handle.clone();
+    handle.listen(screenshot::EVENT_POPUP_READY, move |_| {
+        h_ready.state::<PopupReady>().mark();
+    });
+
     // F1 划词翻译(快捷键模式):Alt+D(shortcut://selection)→ 读剪贴板 → 翻译 → popup。
     // 自动检测监听 + 选中自动复制属 M5;此处先让快捷键可用(spec 05 §3)。
     let h_word = handle.clone();
@@ -114,7 +125,12 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     let h_ind = handle.clone();
     handle.listen(selection::EVENT_SELECTION_DETECTED, move |event| {
         match serde_json::from_str::<SelectionDetected>(event.payload()) {
-            Ok(p) => crate::core::indicator::show_at(&h_ind, p.x, p.y),
+            Ok(p) => {
+                // 去抖后浮出图标,并在此刻(源应用仍在前台)AX 预读选中文本缓存,供点击图标
+                // 时取用——既规避「点击图标夺焦后再读会读到错内容」,又把双击/三击的连续点击
+                // 合并成一次,只用最终选区(见 `indicator::show_debounced`)。
+                crate::core::indicator::show_debounced(&h_ind, p.x, p.y);
+            }
             Err(e) => log::warn!("selection-detected payload parse failed: {e}"),
         }
     });
@@ -172,13 +188,14 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
 
 /// 判断一次 `config://changed` 是否需要重载翻译引擎。
 ///
-/// keypath 涉及 `translator.*` / `proxy.*` 或整体重置(空 keypath)时需重载;
+/// keypath 涉及 `translator.*` 或整体重置(空 keypath)时需重载;
 /// 载荷解析失败时保守重载。
 fn config_change_needs_reload(payload: &str) -> bool {
     match serde_json::from_str::<ConfigChangedPayload>(payload) {
-        Ok(p) => p.keypaths.iter().any(|k| {
-            k.is_empty() || k.starts_with("translator") || k.starts_with("proxy")
-        }),
+        Ok(p) => p
+            .keypaths
+            .iter()
+            .any(|k| k.is_empty() || k.starts_with("translator")),
         Err(_) => true,
     }
 }
@@ -199,11 +216,7 @@ fn reload_translators(handle: &AppHandle) {
     let store = handle.state::<ConfigStore>();
     let mgr = handle.state::<TranslatorManager>();
     match store.get() {
-        Ok(cfg) => mgr.reload(
-            &cfg.translator.engines,
-            &cfg.translator.default_engine_id,
-            &cfg.proxy,
-        ),
+        Ok(cfg) => mgr.reload(&cfg.translator.engines, &cfg.translator.default_engine_id),
         Err(e) => log::warn!("reload translators: read config failed: {e}"),
     }
 }

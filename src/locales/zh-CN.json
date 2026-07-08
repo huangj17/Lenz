@@ -35,10 +35,9 @@
     "openOnLaunch": "启动时打开主窗口",
     "openOnLaunchHint": "关闭后仅驻留菜单栏",
     "appearance": "外观",
-    "network": "网络",
-    "proxy": "代理",
-    "proxyHint": "仅作用于云端引擎——本地请求不走代理",
-    "proxyOff": "未启用"
+    "selection": "划词",
+    "selectionIndicator": "划词显示翻译图标",
+    "selectionIndicatorHint": "选中文本后在光标处浮出小图标,点击即翻译(需辅助功能权限)"
   },
   "shortcuts": {
     "selection": "划词翻译",
@@ -57,7 +56,7 @@
     "ocr": "OCR"
   },
   "engines": {
-    "desc": "叠加多个引擎并设为默认。本地模型让每个请求都留在设备内;云端引擎会走代理设置。",
+    "desc": "叠加多个引擎并设为默认。本地模型让每个请求都留在设备内。",
     "add": "添加服务",
     "default": "默认",
     "emptyTitle": "还没有翻译服务",
@@ -71,7 +70,6 @@
     "name": "名称",
     "type": "类型",
     "timeout": "超时(毫秒)",
-    "useProxy": "走代理",
     "region": "区域(Azure)",
     "setDefault": "设为默认",
     "delete": "删除",
@@ -142,6 +140,8 @@
     "copied": "已复制",
     "retry": "重试",
     "close": "关闭",
+    "translating": "翻译中",
+    "resizeWidth": "拖拽调节宽度",
     "via": "via {{engine}}",
     "error": {
       "permission": "需要屏幕录制权限",

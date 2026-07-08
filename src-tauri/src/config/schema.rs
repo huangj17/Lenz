@@ -23,7 +23,6 @@ pub struct Config {
     pub selection: SelectionConfig,
     pub ocr: OcrConfig,
     pub translator: TranslatorConfig,
-    pub proxy: ProxyConfig,
     pub ui: UiConfig,
 }
 
@@ -133,8 +132,6 @@ pub struct TranslatorEngine {
     pub system_prompt: Option<String>,
     /// 超时(毫秒),默认 15000。
     pub timeout_ms: u32,
-    /// 是否走代理。本地 LLM 通常为 false。
-    pub use_proxy: bool,
     /// Azure 翻译所需区域(仅 Microsoft 引擎用),如 "eastasia";其余引擎为 None。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub region: Option<String>,
@@ -163,31 +160,6 @@ pub enum EngineKind {
     Apple,
 }
 
-/// 代理配置。
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct ProxyConfig {
-    pub enabled: bool,
-    pub scheme: ProxyScheme,
-    pub host: String,
-    pub port: u16,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub username: Option<String>,
-    /// 明文保存(MVP)。
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub password: Option<String>,
-    /// 默认 true:127.0.0.1 / localhost 绕过代理。
-    pub bypass_local: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub enum ProxyScheme {
-    Http,
-    Https,
-    Socks5,
-}
-
 /// UI 偏好。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -202,6 +174,8 @@ pub struct PopupUiConfig {
     pub font_size: u32,
     /// 是否展示原文。
     pub show_original: bool,
+    /// 弹框逻辑宽度(用户可拖拽右缘调节并记忆),默认 360;取值夹 [300, 720]。
+    pub width: u32,
 }
 
 /// 内置默认翻译引擎预设(spec 04 §12)。
@@ -219,7 +193,6 @@ pub fn default_engines() -> Vec<TranslatorEngine> {
         api_url: &str,
         model: Option<&str>,
         timeout_ms: u32,
-        use_proxy: bool,
     ) -> TranslatorEngine {
         TranslatorEngine {
             id: id.into(),
@@ -231,7 +204,6 @@ pub fn default_engines() -> Vec<TranslatorEngine> {
             model: model.map(Into::into),
             system_prompt: None,
             timeout_ms,
-            use_proxy,
             region: None,
             max_tokens: None,
             temperature: None,
@@ -240,8 +212,8 @@ pub fn default_engines() -> Vec<TranslatorEngine> {
 
     vec![
         // —— 默认开启 ——
-        e("builtin-youdao", "有道翻译", EngineKind::Youdao, true, "", None, 15_000, false),
-        e("builtin-apple", "苹果翻译", EngineKind::Apple, true, "", None, 15_000, false),
+        e("builtin-youdao", "有道翻译", EngineKind::Youdao, true, "", None, 15_000),
+        e("builtin-apple", "苹果翻译", EngineKind::Apple, true, "", None, 15_000),
         e(
             "builtin-zhipu",
             "智谱 GLM",
@@ -250,7 +222,6 @@ pub fn default_engines() -> Vec<TranslatorEngine> {
             "https://open.bigmodel.cn/api/paas/v4",
             Some("glm-4-flash"),
             30_000,
-            false,
         ),
         e(
             "builtin-siliconflow",
@@ -260,11 +231,10 @@ pub fn default_engines() -> Vec<TranslatorEngine> {
             "https://api.siliconflow.cn/v1",
             Some("Qwen/Qwen2.5-7B-Instruct"),
             30_000,
-            false,
         ),
         // —— 默认关闭 ——
-        e("builtin-google", "Google 翻译", EngineKind::Google, false, "", None, 15_000, true),
-        e("builtin-microsoft", "微软翻译", EngineKind::Microsoft, false, "", None, 15_000, false),
+        e("builtin-google", "Google 翻译", EngineKind::Google, false, "", None, 15_000),
+        e("builtin-microsoft", "微软翻译", EngineKind::Microsoft, false, "", None, 15_000),
         e(
             "builtin-ollama",
             "Ollama",
@@ -273,7 +243,6 @@ pub fn default_engines() -> Vec<TranslatorEngine> {
             "http://localhost:11434/v1",
             Some("qwen2.5"),
             60_000,
-            false,
         ),
         e(
             "builtin-lmstudio",
@@ -283,7 +252,6 @@ pub fn default_engines() -> Vec<TranslatorEngine> {
             "http://localhost:1234/v1",
             None,
             60_000,
-            false,
         ),
     ]
 }
@@ -330,19 +298,11 @@ impl Default for Config {
                 target_lang: "zh-CN".into(),
                 engines: default_engines(),
             },
-            proxy: ProxyConfig {
-                enabled: false,
-                scheme: ProxyScheme::Http,
-                host: String::new(),
-                port: 7890,
-                username: None,
-                password: None,
-                bypass_local: true,
-            },
             ui: UiConfig {
                 popup: PopupUiConfig {
                     font_size: 14,
                     show_original: true,
+                    width: 360,
                 },
             },
         }

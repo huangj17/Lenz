@@ -52,14 +52,21 @@ pub async fn toggle_selection_listener(
 
 /// 划词指示图标被 hover/点击时触发翻译(spec 05 §6)。
 ///
-/// 先隐藏图标 → 等焦点回到用户原应用 → 复用快捷键划词编排(合成 Cmd+C → 轮询剪贴板
-/// → 翻译 → 光标处弹框)。复制只在用户真正 engage 图标时发生,故不会在每次划词手势
-/// 干扰用户剪贴板。
+/// 优先取用图标浮出瞬间(源应用仍在前台)AX 预读的选中文本缓存,直接翻译——规避「点击
+/// 图标夺焦后再读系统级焦点元素会读到错内容」。缓存缺失(AX 不支持,如部分 Chrome/
+/// Electron)时才退回实时兜底:隐藏图标 → 等焦点回切 → 合成 Cmd+C → 轮询剪贴板 → 翻译。
 #[tauri::command]
 #[specta::specta]
 pub async fn trigger_selection_translate(app: AppHandle) -> Result<(), LenzError> {
+    // 先取缓存(hide 不动缓存,但先取更稳妥),再隐藏图标。
+    let cached = crate::core::indicator::take_captured();
     crate::core::indicator::hide(&app);
-    // 让焦点回到用户原应用(点击图标可能短暂夺焦),合成的 Cmd+C 才会复制其选区。
+    if let Some(text) = cached {
+        crate::core::screenshot::translate_with_text(&app, text);
+        return Ok(());
+    }
+    // 无预读缓存:退回实时兜底。让焦点回到用户原应用(点击图标可能短暂夺焦),
+    // 合成的 Cmd+C 才会复制其选区。
     tokio::time::sleep(Duration::from_millis(120)).await;
     crate::core::screenshot::on_selection_shortcut(&app);
     Ok(())

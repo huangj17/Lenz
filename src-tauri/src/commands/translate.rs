@@ -31,7 +31,7 @@ pub async fn translate_batch(
 
 /// 测试引擎连通性:对传入(可能尚未保存的)引擎翻译 "Hello",返回延迟 / 结果。
 ///
-/// 代理取自当前已保存配置;失败时 `ok=false` 并带错误说明(spec 04 §8)。
+/// 失败时 `ok=false` 并带错误说明(spec 04 §8)。
 #[tauri::command]
 #[specta::specta]
 pub async fn test_engine(
@@ -39,7 +39,7 @@ pub async fn test_engine(
     config: State<'_, ConfigStore>,
 ) -> Result<TestEngineResult, LenzError> {
     let cfg = config.get()?;
-    let translator = build_test_engine(engine, &cfg.proxy);
+    let translator = build_test_engine(engine);
 
     let target = if cfg.translator.target_lang.is_empty() {
         "zh-CN".to_string()

@@ -17,7 +17,7 @@
 | 06 | [截图翻译 (F2)](./06-screenshot-translation.md) | 截图 → OCR → 翻译 → 弹框流程 | PRD §2.2 F2 |
 | 07 | [原图覆盖翻译 (F3)](./07-overlay-translation.md) | 透明悬浮窗、bbox 定位、颜色采样、字号自适应 | PRD §2.2 F3 |
 | 09 | [窗口与 UI](./09-windows-ui.md) | 主窗口、弹框、选区、覆盖层四类窗口规格 | PRD §2.3, §4 |
-| 10 | [系统功能](./10-system-features.md) | 托盘、快捷键、自启、更新、代理、i18n、主题 | PRD §2.3 |
+| 10 | [系统功能](./10-system-features.md) | 托盘、快捷键、自启、更新、i18n、主题 | PRD §2.3 |
 | 11 | [非功能需求](./11-nfr.md) | 性能、隐私、兼容性、打包签名 | PRD §5 |
 
 ## 阅读顺序建议

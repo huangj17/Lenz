@@ -47,15 +47,7 @@ interface Config {
     targetLang: string;             // 默认 "zh-CN"
     engines: TranslatorEngine[];
   };
-  proxy: {
-    enabled: boolean;
-    scheme: "http" | "https" | "socks5";
-    host: string;
-    port: number;
-    username?: string;
-    password?: string;              // 存储:保留明文,提示用户(见 §6)
-    bypassLocal: boolean;           // 默认 true:127.0.0.1/localhost 绕过
-  };
+  // 注:应用内代理功能已移除,Config 中没有 `proxy` 字段(见 spec 04 §7 / spec 10 §5)。
   ui: {
     popup: {
       fontSize: number;             // 默认 14
@@ -74,7 +66,6 @@ interface TranslatorEngine {
   model?: string;                   // LLM 类必填
   systemPrompt?: string;            // LLM 类,支持 {sourceLang}/{targetLang}
   timeoutMs: number;                // 默认 15000
-  useProxy: boolean;                // 本地 LLM 通常 false
 }
 ```
 
@@ -87,7 +78,6 @@ interface TranslatorEngine {
 - `shortcuts` 按 PRD §4.1 平台默认值填充
 - `selection.autoDetect = false`(避免误触;用户按需开启)
 - `translator.engines = []`,用户需手动添加第一个引擎
-- `proxy.enabled = false`
 
 ## 4. 读写时序
 
@@ -124,7 +114,6 @@ load_config():
 | `selection.enabled` / `selection.autoDetect` | 启/停划词监听线程 |
 | `app.autoStart` | 调用 `tauri-plugin-autostart` |
 | `app.theme` / `app.locale` | 通知所有窗口重新渲染 |
-| `proxy.*` | 重建 reqwest client |
 
 ## 5. Tauri Commands
 
@@ -164,7 +153,7 @@ export const configApi = {
 
 ## 6. 敏感字段处理
 
-- API Key、代理密码以**明文**保存在 JSON 文件中(MVP)。
+- API Key 以**明文**保存在 JSON 文件中(MVP)。
 - 设置页 UI 输入框 `type="password"`,需要显式点击"显示"才展示。
 - 在关于/设置页顶部给出提示:"凭据以明文保存在本机;请勿共享 config.json。"
 - 未来(P2)接入系统 keychain(`keyring` crate)。在此之前,schema 中的字段名不变,以便零迁移切换。

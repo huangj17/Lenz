@@ -18,6 +18,8 @@
 
 两种模式可同时启用。快捷键触发始终可用,自动触发受总开关 `selection.enabled` 控制。
 
+> **总开关入口**:`selection.enabled` 同时暴露于「托盘 · 划词监听」勾选(spec 10 §1.2)与「设置 · 通用 · 划词」的「划词显示翻译图标」开关(spec 09 §2.2);两处共用该字段,经 `set_config` → `config://changed` 联动启停监听器并同步各自 UI 状态。
+
 ## 2. 平台监听实现
 
 ### 2.1 macOS
@@ -63,15 +65,30 @@ impl SelectionListener {
 
 ## 3. 快捷键触发流程
 
+Alt+D(及点击划词图标)按下后,`handle_selection_shortcut` 按优先级取选中文本,取到即翻译:
+
 ```
-全局快捷键 Alt+D 按下
-  └─ Rust shortcut handler
-       ├─ 读剪贴板当前文本(同平台方式)
-       ├─ 若为空 → toast "未检测到选中文本"
-       └─ emit selection://triggered { text, source: "shortcut", cursorPos }
+全局快捷键 Alt+D 按下 / 点击划词图标
+  └─ Rust handle_selection_shortcut
+       ├─ ① AX 直读:read_selected_text()(AXSelectedText,不碰剪贴板)
+       │      └─ 命中 → 翻译 + 光标处弹框
+       ├─ ② 兜底(AX 取不到,如部分 Chrome/Electron):
+       │      等修饰键松开 → 哨兵串法合成 Cmd+C 读剪贴板 → 还原原剪贴板
+       │      └─ 命中 → 翻译 + 光标处弹框
+       └─ ③ 都无(无选区 / 剪贴板空 / 无权限):
+              ├─ 有「上次结果」→ 光标处弹框回显上次译文(不重新翻译)
+              └─ 无「上次结果」→ 忽略(仅记日志)
 ```
 
-前端 popup 窗口监听 `selection://triggered`。
+- ①②③ 详见 `core/screenshot.rs`(`handle_selection_shortcut`)与 `core/selection_text.rs`。
+- 划词图标点击走同一编排,但**优先复用图标浮出瞬间 AX 预读的缓存**(源应用仍在前台时读),规避点击图标夺焦后读到错内容;缓存缺失才回退上述 ①②③。见 [§6](#6-popup-窗口行为) 与 `commands/overlay.rs::trigger_selection_translate`。
+
+### 3.1 「上次结果」回显与持久化
+
+- 每次成功翻译(F1/F2 通用)都缓存为「上次结果」(`LastResult`):**内存一份 + 磁盘一份**,磁盘文件 `last-result.json` 与 `config.json` 同目录(`app_config_dir()`)。
+- 启动时从磁盘 `hydrate` 回内存,故**应用重启后**按 Alt+D(无选区/剪贴板空)仍能回显上次译文,而非无反应。
+- 写盘为 best-effort:失败仅记日志,不阻断主流程;文件缺失(首次运行)或解析失败均静默留空。
+- ⚠️ 隐私:上次译文以明文落盘(与 config 明文存凭据的 MVP 取舍一致,见 [spec 01 §6](./01-config-storage.md))。若后续需要更强隐私,可退化为「仅会话内回显」或加开关。
 
 ## 4. 自动触发去抖
 
@@ -169,7 +186,8 @@ TRANSLATING ──新触发──► TRANSLATING(取消旧请求)
 
 - [ ] 选中文本 → 弹框出现(UI 响应,不含翻译)≤ 500ms。
 - [ ] 自动模式:鼠标不动选同一段文本,不重复触发翻译。
-- [ ] 快捷键模式:无选中文本时按快捷键,toast 提示而非空弹框。
+- [ ] 快捷键模式:无新选区/剪贴板空时按 Alt+D,回显上次结果(有则弹框,无历史则无反应),不弹空框。
+- [ ] 应用重启后按 Alt+D(无选区/剪贴板空),仍能回显上次翻译结果(`last-result.json` 持久化)。
 - [ ] 弹框不超出任何一块屏幕边界。
 - [ ] 再次选中新文本,弹框内容更新而非新增第二个弹框。
 - [ ] `toggle_selection_listener(false)` 后,选中文本不触发任何弹框。
@@ -181,3 +199,5 @@ TRANSLATING ──新触发──► TRANSLATING(取消旧请求)
 - 选中纯数字 / 链接(应触发但翻译结果合理)。
 - 超过 5000 字符(应静默忽略)。
 - macOS 未授权辅助功能时(应有引导弹窗)。
+- 翻译一段文本后**重启应用**,不选任何文本按 Alt+D(应回显重启前的上次结果)。
+- 删除 / 损坏 `last-result.json` 后启动(应静默留空,不报错)。

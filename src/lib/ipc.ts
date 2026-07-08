@@ -30,6 +30,7 @@ import type {
   ScreenshotErrorPayload,
   ScreenshotProgressPayload,
   ScreenshotResult,
+  ScreenshotTranslatingPayload,
   SelectionDetectedPayload,
   SelectionTextChangedPayload,
   StartupWarningPayload,
@@ -199,6 +200,8 @@ export const screenshotApi = {
   openScreenSettings: () => invoke<void>("open_screen_settings"),
   /** 内容渲染后按实际高度调整 popup 窗口(macOS 同时刷新窗口阴影,消除残影) */
   resizePopup: (height: number) => invoke<void>("resize_popup", { height }),
+  /** 拖拽右缘实时调节 popup 宽度(夹紧 300~720;持久化由前端在拖拽结束时 patch config) */
+  resizePopupWidth: (width: number) => invoke<void>("resize_popup_width", { width }),
 };
 
 /** OCR 命令(spec 03):截图区域 → 识别 */
@@ -242,6 +245,7 @@ export const Events = {
   CaptureRegionSelected: "capture://region-selected",
   CaptureRegionCancelled: "capture://region-cancelled",
   ScreenshotProgress: "screenshot://progress",
+  ScreenshotTranslating: "screenshot://translating",
   ScreenshotResult: "screenshot://result",
   ScreenshotError: "screenshot://error",
   OverlayClosed: "overlay://closed",
@@ -260,6 +264,7 @@ export interface EventPayloadMap {
   [Events.CaptureRegionSelected]: CaptureRegionSelectedPayload;
   [Events.CaptureRegionCancelled]: void;
   [Events.ScreenshotProgress]: ScreenshotProgressPayload;
+  [Events.ScreenshotTranslating]: ScreenshotTranslatingPayload;
   [Events.ScreenshotResult]: ScreenshotResult;
   [Events.ScreenshotError]: ScreenshotErrorPayload;
   [Events.OverlayClosed]: OverlayClosedPayload;

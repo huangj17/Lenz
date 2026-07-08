@@ -75,8 +75,6 @@ export interface TranslatorEngine {
   systemPrompt?: string;
   /** 默认 15000 */
   timeoutMs: number;
-  /** 本地 LLM 通常 false */
-  useProxy: boolean;
   /** Azure 翻译区域(仅 microsoft 引擎用) */
   region?: string;
   /** LLM 最大输出 token(仅 openai);省略=不限 */
@@ -91,7 +89,6 @@ export interface TranslatorEngine {
 
 export type LocaleSetting = "system" | "zh-CN" | "en-US";
 export type ThemeSetting = "system" | "light" | "dark";
-export type ProxyScheme = "http" | "https" | "socks5";
 
 export interface AppConfig {
   locale: LocaleSetting;
@@ -135,22 +132,12 @@ export interface TranslatorConfig {
   engines: TranslatorEngine[];
 }
 
-export interface ProxyConfig {
-  enabled: boolean;
-  scheme: ProxyScheme;
-  host: string;
-  port: number;
-  username?: string;
-  /** 存储:保留明文,提示用户 */
-  password?: string;
-  /** 默认 true:127.0.0.1/localhost 绕过 */
-  bypassLocal: boolean;
-}
-
 export interface PopupUiConfig {
   /** 默认 14 */
   fontSize: number;
   showOriginal: boolean;
+  /** 弹框逻辑宽度(可拖拽调节并记忆),默认 360;夹 [300, 720] */
+  width: number;
 }
 
 export interface UiConfig {
@@ -165,7 +152,6 @@ export interface Config {
   selection: SelectionConfig;
   ocr: OcrConfig;
   translator: TranslatorConfig;
-  proxy: ProxyConfig;
   ui: UiConfig;
 }
 
@@ -262,6 +248,14 @@ export interface ScreenshotErrorPayload {
 /** `screenshot://progress` */
 export interface ScreenshotProgressPayload {
   stage: "capture" | "ocr" | "translate";
+}
+
+/** `screenshot://translating` —— 进入翻译阶段(原文已知、译文未出),供 popup 显示完整布局 + 引擎行转圈 */
+export interface ScreenshotTranslatingPayload {
+  original: string;
+  sourceLang: string | null;
+  targetLang: string;
+  engineId: string;
 }
 
 /** `config://changed` —— 变更的 keypath 列表(如 ["shortcuts.selection"]) */

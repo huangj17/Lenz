@@ -1,6 +1,6 @@
 # Spec 04 · 翻译引擎
 
-> 覆盖 PRD §2.2 F4 与 §3.4(翻译引擎抽象)。定义 Translator trait、各引擎实现、多引擎管理与代理支持。
+> 覆盖 PRD §2.2 F4 与 §3.4(翻译引擎抽象)。定义 Translator trait、各引擎实现、多引擎管理。
 
 ---
 
@@ -49,11 +49,11 @@ pub struct TranslateResponse {
 pub struct TranslatorManager {
     engines: RwLock<HashMap<String, Arc<dyn Translator>>>,
     default_id: RwLock<String>,
-    http_client: reqwest::Client,       // 共享,支持代理
+    http_client: reqwest::Client,       // 共享
 }
 
 impl TranslatorManager {
-    pub fn reload(&self, configs: Vec<TranslatorEngine>, proxy: &ProxyConfig);
+    pub fn reload(&self, configs: Vec<TranslatorEngine>, default_id: &str);
     pub fn get(&self, id: Option<&str>) -> Option<Arc<dyn Translator>>;
     pub async fn translate(&self, id: Option<&str>, req: TranslateRequest)
         -> Result<TranslateResponse, LenzError>;
@@ -61,7 +61,7 @@ impl TranslatorManager {
 ```
 
 - 配置变更(`config://changed` 含 `translator.*`)时调 `reload`,不重启进程。
-- `http_client` 按代理配置重建(见 §6)。
+- 所有引擎共享一个 `reqwest::Client`(见 §7)。
 
 ## 3. OpenAI 兼容实现
 
@@ -169,30 +169,22 @@ OpenAI 引擎不做客户端语言检测;在 system prompt 里写 "auto-detect s
 - macOS `Translation` 框架无干净的无界面公开 API(`TranslationSession` 仅能经 SwiftUI 获取),当前为**占位**:可被配置 / 选中,`translate` 返回 `TranslateFailed("apple_not_implemented")`。
 - 后续接原生桥接(隐藏 SwiftUI 宿主 + 按需下载语言包),见 §11。
 
-## 7. 代理支持
+## 7. HTTP Client(应用内代理已移除)
 
-`TranslatorManager` 内的 `reqwest::Client` 按 `ProxyConfig` 构建:
+> 原「代理支持」已移除:不再提供应用内代理配置(`ProxyConfig` / `useProxy` 均已删除)。**编号 §7 保留不复用**,与 spec 08 的处理方式一致。
+
+所有引擎共享一个 `reqwest::Client`,仅设 30s 超时,不做任何应用内代理配置——沿用 reqwest 默认行为(尊重系统环境变量 `HTTP(S)_PROXY` / `NO_PROXY`)。构建失败回退默认 client。
 
 ```rust
-fn build_http_client(proxy: &ProxyConfig) -> reqwest::Client {
-    let mut builder = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30));
-    if proxy.enabled {
-        let proxy_url = format!("{}://{}:{}", proxy.scheme, proxy.host, proxy.port);
-        let mut p = reqwest::Proxy::all(&proxy_url).unwrap();
-        if let (Some(u), Some(pw)) = (&proxy.username, &proxy.password) {
-            p = p.basic_auth(u, pw);
-        }
-        builder = builder.proxy(p);
-        if proxy.bypass_local {
-            // reqwest 自动 bypass 127.0.0.1,无需额外配置
-        }
-    }
-    builder.build().unwrap()
+fn build_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
 }
 ```
 
-本地 LLM(LM Studio/Ollama)引擎:`engine.useProxy = false` → 该引擎的请求用 `reqwest::Client::new()`(无代理)。
+如需代理访问云端引擎,由用户在系统/环境层配置。
 
 ## 8. Tauri Commands
 
@@ -218,7 +210,6 @@ async fn translate_batch(
 #[tauri::command]
 async fn test_engine(
     engine_cfg: TranslatorEngine,
-    proxy: ProxyConfig,
 ) -> Result<TestEngineResult, LenzError>;
 ```
 
@@ -240,7 +231,6 @@ async fn test_engine(
 - [ ] LM Studio(本地)翻译一段英文 → 中文,端到端延迟 ≤ LLM 本身耗时 + 50ms。
 - [ ] 批量翻译 10 条文本:OpenAI 兼容单次请求返回,Google/DeepL 也单次完成。
 - [ ] 测试按钮能在 3s 内返回成功/失败结果。
-- [ ] 代理配置后 `curl` 同地址能通,翻译也通。
 - [ ] 引擎配置热更新后,下一次翻译使用新配置(无需重启)。
 
 ## 11. 开放问题
@@ -255,16 +245,16 @@ async fn test_engine(
 id 用稳定 slug(`builtin-*`),`apiKey` / `region` 留空待用户填写。schema v1→v2 迁移在
 `translator.engines` 为空时注入同一套预设。默认引擎 id = `builtin-youdao`。
 
-| id | 名称 | kind | 默认开启 | apiUrl | model | useProxy |
-|---|---|---|---|---|---|---|
-| builtin-youdao | 有道翻译 | youdao | ✅ | (默认端点) | — | false |
-| builtin-apple | 苹果翻译 | apple | ✅ | — | — | false |
-| builtin-zhipu | 智谱 GLM | openai | ✅ | `open.bigmodel.cn/api/paas/v4` | glm-4-flash | false |
-| builtin-siliconflow | 硅基流动 | openai | ✅ | `api.siliconflow.cn/v1` | Qwen/Qwen2.5-7B-Instruct | false |
-| builtin-google | Google 翻译 | google | ❌ | (默认端点) | — | true |
-| builtin-microsoft | 微软翻译 | microsoft | ❌ | (默认端点) | — | false |
-| builtin-ollama | Ollama | openai | ❌ | `localhost:11434/v1` | qwen2.5 | false |
-| builtin-lmstudio | LM Studio | openai | ❌ | `localhost:1234/v1` | — | false |
+| id | 名称 | kind | 默认开启 | apiUrl | model |
+|---|---|---|---|---|---|
+| builtin-youdao | 有道翻译 | youdao | ✅ | (默认端点) | — |
+| builtin-apple | 苹果翻译 | apple | ✅ | — | — |
+| builtin-zhipu | 智谱 GLM | openai | ✅ | `open.bigmodel.cn/api/paas/v4` | glm-4-flash |
+| builtin-siliconflow | 硅基流动 | openai | ✅ | `api.siliconflow.cn/v1` | Qwen/Qwen2.5-7B-Instruct |
+| builtin-google | Google 翻译 | google | ❌ | (默认端点) | — |
+| builtin-microsoft | 微软翻译 | microsoft | ❌ | (默认端点) | — |
+| builtin-ollama | Ollama | openai | ❌ | `localhost:11434/v1` | qwen2.5 |
+| builtin-lmstudio | LM Studio | openai | ❌ | `localhost:1234/v1` | — |
 
 > OpenAI 兼容端点组装(`chat_endpoint`)容忍三种形态:已含 `/chat/completions` 原样;
 > 已含版本段(`/v1`、`/api/paas/v4`)只补 `/chat/completions`;裸 host 补 `/v1/chat/completions`。
