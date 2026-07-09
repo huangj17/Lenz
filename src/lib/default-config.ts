@@ -32,6 +32,8 @@ function builtinEngines(): TranslatorEngine[] {
     // —— 默认开启 ——
     e("builtin-youdao", "有道翻译", "youdao", true, "", undefined, 15000),
     e("builtin-apple", "苹果翻译", "apple", true, "", undefined, 15000),
+    // 谷歌翻译:内置默认 Key,留空即用内置,故默认开启、开箱即用。
+    e("builtin-google", "Google 翻译", "google", true, "", undefined, 15000),
     e(
       "builtin-zhipu",
       "智谱 GLM",
@@ -50,8 +52,8 @@ function builtinEngines(): TranslatorEngine[] {
       "Qwen/Qwen2.5-7B-Instruct",
       30000,
     ),
-    // —— 默认关闭 ——
-    e("builtin-google", "Google 翻译", "google", false, "", undefined, 15000),
+    // —— 默认关闭(需用户自备凭据)——
+    e("builtin-baidu", "百度翻译", "baidu", false, "", undefined, 15000),
     e("builtin-microsoft", "微软翻译", "microsoft", false, "", undefined, 15000),
     e(
       "builtin-ollama",
@@ -68,7 +70,7 @@ function builtinEngines(): TranslatorEngine[] {
 
 export function createDefaultConfig(): Config {
   return {
-    version: 2,
+    version: 3,
     app: {
       locale: "system",
       theme: "system",

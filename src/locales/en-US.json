@@ -80,6 +80,8 @@
     "hideKey": "Hide",
     "keyHint": "Stored in plain text locally (MVP)",
     "youdaoKeyHint": "Format: appKey:appSecret",
+    "baiduKeyHint": "Format: appid:secret (from Baidu Translate console)",
+    "googleKeyHint": "Leave blank to use the built-in key; fill in your own to override",
     "urlPlaceholder": "https://… (blank = default endpoint)",
     "keyPlaceholder": "sk-…",
     "modelPlaceholder": "e.g. gpt-4o-mini",
@@ -88,6 +90,7 @@
     "warnModel": "Model is required",
     "warnKey": "API Key is required",
     "warnYoudaoKey": "API Key must be appKey:appSecret",
+    "warnBaiduKey": "API Key must be appid:secret",
     "warnRegion": "Region is required (Azure)",
     "maxTokens": "Max output tokens",
     "maxTokensHint": "Cap tokens in the response; blank = unlimited",
@@ -99,6 +102,7 @@
       "google": "Google",
       "deepl": "DeepL",
       "youdao": "Youdao",
+      "baidu": "Baidu",
       "microsoft": "Microsoft Azure",
       "apple": "Apple system"
     }

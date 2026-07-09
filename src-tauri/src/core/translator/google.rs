@@ -12,6 +12,10 @@ use crate::types::{TranslateRequest, TranslateResponse};
 
 const DEFAULT_ENDPOINT: &str = "https://translation.googleapis.com/language/translate/v2";
 
+/// 内置默认 Google API Key(用户未填写时回退,开箱即用)。
+/// 用户在设置里填自己的 Key 即可覆盖(见 `translate` 中的 key 解析)。
+const BUILTIN_API_KEY: &str = "AIzaSyBryozS9JsbskiMoBCpeZiq9OT22OcnWDs";
+
 pub struct GoogleTranslator {
     cfg: TranslatorEngine,
     client: reqwest::Client,
@@ -56,7 +60,13 @@ impl Translator for GoogleTranslator {
             params.push(("source", google_lang_code(src)));
         }
         params.push(("format", "text".to_string()));
-        params.push(("key", self.cfg.api_key.clone()));
+        // 用户填了自己的 Key 用之,否则回退内置默认 Key。
+        let key = if self.cfg.api_key.trim().is_empty() {
+            BUILTIN_API_KEY.to_string()
+        } else {
+            self.cfg.api_key.trim().to_string()
+        };
+        params.push(("key", key));
 
         let rb = self
             .client

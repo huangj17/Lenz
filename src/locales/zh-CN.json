@@ -80,6 +80,8 @@
     "hideKey": "隐藏",
     "keyHint": "明文保存于本地配置(MVP)",
     "youdaoKeyHint": "格式:appKey:appSecret",
+    "baiduKeyHint": "格式:appid:密钥(百度翻译开放平台控制台获取)",
+    "googleKeyHint": "留空即用内置默认 Key;填自己的 Key 可覆盖",
     "urlPlaceholder": "https://…(留空用默认端点)",
     "keyPlaceholder": "sk-…",
     "modelPlaceholder": "如 gpt-4o-mini",
@@ -88,6 +90,7 @@
     "warnModel": "需填写模型",
     "warnKey": "需填写 API Key",
     "warnYoudaoKey": "API Key 需为 appKey:appSecret 格式",
+    "warnBaiduKey": "API Key 需为 appid:密钥 格式",
     "warnRegion": "需填写区域(Azure)",
     "maxTokens": "最大输出 token 数",
     "maxTokensHint": "限制返回的最大 token 数;留空 = 不限",
@@ -99,6 +102,7 @@
       "google": "Google",
       "deepl": "DeepL",
       "youdao": "有道",
+      "baidu": "百度翻译",
       "microsoft": "微软 Azure",
       "apple": "苹果系统"
     }

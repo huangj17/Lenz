@@ -18,6 +18,7 @@ const KINDS: TranslatorEngineKind[] = [
   "google",
   "deepl",
   "youdao",
+  "baidu",
   "microsoft",
   "apple",
 ];
@@ -28,6 +29,7 @@ const KIND_BADGE: Record<TranslatorEngineKind, string> = {
   google: "linear-gradient(135deg,#4285f4,#2b6cd4)",
   deepl: "linear-gradient(135deg,#1c3a52,#0f2740)",
   youdao: "linear-gradient(135deg,#e0564f,#c23a34)",
+  baidu: "linear-gradient(135deg,#2932e1,#1b21a8)",
   microsoft: "linear-gradient(135deg,#2aa0d6,#1f7fb0)",
   apple: "linear-gradient(135deg,#8a8f98,#5f636b)",
 };
@@ -47,10 +49,9 @@ function validate(e: TranslatorEngine): string[] {
   if (!e.name.trim()) issues.push("engines.warnName");
   if (e.kind === "openai" && !(e.model ?? "").trim()) issues.push("engines.warnModel");
   if (e.kind === "youdao" && !e.apiKey.includes(":")) issues.push("engines.warnYoudaoKey");
-  if (
-    (e.kind === "google" || e.kind === "deepl" || e.kind === "microsoft") &&
-    !e.apiKey.trim()
-  )
+  if (e.kind === "baidu" && !e.apiKey.includes(":")) issues.push("engines.warnBaiduKey");
+  // 谷歌留空 Key 即用内置默认 Key,故不作必填校验。
+  if ((e.kind === "deepl" || e.kind === "microsoft") && !e.apiKey.trim())
     issues.push("engines.warnKey");
   if (e.kind === "microsoft" && !(e.region ?? "").trim()) issues.push("engines.warnRegion");
   return issues;
@@ -490,12 +491,18 @@ export function EnginesPane() {
                     placeholder={
                       draft.kind === "youdao"
                         ? "appKey:appSecret"
-                        : t("engines.keyPlaceholder")
+                        : draft.kind === "baidu"
+                          ? "appid:secret"
+                          : t("engines.keyPlaceholder")
                     }
                     hint={
                       draft.kind === "youdao"
                         ? t("engines.youdaoKeyHint")
-                        : t("engines.keyHint")
+                        : draft.kind === "baidu"
+                          ? t("engines.baiduKeyHint")
+                          : draft.kind === "google"
+                            ? t("engines.googleKeyHint")
+                            : t("engines.keyHint")
                     }
                     trailing={
                       <button

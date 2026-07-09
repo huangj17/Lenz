@@ -133,6 +133,7 @@ OpenAI 引擎不做客户端语言检测;在 system prompt 里写 "auto-detect s
 - 参数:`q`(可多值)、`source`、`target`、`key`。
 - 支持批量:一次请求传多个 `q`,返回 `data.translations[]`。
 - 语言检测:响应中含 `detectedSourceLanguage`。
+- **内置默认 Key**:`google.rs` 内置一个编译期常量 Key(`BUILTIN_API_KEY`);当 `apiKey` 留空时回退用之,故 `builtin-google` 开箱即用、默认开启。用户在设置里填自己的 Key 即覆盖内置。Key 仅存于二进制,不落配置文件。
 
 ## 5. DeepL 实现
 
@@ -152,6 +153,17 @@ OpenAI 引擎不做客户端语言检测;在 system prompt 里写 "auto-detect s
   - `truncate(q)`:`len(q)<=20` 取原文,否则 `前10 + len + 后10`(按 Unicode 字符计)。
   - 注:早期 spec 写「HMAC-SHA256」,实际接口为上述 SHA256 摘要,已按真实接口实现。
 - 批量:不支持,`supports_batch` 返回 `false`(引擎内部逐条串行)。
+
+## 6.3 百度翻译实现
+
+文件:`core/translator/baidu.rs`
+
+- 接口:百度翻译开放平台「通用翻译 API」,`POST https://fanyi-api.baidu.com/api/trans/vip/translate`(表单)。参见 <https://fanyi-api.baidu.com/doc/21>。
+- 参数:`q`、`from`、`to`、`appid`、`salt`、`sign`。
+- 认证:**MD5** 签名 `sign = md5(appid + q + salt + 密钥)`(32 位小写十六进制,`q` 用未编码原文),需 `appid` + `密钥`(配置中 `apiKey` 存 `appid:secret` 形式,与有道同构)。
+- 批量:不支持,`supports_batch` 返回 `false`(逐条串行);为保「译文条数 == 原文条数」不变量,不用 `\n` 拼接批量。
+- 语言代码:百度用一批非标准码,需映射 —— 日 `jp`、韩 `kor`、法 `fra`、西 `spa`、阿 `ara`、繁体 `cht`。
+- 错误:成功码为无 `error_code` 或 `52000`;其余非空 `error_code`(如 `54001` 签名错、`54003` 频率受限)→ `TranslateFailed("baidu_{code}")`。
 
 ## 6.1 微软 Azure Translator 实现
 
@@ -243,15 +255,17 @@ async fn test_engine(
 
 首次启动 / 重置时,`Config::default()` 预置以下引擎(`schema::default_engines()`);
 id 用稳定 slug(`builtin-*`),`apiKey` / `region` 留空待用户填写。schema v1→v2 迁移在
-`translator.engines` 为空时注入同一套预设。默认引擎 id = `builtin-youdao`。
+`translator.engines` 为空时注入同一套预设;v2→v3 迁移为老配置追加 `builtin-baidu`,
+并把未填 Key 的 `builtin-google` 默认开启(享内置 Key)。默认引擎 id = `builtin-youdao`。
 
 | id | 名称 | kind | 默认开启 | apiUrl | model |
 |---|---|---|---|---|---|
 | builtin-youdao | 有道翻译 | youdao | ✅ | (默认端点) | — |
 | builtin-apple | 苹果翻译 | apple | ✅ | — | — |
+| builtin-google | Google 翻译 | google | ✅(内置 Key) | (默认端点) | — |
 | builtin-zhipu | 智谱 GLM | openai | ✅ | `open.bigmodel.cn/api/paas/v4` | glm-4-flash |
 | builtin-siliconflow | 硅基流动 | openai | ✅ | `api.siliconflow.cn/v1` | Qwen/Qwen2.5-7B-Instruct |
-| builtin-google | Google 翻译 | google | ❌ | (默认端点) | — |
+| builtin-baidu | 百度翻译 | baidu | ❌(需 appid:密钥) | (默认端点) | — |
 | builtin-microsoft | 微软翻译 | microsoft | ❌ | (默认端点) | — |
 | builtin-ollama | Ollama | openai | ❌ | `localhost:11434/v1` | qwen2.5 |
 | builtin-lmstudio | LM Studio | openai | ❌ | `localhost:1234/v1` | — |

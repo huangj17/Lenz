@@ -6,6 +6,7 @@
 //! 支持订阅 `config://changed` 后 `reload` 热更新(不重启进程)。
 
 mod apple;
+mod baidu;
 mod deepl;
 mod google;
 mod microsoft;
@@ -142,6 +143,7 @@ fn build_engine(cfg: TranslatorEngine, client: reqwest::Client) -> Arc<dyn Trans
         EngineKind::Google => Arc::new(google::GoogleTranslator::new(cfg, client)),
         EngineKind::Deepl => Arc::new(deepl::DeepLTranslator::new(cfg, client)),
         EngineKind::Youdao => Arc::new(youdao::YoudaoTranslator::new(cfg, client)),
+        EngineKind::Baidu => Arc::new(baidu::BaiduTranslator::new(cfg, client)),
         EngineKind::Microsoft => Arc::new(microsoft::MicrosoftTranslator::new(cfg, client)),
         EngineKind::Apple => Arc::new(apple::AppleTranslator::new(cfg, client)),
     }

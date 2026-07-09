@@ -10,7 +10,9 @@ use specta::Type;
 ///
 /// v2:内置默认翻译引擎预设(有道/苹果/智谱/硅基流动 默认开启,
 /// 谷歌/微软/ollama/LM Studio 默认关闭)+ `TranslatorEngine.region` 字段。
-pub const CURRENT_VERSION: u32 = 2;
+/// v3:新增百度翻译预设(`builtin-baidu`,默认关闭)+ 谷歌内置默认 Key,
+/// 谷歌翻译改默认开启(留空 Key 即用内置 Key,见 `translator/google.rs`)。
+pub const CURRENT_VERSION: u32 = 3;
 
 /// 顶层配置。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -154,6 +156,8 @@ pub enum EngineKind {
     Deepl,
     /// 有道智云(signType=v3)。
     Youdao,
+    /// 百度翻译开放平台(通用翻译 API,MD5 签名;需 appid + 密钥)。
+    Baidu,
     /// 微软 Azure Translator(需 Key + region)。
     Microsoft,
     /// 苹果系统翻译(macOS 原生框架;当前为占位,见 spec 04 §11)。
@@ -214,6 +218,8 @@ pub fn default_engines() -> Vec<TranslatorEngine> {
         // —— 默认开启 ——
         e("builtin-youdao", "有道翻译", EngineKind::Youdao, true, "", None, 15_000),
         e("builtin-apple", "苹果翻译", EngineKind::Apple, true, "", None, 15_000),
+        // 谷歌翻译:内置默认 Key,留空即用内置(见 google.rs),故默认开启、开箱即用。
+        e("builtin-google", "Google 翻译", EngineKind::Google, true, "", None, 15_000),
         e(
             "builtin-zhipu",
             "智谱 GLM",
@@ -232,8 +238,8 @@ pub fn default_engines() -> Vec<TranslatorEngine> {
             Some("Qwen/Qwen2.5-7B-Instruct"),
             30_000,
         ),
-        // —— 默认关闭 ——
-        e("builtin-google", "Google 翻译", EngineKind::Google, false, "", None, 15_000),
+        // —— 默认关闭(需用户自备凭据)——
+        e("builtin-baidu", "百度翻译", EngineKind::Baidu, false, "", None, 15_000),
         e("builtin-microsoft", "微软翻译", EngineKind::Microsoft, false, "", None, 15_000),
         e(
             "builtin-ollama",

@@ -146,6 +146,8 @@ export type EngineKind =
 "deepl" | 
 /**  有道智云(signType=v3)。 */
 "youdao" | 
+/**  百度翻译开放平台(通用翻译 API,MD5 签名;需 appid + 密钥)。 */
+"baidu" | 
 /**  微软 Azure Translator(需 Key + region)。 */
 "microsoft" | 
 /**  苹果系统翻译(macOS 原生框架;当前为占位,见 spec 04 §11)。 */

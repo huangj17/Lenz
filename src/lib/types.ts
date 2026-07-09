@@ -57,6 +57,7 @@ export type TranslatorEngineKind =
   | "google"
   | "deepl"
   | "youdao"
+  | "baidu"
   | "microsoft"
   | "apple";
 
