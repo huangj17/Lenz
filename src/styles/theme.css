@@ -207,3 +207,16 @@ body[data-window="indicator"] {
 .ln-engine-badge {
   background: linear-gradient(135deg, #4ea3d9, #2d7fb3);
 }
+
+/* 浮层菜单(语言下拉等):与弹框同底的**不透明**浮层 + 边框 + 投影,保证可读、
+   不透出背后译文(dark 下 --card 近乎透明,不能直接用作菜单底)。 */
+.ln-menu {
+  background: var(--warm-white);
+  border: 0.5px solid rgba(30, 24, 14, 0.1);
+  box-shadow: 0 10px 28px rgba(30, 24, 14, 0.18);
+}
+.dark .ln-menu {
+  background: #241f18;
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+}

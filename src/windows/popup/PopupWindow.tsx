@@ -7,12 +7,14 @@
  * 头部为窗口拖拽区(`data-tauri-drag-region`)。内容渲染后用 `setSize` 动态调高;
  * ESC / 失焦 / 关闭隐藏;复制译文;翻译失败展示原文 + 重试;权限缺失引导打开系统设置。
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
 import { Icon, Kbd } from "@/components/Icon";
 import { LensMark } from "@/components/LensMark";
+import { Select, type SelectOption } from "@/components/Select";
 import { emit, Events, listenEvent, screenshotApi, translateApi } from "@/lib/ipc";
+import { TRANSLATE_LANGUAGES } from "@/lib/languages";
 import { useConfigStore } from "@/stores/config";
 import type { ScreenshotErrorPayload } from "@/lib/types";
 
@@ -41,9 +43,9 @@ type View =
     }
   | ({ kind: "error" } & ScreenshotErrorPayload);
 
-/** BCP-47 → 当前 UI 语言下的语言名;失败回退原 code。 */
+/** BCP-47 → 当前 UI 语言下的语言名;失败回退原 code。`null` 交由调用方补「自动检测」标签。 */
 function langName(code: string | null | undefined, uiLocale: string): string {
-  if (!code) return "自动检测";
+  if (!code) return "";
   try {
     return new Intl.DisplayNames([uiLocale], { type: "language" }).of(code) ?? code;
   } catch {
@@ -296,24 +298,30 @@ export function PopupWindow() {
     }
   }, []);
 
-  const onRetryTranslate = useCallback(
-    async (original: string) => {
-      // 重译也用「翻译中」布局(原文 + 引擎行转圈),而非整块骨架。
+  // 统一的(重)翻译:重译按钮、原文改写回车、语言下拉切换/互换都走这里。
+  // `src` 传 null = 自动检测;`tgt` 缺省用当前配置的目标语言。用「翻译中」布局(原文 +
+  // 引擎行转圈)而非整块骨架,切换语言时原文与语言条不闪。
+  const runTranslate = useCallback(
+    async (original: string, src: string | null = null, tgt: string = targetLang) => {
       setView({
         kind: "translating",
         original,
-        sourceLang: null,
-        targetLang,
+        sourceLang: src,
+        targetLang: tgt,
         engineId: defaultEngineId,
       });
       try {
-        const resp = await translateApi.text({ texts: [original], targetLang });
+        const resp = await translateApi.text({
+          texts: [original],
+          targetLang: tgt,
+          sourceLang: src ?? undefined,
+        });
         setView({
           kind: "success",
           original,
           translation: resp.translations[0] ?? "",
-          sourceLang: resp.detectedSourceLang ?? null,
-          targetLang,
+          sourceLang: resp.detectedSourceLang ?? src,
+          targetLang: tgt,
           engineId: resp.engineId,
           costMs: resp.costMs,
         });
@@ -337,6 +345,43 @@ export function PopupWindow() {
   const panel =
     view.kind === "success" || view.kind === "translating" ? view : null;
   const succ = view.kind === "success" ? view : null;
+
+  // 语言下拉选项:常用语言 ∪ 当前源/目标(保证即便检测到冷门语言,下拉里也能选中它)。
+  const langCodes = useMemo(() => {
+    const set = new Set<string>(TRANSLATE_LANGUAGES);
+    if (panel?.sourceLang) set.add(panel.sourceLang);
+    if (panel?.targetLang) set.add(panel.targetLang);
+    return [...set];
+  }, [panel?.sourceLang, panel?.targetLang]);
+  const targetOptions: SelectOption[] = useMemo(
+    () => langCodes.map((c) => ({ value: c, label: langName(c, i18n.language) || c })),
+    [langCodes, i18n.language],
+  );
+  // 源语言额外多一个「自动检测」项置顶。
+  const sourceOptions: SelectOption[] = useMemo(
+    () => [{ value: "auto", label: t("popup.auto") }, ...targetOptions],
+    [targetOptions, t],
+  );
+
+  // 语言条当前值 + 切换处理(要翻译的原文取当前草稿,回落到结果原文)。
+  const curOriginal = () => (panel ? draft.trim() || panel.original : "");
+  const onChangeSource = (v: string) => {
+    if (!panel) return;
+    void runTranslate(curOriginal(), v === "auto" ? null : v, panel.targetLang);
+  };
+  const onChangeTarget = (v: string) => {
+    if (!panel) return;
+    void patch({ translator: { targetLang: v } }); // 记住偏好,后续翻译沿用
+    void runTranslate(curOriginal(), panel.sourceLang, v);
+  };
+  // 互换源/目标:源已知才有意义;源为「自动检测」(未知)时保持不变(安全 no-op)。
+  const onSwapLang = () => {
+    if (!panel?.sourceLang) return;
+    const newTarget = panel.sourceLang;
+    const newSource = panel.targetLang;
+    void patch({ translator: { targetLang: newTarget } });
+    void runTranslate(curOriginal(), newSource, newTarget);
+  };
 
   return (
     <div className="relative select-none">
@@ -386,7 +431,7 @@ export function PopupWindow() {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
                       const text = draft.trim();
-                      if (text) void onRetryTranslate(text);
+                      if (text) void runTranslate(text, panel.sourceLang, panel.targetLang);
                     }
                   }}
                   className="block max-h-24 w-full resize-none select-text overflow-y-auto whitespace-pre-wrap rounded-[7px] border border-line bg-card px-2.5 py-2 text-[13px] leading-snug text-fg outline-none focus:border-accent"
@@ -403,7 +448,7 @@ export function PopupWindow() {
                   <span className="inline-flex items-center gap-1 rounded-[5px] bg-field px-2 py-0.5 text-[11px] text-sub">
                     {t("popup.detected")}{" "}
                     <span className="font-semibold text-accent-ink">
-                      {langName(panel.sourceLang, i18n.language)}
+                      {langName(panel.sourceLang, i18n.language) || t("popup.auto")}
                     </span>
                   </span>
                   <span className="ml-auto font-mono text-[10px] text-sub">
@@ -413,15 +458,33 @@ export function PopupWindow() {
               </div>
             )}
 
-            {/* 语言切换条 */}
-            <div className="flex items-center border-b border-line bg-field/30 px-4 py-2">
-              <div className="flex flex-1 justify-center text-[12.5px] font-semibold text-fg">
-                {langName(panel.sourceLang, i18n.language)}
-              </div>
-              <Icon name="swap" size={15} className="text-sub" />
-              <div className="flex flex-1 justify-center text-[12.5px] font-semibold text-accent-ink">
-                {langName(panel.targetLang, i18n.language)}
-              </div>
+            {/* 语言切换条:源(含自动检测)/ 目标 均为样式化下拉,切换即时重译 */}
+            <div className="flex items-center border-b border-line bg-field/30 px-2 py-1.5">
+              <Select
+                className="flex-1"
+                value={panel.sourceLang ?? "auto"}
+                onChange={onChangeSource}
+                options={sourceOptions}
+                ariaLabel={t("popup.sourceLang")}
+              />
+              <button
+                type="button"
+                onClick={onSwapLang}
+                disabled={!panel.sourceLang}
+                aria-label={t("popup.swapLang")}
+                title={t("popup.swapLang")}
+                className="mx-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md text-sub hover:bg-field hover:text-fg disabled:pointer-events-none disabled:opacity-40"
+              >
+                <Icon name="swap" size={15} />
+              </button>
+              <Select
+                className="flex-1"
+                value={panel.targetLang}
+                onChange={onChangeTarget}
+                options={targetOptions}
+                ariaLabel={t("popup.targetLang")}
+                accent
+              />
             </div>
 
             {/* 引擎结果行(卡片封顶时,本块作为可伸缩滚动区吸收溢出) */}
@@ -520,7 +583,7 @@ export function PopupWindow() {
               {view.stage === "translate" && view.original?.trim() && (
                 <button
                   type="button"
-                  onClick={() => void onRetryTranslate(view.original!)}
+                  onClick={() => void runTranslate(view.original!)}
                   className="rounded-md border border-line px-2.5 py-1 text-[12px] text-fg hover:bg-field"
                 >
                   {t("popup.retry")}
