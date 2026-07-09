@@ -392,6 +392,25 @@ fn join_blocks(blocks: &[OcrBlock]) -> String {
     out
 }
 
+/// 显示并聚焦 popup(F1/F2 各定位路径的统一收尾)。
+///
+/// popup 需要 `set_focus` 才能接收 ESC、并在失焦时自动隐藏(spec 09 §3.4)。但 macOS 上
+/// `set_focus` 会 `activateIgnoringOtherApps` 激活整个 app,把**此前仍可见、只是被切到
+/// 后台的主窗口**也一并拽回前台(用户反馈:开着主界面切到别的 app 后按快捷键翻译,主
+/// 窗口被带出来)。故聚焦 popup 前先判断:主窗口可见但当前并非聚焦态(用户已切走)→ 先
+/// 隐藏它,免得被 app 激活拽回;主窗口正聚焦(用户在设置页操作,如从主界面按 Alt+S)则
+/// 不动它。popup 自身是 `alwaysOnTop` 浮层,隐藏主窗口不影响其置顶显示。
+fn show_and_focus_popup(app: &AppHandle, popup: &tauri::WebviewWindow) {
+    #[cfg(target_os = "macos")]
+    if let Some(main) = app.get_webview_window("main") {
+        if main.is_visible().unwrap_or(false) && !main.is_focused().unwrap_or(false) {
+            let _ = main.hide();
+        }
+    }
+    let _ = popup.show();
+    let _ = popup.set_focus();
+}
+
 /// 把 popup 定位到选区正下方(水平居中),夹紧到所在显示器,然后显示并聚焦。
 fn position_and_show_popup(app: &AppHandle, region: &Rect) {
     let Some(popup) = app.get_webview_window(POPUP_LABEL) else {
@@ -420,8 +439,7 @@ fn position_and_show_popup(app: &AppHandle, region: &Rect) {
 
     let _ = popup.set_position(LogicalPosition::new(x, y));
     let _ = popup.set_size(LogicalSize::new(w, POPUP_INIT_HEIGHT));
-    let _ = popup.show();
-    let _ = popup.set_focus();
+    show_and_focus_popup(app, &popup);
 }
 
 /// 内容渲染后 `resize_popup` 调用:按新高度把 popup 重新夹紧到所在显示器内。
@@ -712,8 +730,7 @@ fn position_popup_at_cursor(app: &AppHandle) {
     }
     let _ = popup.set_position(LogicalPosition::new(x, y));
     let _ = popup.set_size(LogicalSize::new(w, POPUP_INIT_HEIGHT));
-    let _ = popup.show();
-    let _ = popup.set_focus();
+    show_and_focus_popup(app, &popup);
 }
 
 /// 把 popup 居中显示在主显示器上 1/3 处(取不到光标位置时的回退定位)。
@@ -733,8 +750,7 @@ fn position_popup_centered(app: &AppHandle) {
     }
     let _ = popup.set_position(LogicalPosition::new(x, y));
     let _ = popup.set_size(LogicalSize::new(w, POPUP_INIT_HEIGHT));
-    let _ = popup.show();
-    let _ = popup.set_focus();
+    show_and_focus_popup(app, &popup);
 }
 
 fn is_current(app: &AppHandle, gen: u64) -> bool {
