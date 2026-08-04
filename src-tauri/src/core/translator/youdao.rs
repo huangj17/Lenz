@@ -100,7 +100,11 @@ impl Translator for YoudaoTranslator {
     async fn translate(&self, req: TranslateRequest) -> Result<TranslateResponse, LenzError> {
         let started = Instant::now();
         let (app_key, app_secret) = self.credentials()?;
-        let from = req.source_lang.as_deref().map(youdao_lang_code).unwrap_or("auto");
+        let from = req
+            .source_lang
+            .as_deref()
+            .map(youdao_lang_code)
+            .unwrap_or("auto");
         let to = youdao_lang_code(&req.target_lang);
 
         let mut translations = Vec::with_capacity(req.texts.len());
@@ -125,7 +129,13 @@ impl Translator for YoudaoTranslator {
             }
             let translated = resp
                 .translation
-                .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+                .and_then(|mut v| {
+                    if v.is_empty() {
+                        None
+                    } else {
+                        Some(v.remove(0))
+                    }
+                })
                 .ok_or_else(|| LenzError::TranslateFailed("empty_response".into()))?;
             translations.push(translated);
         }
@@ -199,7 +209,7 @@ mod tests {
     #[test]
     fn truncate_long_uses_head_len_tail() {
         let s = "abcdefghijklmnopqrstuvwxyz"; // 26 chars
-        // 前10 "abcdefghij" + 26 + 后10 "qrstuvwxyz"
+                                              // 前10 "abcdefghij" + 26 + 后10 "qrstuvwxyz"
         assert_eq!(truncate_q(s), "abcdefghij26qrstuvwxyz");
     }
 

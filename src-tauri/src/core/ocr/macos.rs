@@ -11,9 +11,11 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 
-use objc2::rc::Retained;
+use objc2::rc::{autoreleasepool, Retained};
 use objc2::AnyThread; // 提供 `alloc()` 关联函数。
-use objc2_foundation::{NSArray, NSData, NSDictionary, NSString};
+use objc2_core_foundation::CFData;
+use objc2_core_graphics::{CGColorRenderingIntent, CGDataProvider, CGImage};
+use objc2_foundation::{NSArray, NSDictionary, NSString};
 use objc2_vision::{
     VNImageRequestHandler, VNRecognizeTextRequest, VNRecognizedTextObservation, VNRequest,
     VNRequestTextRecognitionLevel,
@@ -52,11 +54,7 @@ impl OcrEngine for VisionOcr {
         }
     }
 
-    async fn recognize(
-        &self,
-        input: OcrInput,
-        opts: OcrOptions,
-    ) -> Result<OcrResult, LenzError> {
+    async fn recognize(&self, input: OcrInput, opts: OcrOptions) -> Result<OcrResult, LenzError> {
         let started = Instant::now();
 
         // 截图物理像素尺寸:直接用 pixel_rect 的宽高(spec 提示:它就是截图
@@ -70,7 +68,9 @@ impl OcrEngine for VisionOcr {
         // 闭包只捕获纯 Rust 数据(png / opts / 尺寸 / 回映射参数),
         // 内部完成全部 ObjC 交互,返回纯 Rust 的 Vec<OcrBlock>。
         let blocks = tokio::task::spawn_blocking(move || {
-            run_vision(&png, &opts, img_w, img_h, &pixel_rect, scale)
+            // Tokio 阻塞线程没有 Cocoa run loop 自动建立的 autorelease pool。Vision
+            // 内部会生成 autoreleased 对象,必须在同一线程及时回收。
+            autoreleasepool(|_| run_vision(&png, &opts, img_w, img_h, &pixel_rect, scale))
         })
         .await
         .map_err(|e| LenzError::OcrFailed(format!("spawn_blocking join error: {e}")))??;
@@ -95,17 +95,33 @@ fn run_vision(
     pixel_rect: &crate::types::Rect,
     scale: f32,
 ) -> Result<Vec<OcrBlock>, LenzError> {
-    // 1) 用 PNG 字节构造 NSData(安全 API,内部 memcpy)。
-    let data = NSData::with_bytes(png);
+    // 1) 先用 CoreGraphics 明确解码 PNG。直接把 NSData 交给 Vision 在部分 macOS
+    // 版本会让 performRequests 返回 false 且不提供 NSError。
+    let data = unsafe { CFData::new(None, png.as_ptr(), png.len() as isize) }
+        .ok_or_else(|| LenzError::OcrFailed("create CFData failed".into()))?;
+    let provider = CGDataProvider::with_cf_data(Some(&data))
+        .ok_or_else(|| LenzError::OcrFailed("create CGDataProvider failed".into()))?;
+    let image = unsafe {
+        CGImage::with_png_data_provider(
+            Some(&provider),
+            std::ptr::null(),
+            false,
+            CGColorRenderingIntent::RenderingIntentDefault,
+        )
+    }
+    .ok_or_else(|| LenzError::OcrFailed("decode PNG failed".into()))?;
 
-    // 2) 创建图像请求句柄:initWithData:options:,options 传一个空字典。
+    // 2) 创建图像请求句柄:initWithCGImage:options:,options 传一个空字典。
     //    NSDictionary::new() 返回类型化的空字典,泛型由目标方法签名推断
     //    (VNImageOption -> AnyObject)。
     let options: Retained<NSDictionary<_, _>> = NSDictionary::new();
-    // initWithData:options: 在 objc2-vision 0.3.2 是安全 API:它只读取 data /
-    // options(不修改),且 Vision 内部对图像内容做拷贝/缓存。
-    let handler =
-        VNImageRequestHandler::initWithData_options(VNImageRequestHandler::alloc(), &data, &options);
+    let handler = unsafe {
+        VNImageRequestHandler::initWithCGImage_options(
+            VNImageRequestHandler::alloc(),
+            &image,
+            &options,
+        )
+    };
 
     // 3) 创建并配置 VNRecognizeTextRequest。
     let request: Retained<VNRecognizeTextRequest> = VNRecognizeTextRequest::new();
@@ -166,12 +182,13 @@ fn run_vision(
         // SAFETY: observation 在本次遍历期间存活;boundingBox 只读取属性。
         let rect = unsafe { observation.boundingBox() };
         let bbox = map_normalized_bbox(
-            rect.origin.x,
-            rect.origin.y,
-            rect.size.width,
-            rect.size.height,
-            img_w,
-            img_h,
+            (
+                rect.origin.x,
+                rect.origin.y,
+                rect.size.width,
+                rect.size.height,
+            ),
+            (img_w, img_h),
             pixel_rect,
             scale,
         );
@@ -242,6 +259,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires macOS Vision system service; run outside a process sandbox"]
     fn vision_recognizes_rendered_text() {
         let (w, h) = (640u32, 220u32);
         let text = "Hello Vision 2026";

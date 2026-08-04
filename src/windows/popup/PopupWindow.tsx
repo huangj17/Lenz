@@ -107,6 +107,14 @@ export function PopupWindow() {
   // 供失焦回调读取最新状态(回调在挂载时绑定,闭包内 view 会过期)。
   const viewRef = useRef(view);
   viewRef.current = view;
+  // 手动重译请求代号:只允许最新请求更新视图。Tauri invoke 暂不支持取消正在执行的
+  // command,但递增代号可阻止旧语言/旧文本请求晚到后覆盖新结果。
+  const translateGenerationRef = useRef(0);
+  const cancelAndHide = useCallback(() => {
+    translateGenerationRef.current += 1;
+    void screenshotApi.cancel();
+    void hidePopup();
+  }, []);
   // 拖拽窗口时,macOS 原生拖拽会瞬间让窗口失焦;此时的失焦不应触发「失焦即隐藏」,
   // 否则一拖头部就被当成「点击窗口外」而消失。用「拖拽宽限时间戳」而非布尔标记:拖拽
   // 起始 + 拖拽中的每次 onMoved 都把宽限截止时间往后推;失焦回调只要仍在宽限期内就
@@ -180,10 +188,12 @@ export function PopupWindow() {
   useEffect(() => {
     const subs = [
       listenEvent(Events.ScreenshotProgress, (e) => {
+        translateGenerationRef.current += 1;
         setCopiedId(null);
         setView({ kind: "loading", stage: e.payload.stage });
       }),
       listenEvent(Events.ScreenshotTranslating, (e) => {
+        translateGenerationRef.current += 1;
         const p = e.payload;
         setCopiedId(null);
         setView({
@@ -195,6 +205,7 @@ export function PopupWindow() {
         });
       }),
       listenEvent(Events.ScreenshotResult, (e) => {
+        translateGenerationRef.current += 1;
         const r = e.payload;
         setView({
           kind: "success",
@@ -206,12 +217,16 @@ export function PopupWindow() {
           costMs: r.cost.translate,
         });
       }),
-      listenEvent(Events.ScreenshotError, (e) => setView({ kind: "error", ...e.payload })),
+      listenEvent(Events.ScreenshotError, (e) => {
+        translateGenerationRef.current += 1;
+        setView({ kind: "error", ...e.payload });
+      }),
     ];
     // 三个监听全部挂上后,通知后端 popup 可接收事件——关闭冷启动首帧竞态:
     // 首次划词/截图时后端会先等这个 `popup://ready` 再投递 progress/result(方案 A)。
     void Promise.all(subs).then(() => void emit("popup://ready"));
     return () => {
+      translateGenerationRef.current += 1;
       for (const s of subs) void s.then((fn) => fn());
     };
   }, []);
@@ -221,7 +236,7 @@ export function PopupWindow() {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.preventDefault();
-        void screenshotApi.cancel();
+        cancelAndHide();
       }
     }
     window.addEventListener("keydown", onKey);
@@ -243,7 +258,7 @@ export function PopupWindow() {
       void unmoved.then((fn) => fn());
       void unfocus.then((fn) => fn());
     };
-  }, [bumpDragGuard]);
+  }, [bumpDragGuard, cancelAndHide]);
 
   // ── 内容尺寸变化 → 调整窗口高度(spec 09 §3.1)──────────────────────────
   // 测量卡片实际高度,请求后端把窗口调到该高度(夹紧 96~480)。resize_popup 命令
@@ -303,6 +318,7 @@ export function PopupWindow() {
   // 引擎行转圈)而非整块骨架,切换语言时原文与语言条不闪。
   const runTranslate = useCallback(
     async (original: string, src: string | null = null, tgt: string = targetLang) => {
+      const requestGeneration = ++translateGenerationRef.current;
       setView({
         kind: "translating",
         original,
@@ -316,6 +332,7 @@ export function PopupWindow() {
           targetLang: tgt,
           sourceLang: src ?? undefined,
         });
+        if (requestGeneration !== translateGenerationRef.current) return;
         setView({
           kind: "success",
           original,
@@ -326,6 +343,7 @@ export function PopupWindow() {
           costMs: resp.costMs,
         });
       } catch (err) {
+        if (requestGeneration !== translateGenerationRef.current) return;
         setView({
           kind: "error",
           stage: "translate",
@@ -402,7 +420,7 @@ export function PopupWindow() {
         ref={cardRef}
         className="ln-popup flex max-h-[480px] flex-col overflow-hidden rounded-[11px]"
       >
-        <Header onClose={() => void hidePopup()} onDragStart={bumpDragGuard} />
+        <Header onClose={cancelAndHide} onDragStart={bumpDragGuard} />
 
         {view.kind === "loading" && (
           <div className="flex flex-col gap-3 p-3.5">

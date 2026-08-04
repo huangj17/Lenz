@@ -14,8 +14,8 @@ mod openai;
 mod youdao;
 
 use std::collections::HashMap;
-use std::sync::RwLock;
 use std::sync::Arc;
+use std::sync::RwLock;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -61,7 +61,8 @@ impl TranslatorManager {
     ///
     /// - 仅纳入 `enabled` 的引擎;
     /// - 所有引擎共享同一个 `reqwest::Client`;
-    /// - 解析默认引擎:配置指定且存在则用之,否则取任一已启用引擎。
+    /// - 跳过缺少必需凭据或尚未实现的引擎;
+    /// - 解析默认引擎:配置指定且可用则用之,否则按配置顺序取首个可用引擎。
     pub fn reload(&self, engines: &[TranslatorEngine], default_id: &str) {
         let client = build_http_client();
 
@@ -70,13 +71,21 @@ impl TranslatorManager {
             if !cfg.enabled {
                 continue;
             }
+            if let Some(reason) = engine_unavailable_reason(cfg) {
+                log::warn!("translator engine '{}' skipped: {reason}", cfg.id);
+                continue;
+            }
             map.insert(cfg.id.clone(), build_engine(cfg.clone(), client.clone()));
         }
 
         let resolved_default = if !default_id.is_empty() && map.contains_key(default_id) {
             default_id.to_string()
         } else {
-            map.keys().next().cloned().unwrap_or_default()
+            engines
+                .iter()
+                .find(|cfg| map.contains_key(&cfg.id))
+                .map(|cfg| cfg.id.clone())
+                .unwrap_or_default()
         };
 
         match self.engines.write() {
@@ -89,8 +98,11 @@ impl TranslatorManager {
         }
         log::info!(
             "translator reloaded: {} engine(s), default={}",
-            engines.iter().filter(|e| e.enabled).count(),
-            self.default_id.read().map(|g| g.clone()).unwrap_or_default()
+            map_len(&self.engines),
+            self.default_id
+                .read()
+                .map(|g| g.clone())
+                .unwrap_or_default()
         );
     }
 
@@ -105,10 +117,7 @@ impl TranslatorManager {
     }
 
     /// 路由到目标引擎执行翻译(spec 04 §2)。
-    pub async fn translate(
-        &self,
-        req: TranslateRequest,
-    ) -> Result<TranslateResponse, LenzError> {
+    pub async fn translate(&self, req: TranslateRequest) -> Result<TranslateResponse, LenzError> {
         let engine = self
             .get(req.engine_id.as_deref())
             .ok_or_else(|| LenzError::Config("engine_not_found".into()))?;
@@ -122,6 +131,36 @@ impl TranslatorManager {
             });
         }
         engine.translate(req).await
+    }
+}
+
+fn map_len(engines: &RwLock<HashMap<String, Arc<dyn Translator>>>) -> usize {
+    engines.read().map(|map| map.len()).unwrap_or_default()
+}
+
+/// 返回引擎不能安全装载的原因。设置 UI 可以暂存不完整草稿,运行态不能把这些草稿
+/// 当成候选默认引擎,否则会把每次翻译路由到必然失败的请求。
+fn engine_unavailable_reason(cfg: &TranslatorEngine) -> Option<&'static str> {
+    let key = cfg.api_key.trim();
+    match cfg.kind {
+        EngineKind::Apple => Some("apple translation is not implemented"),
+        EngineKind::Google if key.is_empty() => Some("Google API key is required"),
+        EngineKind::Deepl if key.is_empty() => Some("DeepL API key is required"),
+        EngineKind::Microsoft if key.is_empty() => Some("Microsoft API key is required"),
+        EngineKind::Youdao | EngineKind::Baidu => {
+            let valid_pair = key
+                .split_once(':')
+                .map(|(id, secret)| !id.trim().is_empty() && !secret.trim().is_empty())
+                .unwrap_or(false);
+            (!valid_pair).then_some("credential must contain a non-empty id and secret")
+        }
+        EngineKind::Openai
+            if matches!(cfg.id.as_str(), "builtin-zhipu" | "builtin-siliconflow")
+                && key.is_empty() =>
+        {
+            Some("API key is required")
+        }
+        _ => None,
     }
 }
 
@@ -189,7 +228,8 @@ pub(crate) fn render_system_prompt(
         .map(lang_display_name)
         .unwrap_or_else(|| "the source language".to_string());
     let tgt = lang_display_name(target);
-    tmpl.replace("{sourceLang}", &src).replace("{targetLang}", &tgt)
+    tmpl.replace("{sourceLang}", &src)
+        .replace("{targetLang}", &tgt)
 }
 
 /// BCP-47 → 英文全名(用于 LLM prompt),未知则原样返回。
@@ -235,7 +275,9 @@ pub(crate) fn status_to_error(status: StatusCode, body: &str) -> LenzError {
         401 | 403 => LenzError::TranslateFailed("auth".into()),
         408 => LenzError::Network("timeout".into()),
         429 => LenzError::TranslateFailed("rate_limit".into()),
-        400..=499 => LenzError::TranslateFailed(format!("client_error({}): {snippet}", status.as_u16())),
+        400..=499 => {
+            LenzError::TranslateFailed(format!("client_error({}): {snippet}", status.as_u16()))
+        }
         500..=599 => LenzError::TranslateFailed(format!("server_error: {snippet}")),
         other => LenzError::TranslateFailed(format!("http_{other}: {snippet}")),
     }
@@ -322,6 +364,36 @@ mod tests {
         let err = mgr.translate(req).await.unwrap_err();
         assert!(matches!(err, LenzError::Config(m) if m == "engine_not_found"));
     }
+
+    fn test_engine(id: &str, kind: EngineKind, enabled: bool, api_key: &str) -> TranslatorEngine {
+        TranslatorEngine {
+            id: id.into(),
+            name: id.into(),
+            kind,
+            enabled,
+            api_url: String::new(),
+            api_key: api_key.into(),
+            model: None,
+            system_prompt: None,
+            timeout_ms: 1_000,
+            region: None,
+            max_tokens: None,
+            temperature: None,
+        }
+    }
+
+    #[test]
+    fn reload_skips_unconfigured_engine_and_falls_back_in_config_order() {
+        let mgr = TranslatorManager::new();
+        let engines = vec![
+            test_engine("google", EngineKind::Google, true, ""),
+            test_engine("second", EngineKind::Openai, true, ""),
+            test_engine("third", EngineKind::Openai, true, ""),
+        ];
+        mgr.reload(&engines, "google");
+        assert!(mgr.get(Some("google")).is_none());
+        assert_eq!(mgr.get(None).unwrap().id(), "second");
+    }
 }
 
 /// M3 §3.7 运行态验收(对**真实本地端点**)。默认 `#[ignore]`,按需运行:
@@ -383,7 +455,9 @@ mod acceptance {
     async fn acc_ollama_end_to_end() {
         let t = build_test_engine(engine("acc-ollama", OLLAMA_URL, OLLAMA_MODEL));
         let resp = t
-            .translate(en_to_zh(&["Hello, world. This is an end-to-end translation test."]))
+            .translate(en_to_zh(&[
+                "Hello, world. This is an end-to-end translation test.",
+            ]))
             .await
             .expect("ollama translate should succeed");
         let out = &resp.translations[0];
@@ -421,7 +495,11 @@ mod acceptance {
             .translate(en_to_zh(&inputs))
             .await
             .expect("batch translate should succeed");
-        println!("[batch] {} items -> {:?}", resp.translations.len(), resp.translations);
+        println!(
+            "[batch] {} items -> {:?}",
+            resp.translations.len(),
+            resp.translations
+        );
         assert_eq!(
             resp.translations.len(),
             inputs.len(),
@@ -471,6 +549,9 @@ mod acceptance {
         // 热更新:仅切默认引擎,manager 实例不变、进程不重启。
         mgr.reload(&[a, b], "hot-b");
         let r2 = mgr.translate(en_to_zh(&["Hello"])).await.expect("t2");
-        assert_eq!(r2.engine_id, "hot-b", "next translate must use reloaded config");
+        assert_eq!(
+            r2.engine_id, "hot-b",
+            "next translate must use reloaded config"
+        );
     }
 }

@@ -10,9 +10,9 @@ use specta::Type;
 ///
 /// v2:内置默认翻译引擎预设(有道/苹果/智谱/硅基流动 默认开启,
 /// 谷歌/微软/ollama/LM Studio 默认关闭)+ `TranslatorEngine.region` 字段。
-/// v3:新增百度翻译预设(`builtin-baidu`,默认关闭)+ 谷歌内置默认 Key,
-/// 谷歌翻译改默认开启(留空 Key 即用内置 Key,见 `translator/google.rs`)。
-pub const CURRENT_VERSION: u32 = 3;
+/// v3:新增百度翻译预设(`builtin-baidu`,默认关闭)+ 谷歌翻译预设。
+/// v4:移除仓库内置 Google Key;所有需凭据或尚未实现的引擎默认关闭。
+pub const CURRENT_VERSION: u32 = 4;
 
 /// 顶层配置。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -184,8 +184,9 @@ pub struct PopupUiConfig {
 
 /// 内置默认翻译引擎预设(spec 04 §12)。
 ///
-/// 默认开启:有道、苹果、智谱、硅基流动;默认关闭:谷歌、微软、ollama、LM Studio。
-/// 凭据(`api_key` / `region`)留空待用户填写;id 用稳定 slug 便于跨安装引用。
+/// 所有需凭据、外部服务或尚未实现的引擎默认关闭。用户填好配置并测试成功后再开启;
+/// 这避免首次启动把文本发给任意第三方,也避免默认路由到必然鉴权失败的引擎。
+/// id 用稳定 slug 便于跨安装引用。
 pub fn default_engines() -> Vec<TranslatorEngine> {
     // 统一构造:api_key/region 留空、system_prompt 默认 None。
     #[allow(clippy::too_many_arguments)]
@@ -215,16 +216,38 @@ pub fn default_engines() -> Vec<TranslatorEngine> {
     }
 
     vec![
-        // —— 默认开启 ——
-        e("builtin-youdao", "有道翻译", EngineKind::Youdao, true, "", None, 15_000),
-        e("builtin-apple", "苹果翻译", EngineKind::Apple, true, "", None, 15_000),
-        // 谷歌翻译:内置默认 Key,留空即用内置(见 google.rs),故默认开启、开箱即用。
-        e("builtin-google", "Google 翻译", EngineKind::Google, true, "", None, 15_000),
+        e(
+            "builtin-youdao",
+            "有道翻译",
+            EngineKind::Youdao,
+            false,
+            "",
+            None,
+            15_000,
+        ),
+        e(
+            "builtin-apple",
+            "苹果翻译",
+            EngineKind::Apple,
+            false,
+            "",
+            None,
+            15_000,
+        ),
+        e(
+            "builtin-google",
+            "Google 翻译",
+            EngineKind::Google,
+            false,
+            "",
+            None,
+            15_000,
+        ),
         e(
             "builtin-zhipu",
             "智谱 GLM",
             EngineKind::Openai,
-            true,
+            false,
             "https://open.bigmodel.cn/api/paas/v4",
             Some("glm-4-flash"),
             30_000,
@@ -233,14 +256,29 @@ pub fn default_engines() -> Vec<TranslatorEngine> {
             "builtin-siliconflow",
             "硅基流动",
             EngineKind::Openai,
-            true,
+            false,
             "https://api.siliconflow.cn/v1",
             Some("Qwen/Qwen2.5-7B-Instruct"),
             30_000,
         ),
-        // —— 默认关闭(需用户自备凭据)——
-        e("builtin-baidu", "百度翻译", EngineKind::Baidu, false, "", None, 15_000),
-        e("builtin-microsoft", "微软翻译", EngineKind::Microsoft, false, "", None, 15_000),
+        e(
+            "builtin-baidu",
+            "百度翻译",
+            EngineKind::Baidu,
+            false,
+            "",
+            None,
+            15_000,
+        ),
+        e(
+            "builtin-microsoft",
+            "微软翻译",
+            EngineKind::Microsoft,
+            false,
+            "",
+            None,
+            15_000,
+        ),
         e(
             "builtin-ollama",
             "Ollama",
@@ -299,8 +337,8 @@ impl Default for Config {
                 min_confidence: 0.3,
             },
             translator: TranslatorConfig {
-                // 默认路由到有道(用户列表里第一个默认开启项);用户可在设置页改默认。
-                default_engine_id: "builtin-youdao".into(),
+                // 首次启动不隐式选择第三方服务;用户启用引擎时再设置默认项。
+                default_engine_id: String::new(),
                 target_lang: "zh-CN".into(),
                 engines: default_engines(),
             },

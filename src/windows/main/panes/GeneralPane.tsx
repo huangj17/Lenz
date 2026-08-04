@@ -4,6 +4,7 @@ import { Toggle } from "@/components/ui/toggle";
 import { Segmented } from "@/components/ui/segmented";
 import { Icon } from "@/components/Icon";
 import { useConfigStore } from "@/stores/config";
+import { systemApi } from "@/lib/ipc";
 import type { LocaleSetting, ThemeSetting } from "@/lib/types";
 
 /** 通用 —— 启动 / 外观(对齐设计 GeneralPane) */
@@ -20,7 +21,7 @@ export function GeneralPane() {
           <Row label={t("general.autoStart")} hint={t("general.autoStartHint")}>
             <Toggle
               checked={app.autoStart}
-              onCheckedChange={(v) => void patch({ app: { autoStart: v } })}
+              onCheckedChange={(v) => void systemApi.setAutoStart(v)}
             />
           </Row>
           <Row

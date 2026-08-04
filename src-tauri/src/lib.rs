@@ -15,35 +15,48 @@ use tauri_specta::{collect_commands, Builder as SpectaBuilder};
 ///
 /// 同时被运行时(`invoke_handler`)与 debug 构建的类型导出复用。
 fn specta_builder() -> SpectaBuilder<tauri::Wry> {
-    SpectaBuilder::<tauri::Wry>::new().commands(collect_commands![
-        // config
-        commands::config::get_config,
-        commands::config::set_config,
-        commands::config::reset_config,
-        commands::config::list_engines,
-        // translate
-        commands::translate::translate_text,
-        commands::translate::translate_batch,
-        commands::translate::test_engine,
-        // ocr
-        commands::ocr::run_ocr,
-        // capture
-        commands::capture::capture_screen_region,
-        commands::capture::start_selection,
-        commands::capture::cancel_selection,
-        // screenshot (F2)
-        commands::screenshot::cancel_screenshot,
-        commands::screenshot::open_screen_settings,
-        commands::screenshot::resize_popup,
-        commands::screenshot::resize_popup_width,
-        // overlay / selection / system
-        commands::overlay::show_overlay,
-        commands::overlay::close_overlay,
-        commands::overlay::toggle_selection_listener,
-        commands::overlay::trigger_selection_translate,
-        commands::overlay::open_accessibility_settings,
-        commands::overlay::check_update,
-    ])
+    SpectaBuilder::<tauri::Wry>::new()
+        .commands(collect_commands![
+            // config
+            commands::config::get_config,
+            commands::config::set_config,
+            commands::config::reset_config,
+            commands::config::list_engines,
+            // translate
+            commands::translate::translate_text,
+            commands::translate::translate_batch,
+            commands::translate::test_engine,
+            // ocr
+            commands::ocr::run_ocr,
+            // capture
+            commands::capture::capture_screen_region,
+            commands::capture::start_selection,
+            commands::capture::cancel_selection,
+            // screenshot (F2)
+            commands::screenshot::cancel_screenshot,
+            commands::screenshot::open_screen_settings,
+            commands::screenshot::resize_popup,
+            commands::screenshot::resize_popup_width,
+            // overlay / selection / system
+            commands::overlay::show_overlay,
+            commands::overlay::close_overlay,
+            commands::overlay::toggle_selection_listener,
+            commands::overlay::trigger_selection_translate,
+            commands::overlay::open_accessibility_settings,
+            commands::overlay::set_auto_start,
+            commands::overlay::check_update,
+        ])
+        // 事件载荷不会从 command 签名自动收集,显式导出以免前端手写契约漂移。
+        .typ::<types::ConfigChangedPayload>()
+        .typ::<types::StartupWarning>()
+        .typ::<types::RegionSelectedPayload>()
+        .typ::<types::ScreenshotCost>()
+        .typ::<types::ScreenshotResult>()
+        .typ::<types::ScreenshotTranslating>()
+        .typ::<types::ScreenshotError>()
+        .typ::<types::ScreenshotProgress>()
+        .typ::<types::SelectionDetected>()
+        .typ::<types::PermissionRequired>()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -54,10 +67,7 @@ pub fn run() {
     #[cfg(debug_assertions)]
     {
         use specta_typescript::Typescript;
-        if let Err(e) = specta.export(
-            Typescript::default(),
-            "../src/lib/bindings.ts",
-        ) {
+        if let Err(e) = specta.export(Typescript::default(), "../src/lib/bindings.ts") {
             eprintln!("failed to export specta typescript bindings: {e}");
         }
     }

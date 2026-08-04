@@ -139,7 +139,8 @@ mod macos {
     use std::cell::Cell;
     use std::ffi::c_void;
     use std::ptr::NonNull;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::mpsc::{self, RecvTimeoutError};
     use std::sync::Arc;
     use std::thread::JoinHandle;
 
@@ -161,6 +162,8 @@ mod macos {
     struct Shared {
         /// `*const CFRunLoop` 以 usize 形式发布;0 表示尚未进入 run loop。
         runloop_ptr: AtomicUsize,
+        /// stop 可能早于 run loop 发布;线程发布后必须再次检查此标志。
+        stop_requested: AtomicBool,
     }
 
     /// 监听线程句柄。`stop` 会打断 run loop 并 join 线程。
@@ -171,6 +174,7 @@ mod macos {
 
     impl TapHandle {
         pub fn stop(mut self) {
+            self.shared.stop_requested.store(true, Ordering::SeqCst);
             // 打断监听线程的 CFRunLoopRun(CFRunLoopStop 可跨线程安全调用)。
             let ptr = self.shared.runloop_ptr.load(Ordering::SeqCst);
             if ptr != 0 {
@@ -208,21 +212,40 @@ mod macos {
 
         let shared = Arc::new(Shared {
             runloop_ptr: AtomicUsize::new(0),
+            stop_requested: AtomicBool::new(false),
         });
+        let (ready_tx, ready_rx) = mpsc::sync_channel(1);
         let app = app.clone();
         let shared_thread = shared.clone();
         let join = std::thread::Builder::new()
             .name("lenz-selection-tap".into())
-            .spawn(move || run_tap_loop(app, shared_thread))
+            .spawn(move || run_tap_loop(app, shared_thread, ready_tx))
             .ok()?;
-        Some(TapHandle {
+        let handle = TapHandle {
             shared,
             join: Some(join),
-        })
+        };
+        match ready_rx.recv_timeout(std::time::Duration::from_secs(2)) {
+            Ok(()) => Some(handle),
+            Err(RecvTimeoutError::Disconnected) => {
+                // 初始化失败,线程已返回;join 只负责回收句柄。
+                if let Some(join) = handle.join {
+                    let _ = join.join();
+                }
+                None
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                // 不在调用线程无限等待卡住的系统 API。置取消标志后分离线程;若它稍后
+                // 完成初始化,会观察标志并直接退出,不会进入 CFRunLoopRun。
+                handle.shared.stop_requested.store(true, Ordering::SeqCst);
+                log::error!("划词监听初始化超时,已请求取消");
+                None
+            }
+        }
     }
 
     /// 监听线程主体:建 tap → 挂到本线程 run loop → run(阻塞至 stop)。
-    fn run_tap_loop(app: AppHandle, shared: Arc<Shared>) {
+    fn run_tap_loop(app: AppHandle, shared: Arc<Shared>, ready: mpsc::SyncSender<()>) {
         let ctx = Box::new(TapCtx {
             app,
             down: Cell::new(None),
@@ -249,8 +272,7 @@ mod macos {
             log::error!("CGEventTapCreate 失败(辅助功能权限?)");
             return;
         };
-        ctx.tap_ptr
-            .set(&*tap as *const CFMachPort as usize);
+        ctx.tap_ptr.set(&*tap as *const CFMachPort as usize);
 
         let Some(source) = CFMachPort::new_run_loop_source(None, Some(&tap), 0) else {
             log::error!("CFMachPortCreateRunLoopSource 失败");
@@ -267,8 +289,11 @@ mod macos {
         shared
             .runloop_ptr
             .store(&*runloop as *const CFRunLoop as usize, Ordering::SeqCst);
+        let _ = ready.send(());
         log::info!("划词监听已启动(CGEventTap)");
-        CFRunLoop::run();
+        if !shared.stop_requested.load(Ordering::SeqCst) {
+            CFRunLoop::run();
+        }
 
         // run() 返回(被 stop 打断):清理。tap/source/runloop/ctx 在此作用域结束时释放。
         shared.runloop_ptr.store(0, Ordering::SeqCst);

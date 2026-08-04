@@ -2,6 +2,8 @@
 
 use std::time::Duration;
 
+#[cfg(target_os = "macos")]
+use tauri::Manager;
 use tauri::{AppHandle, State};
 
 use crate::config::ConfigStore;
@@ -78,6 +80,149 @@ pub async fn trigger_selection_translate(app: AppHandle) -> Result<(), LenzError
 pub async fn open_accessibility_settings() -> Result<(), LenzError> {
     open_accessibility_pane();
     Ok(())
+}
+
+/// 启停系统登录自启动。先修改操作系统注册项,成功后再写配置;写配置失败时回滚注册项,
+/// 避免 UI 偏好与真实系统状态分叉。
+#[tauri::command]
+#[specta::specta]
+pub async fn set_auto_start(
+    state: State<'_, ConfigStore>,
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), LenzError> {
+    let was_enabled = auto_start_enabled(&app)?;
+    apply_auto_start(&app, enabled)?;
+    let patch = serde_json::json!({ "app": { "autoStart": enabled } });
+    if let Err(e) = state.set(&app, patch) {
+        if let Err(rollback) = apply_auto_start(&app, was_enabled) {
+            log::error!("rollback autostart after config failure failed: {rollback}");
+        }
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// 让系统注册状态与给定偏好一致。供启动恢复与配置热更新复用。
+pub(crate) fn apply_auto_start(app: &AppHandle, enabled: bool) -> Result<(), LenzError> {
+    let current = auto_start_enabled(app)?;
+    // 禁用且本就未注册时无需操作;启用时始终重写当前可执行文件路径,以修复应用升级/
+    // 移动后遗留的旧 LaunchAgent 或注册表值。
+    if !enabled && !current {
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    return apply_macos_auto_start(app, enabled);
+    #[cfg(target_os = "windows")]
+    return apply_windows_auto_start(enabled);
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    Err(LenzError::not_implemented())
+}
+
+fn auto_start_enabled(app: &AppHandle) -> Result<bool, LenzError> {
+    #[cfg(target_os = "macos")]
+    return Ok(macos_launch_agent_path(app)?.exists());
+    #[cfg(target_os = "windows")]
+    {
+        let status = std::process::Command::new("reg")
+            .args([
+                "query",
+                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                "/v",
+                "Lenz",
+            ])
+            .status()
+            .map_err(|e| LenzError::internal(format!("query autostart registry: {e}")))?;
+        return Ok(status.success());
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = app;
+        Ok(false)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_launch_agent_path(app: &AppHandle) -> Result<std::path::PathBuf, LenzError> {
+    let home = app
+        .path()
+        .home_dir()
+        .map_err(|e| LenzError::internal(format!("resolve home directory: {e}")))?;
+    Ok(home
+        .join("Library")
+        .join("LaunchAgents")
+        .join("app.lenz.desktop.plist"))
+}
+
+#[cfg(target_os = "macos")]
+fn apply_macos_auto_start(app: &AppHandle, enabled: bool) -> Result<(), LenzError> {
+    let path = macos_launch_agent_path(app)?;
+    if !enabled {
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
+        return Ok(());
+    }
+
+    let executable = std::env::current_exe()
+        .map_err(|e| LenzError::internal(format!("resolve current executable: {e}")))?;
+    let escaped = xml_escape(&executable.to_string_lossy());
+    let plist = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \
+\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
+<plist version=\"1.0\"><dict>\n\
+  <key>Label</key><string>app.lenz.desktop</string>\n\
+  <key>ProgramArguments</key><array><string>{escaped}</string></array>\n\
+  <key>RunAtLoad</key><true/>\n\
+</dict></plist>\n"
+    );
+    let parent = path
+        .parent()
+        .ok_or_else(|| LenzError::internal("invalid LaunchAgents path"))?;
+    std::fs::create_dir_all(parent)?;
+    let tmp = path.with_extension("plist.tmp");
+    std::fs::write(&tmp, plist)?;
+    std::fs::rename(tmp, path)?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+#[cfg(target_os = "windows")]
+fn apply_windows_auto_start(enabled: bool) -> Result<(), LenzError> {
+    const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+    let status = if enabled {
+        let executable = std::env::current_exe()
+            .map_err(|e| LenzError::internal(format!("resolve current executable: {e}")))?;
+        let value = format!("\"{}\"", executable.display());
+        std::process::Command::new("reg")
+            .args([
+                "add", RUN_KEY, "/v", "Lenz", "/t", "REG_SZ", "/d", &value, "/f",
+            ])
+            .status()
+    } else {
+        std::process::Command::new("reg")
+            .args(["delete", RUN_KEY, "/v", "Lenz", "/f"])
+            .status()
+    }
+    .map_err(|e| LenzError::internal(format!("update autostart registry: {e}")))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(LenzError::internal(format!(
+            "update autostart registry exited with {status}"
+        )))
+    }
 }
 
 /// 打开「辅助功能」设置面板(macOS 深链;其余平台 no-op)。

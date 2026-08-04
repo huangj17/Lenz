@@ -29,16 +29,14 @@ function builtinEngines(): TranslatorEngine[] {
   });
 
   return [
-    // —— 默认开启 ——
-    e("builtin-youdao", "有道翻译", "youdao", true, "", undefined, 15000),
-    e("builtin-apple", "苹果翻译", "apple", true, "", undefined, 15000),
-    // 谷歌翻译:内置默认 Key,留空即用内置,故默认开启、开箱即用。
-    e("builtin-google", "Google 翻译", "google", true, "", undefined, 15000),
+    e("builtin-youdao", "有道翻译", "youdao", false, "", undefined, 15000),
+    e("builtin-apple", "苹果翻译", "apple", false, "", undefined, 15000),
+    e("builtin-google", "Google 翻译", "google", false, "", undefined, 15000),
     e(
       "builtin-zhipu",
       "智谱 GLM",
       "openai",
-      true,
+      false,
       "https://open.bigmodel.cn/api/paas/v4",
       "glm-4-flash",
       30000,
@@ -47,12 +45,11 @@ function builtinEngines(): TranslatorEngine[] {
       "builtin-siliconflow",
       "硅基流动",
       "openai",
-      true,
+      false,
       "https://api.siliconflow.cn/v1",
       "Qwen/Qwen2.5-7B-Instruct",
       30000,
     ),
-    // —— 默认关闭(需用户自备凭据)——
     e("builtin-baidu", "百度翻译", "baidu", false, "", undefined, 15000),
     e("builtin-microsoft", "微软翻译", "microsoft", false, "", undefined, 15000),
     e(
@@ -70,7 +67,7 @@ function builtinEngines(): TranslatorEngine[] {
 
 export function createDefaultConfig(): Config {
   return {
-    version: 3,
+    version: 4,
     app: {
       locale: "system",
       theme: "system",
@@ -95,7 +92,7 @@ export function createDefaultConfig(): Config {
       minConfidence: 0.3,
     },
     translator: {
-      defaultEngineId: "builtin-youdao",
+      defaultEngineId: "",
       targetLang: "zh-CN",
       engines: builtinEngines(),
     },

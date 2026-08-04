@@ -48,8 +48,10 @@ impl Translator for MicrosoftTranslator {
         // body:[{ "Text": "..." }, ...]
         let body: Vec<_> = req.texts.iter().map(|t| json!({ "Text": t })).collect();
 
-        let mut query: Vec<(&str, String)> =
-            vec![("api-version", "3.0".into()), ("to", ms_lang_code(&req.target_lang))];
+        let mut query: Vec<(&str, String)> = vec![
+            ("api-version", "3.0".into()),
+            ("to", ms_lang_code(&req.target_lang)),
+        ];
         if let Some(src) = req.source_lang.as_deref() {
             query.push(("from", ms_lang_code(src)));
         }
@@ -142,7 +144,10 @@ mod tests {
             translate_endpoint(""),
             "https://api.cognitive.microsofttranslator.com/translate"
         );
-        assert_eq!(translate_endpoint("https://x.com"), "https://x.com/translate");
+        assert_eq!(
+            translate_endpoint("https://x.com"),
+            "https://x.com/translate"
+        );
         assert_eq!(
             translate_endpoint("https://x.com/translate"),
             "https://x.com/translate"

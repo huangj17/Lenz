@@ -170,7 +170,6 @@ pub struct ScreenshotProgress {
 // ──────────────────────────────────────────────────────────────────────────
 
 /// `selection://detected` 事件载荷:监听到一次「划词/双击选中」手势。
-///
 /// 坐标为光标松开处的全局显示逻辑坐标(top-left 原点,单位 point),供前端在该处
 /// 浮出划词指示图标(spec 05 §2.1 / §7)。此时**尚未**读取选中文本——只有用户
 /// hover/点击图标才会去复制并翻译,避免无谓地改动剪贴板。
@@ -182,7 +181,6 @@ pub struct SelectionDetected {
 }
 
 /// `selection://permission-required` 事件载荷(spec 05 §2.1)。
-///
 /// macOS 划词监听依赖「辅助功能(Accessibility)」权限;未授时 emit,前端引导用户
 /// 去系统设置开启。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

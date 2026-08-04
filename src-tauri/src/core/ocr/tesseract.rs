@@ -28,12 +28,10 @@ impl OcrEngine for TesseractOcr {
         Vec::new()
     }
 
-    async fn recognize(
-        &self,
-        _input: OcrInput,
-        _opts: OcrOptions,
-    ) -> Result<OcrResult, LenzError> {
+    async fn recognize(&self, _input: OcrInput, _opts: OcrOptions) -> Result<OcrResult, LenzError> {
         // TODO(P2): 接入 tesseract / leptonica;按 traineddata 语言包识别。
-        Err(LenzError::OcrUnavailable("tesseract engine not built".into()))
+        Err(LenzError::OcrUnavailable(
+            "tesseract engine not built".into(),
+        ))
     }
 }

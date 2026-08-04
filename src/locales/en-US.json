@@ -49,6 +49,10 @@
     "openMain": "Open main window",
     "openMainHint": "Bring up the settings page",
     "change": "Change",
+    "recording": "Press keys…",
+    "recordingHint": "Press the new shortcut; Backspace clears it and Esc cancels.",
+    "modifierRequired": "Letter and number shortcuts need at least one modifier.",
+    "duplicate": "This shortcut is already used by “{{name}}”.",
     "permissionNote": "Word translation needs macOS Accessibility permission; overlay needs Screen Recording. Both are requested on first use."
   },
   "services": {
@@ -81,7 +85,7 @@
     "keyHint": "Stored in plain text locally (MVP)",
     "youdaoKeyHint": "Format: appKey:appSecret",
     "baiduKeyHint": "Format: appid:secret (from Baidu Translate console)",
-    "googleKeyHint": "Leave blank to use the built-in key; fill in your own to override",
+    "googleKeyHint": "Google Cloud Translation API key (required)",
     "urlPlaceholder": "https://… (blank = default endpoint)",
     "keyPlaceholder": "sk-…",
     "modelPlaceholder": "e.g. gpt-4o-mini",

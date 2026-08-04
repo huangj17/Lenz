@@ -49,21 +49,16 @@ impl OcrEngine for WinMediaOcr {
         }
     }
 
-    async fn recognize(
-        &self,
-        input: OcrInput,
-        opts: OcrOptions,
-    ) -> Result<OcrResult, LenzError> {
+    async fn recognize(&self, input: OcrInput, opts: OcrOptions) -> Result<OcrResult, LenzError> {
         let started = Instant::now();
         let pixel_rect = input.pixel_rect;
         let scale = input.scale_factor;
         let png = input.png;
 
-        let blocks = tokio::task::spawn_blocking(move || {
-            run_win_ocr(&png, &opts, &pixel_rect, scale)
-        })
-        .await
-        .map_err(|e| LenzError::OcrFailed(format!("spawn_blocking join error: {e}")))??;
+        let blocks =
+            tokio::task::spawn_blocking(move || run_win_ocr(&png, &opts, &pixel_rect, scale))
+                .await
+                .map_err(|e| LenzError::OcrFailed(format!("spawn_blocking join error: {e}")))??;
 
         Ok(OcrResult {
             blocks,
@@ -85,11 +80,11 @@ fn run_win_ocr(
     scale: f32,
 ) -> Result<Vec<OcrBlock>, LenzError> {
     // 1) PNG 字节 → 内存随机访问流。
-    let stream =
-        InMemoryRandomAccessStream::new().map_err(|e| win_err("create stream", e))?;
-    let writer =
-        DataWriter::CreateDataWriter(&stream).map_err(|e| win_err("create writer", e))?;
-    writer.WriteBytes(png).map_err(|e| win_err("write bytes", e))?;
+    let stream = InMemoryRandomAccessStream::new().map_err(|e| win_err("create stream", e))?;
+    let writer = DataWriter::CreateDataWriter(&stream).map_err(|e| win_err("create writer", e))?;
+    writer
+        .WriteBytes(png)
+        .map_err(|e| win_err("write bytes", e))?;
     writer
         .StoreAsync()
         .map_err(|e| win_err("store async", e))?
@@ -135,7 +130,10 @@ fn run_win_ocr(
     let line_count = lines.Size().map_err(|e| win_err("lines size", e))?;
     for i in 0..line_count {
         let line = lines.GetAt(i).map_err(|e| win_err("line", e))?;
-        let text = line.Text().map_err(|e| win_err("line text", e))?.to_string();
+        let text = line
+            .Text()
+            .map_err(|e| win_err("line text", e))?
+            .to_string();
 
         let words = line.Words().map_err(|e| win_err("words", e))?;
         let word_count = words.Size().map_err(|e| win_err("words size", e))?;
@@ -148,9 +146,7 @@ fn run_win_ocr(
             let (x1, y1) = (x0 + r.Width as f64, y0 + r.Height as f64);
             bounds = Some(match bounds {
                 None => (x0, y0, x1, y1),
-                Some((ax0, ay0, ax1, ay1)) => {
-                    (ax0.min(x0), ay0.min(y0), ax1.max(x1), ay1.max(y1))
-                }
+                Some((ax0, ay0, ax1, ay1)) => (ax0.min(x0), ay0.min(y0), ax1.max(x1), ay1.max(y1)),
             });
         }
 

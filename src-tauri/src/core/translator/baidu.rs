@@ -98,7 +98,11 @@ impl Translator for BaiduTranslator {
     async fn translate(&self, req: TranslateRequest) -> Result<TranslateResponse, LenzError> {
         let started = Instant::now();
         let (appid, secret) = self.credentials()?;
-        let from = req.source_lang.as_deref().map(baidu_lang_code).unwrap_or("auto");
+        let from = req
+            .source_lang
+            .as_deref()
+            .map(baidu_lang_code)
+            .unwrap_or("auto");
         let to = baidu_lang_code(&req.target_lang);
 
         let mut translations = Vec::with_capacity(req.texts.len());

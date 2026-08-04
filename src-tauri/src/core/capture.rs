@@ -25,7 +25,7 @@ pub struct CaptureResult {
 /// 采集指定逻辑区域(相对虚拟屏左上)。
 ///
 /// 多屏:选择**与选区重叠面积最大**的显示器(而非仅起点所在),更稳健地区分
-/// 选区主要落在哪块屏。跨屏物理拼接仍为 TODO(当前裁该屏内的部分)。
+/// 选区主要落在哪块屏。只请求 xcap 采集相交区域,避免先分配整块 4K/5K 位图。
 // TODO(M2): 跨屏选区的物理像素拼接;当前取重叠最大的单屏。
 pub fn capture_region(rect: Rect) -> Result<CaptureResult, LenzError> {
     if rect.w < 1 || rect.h < 1 {
@@ -33,42 +33,45 @@ pub fn capture_region(rect: Rect) -> Result<CaptureResult, LenzError> {
     }
     let monitors = Monitor::all().map_err(map_xcap_err)?;
     let monitor = pick_monitor(&monitors, rect)?;
-    let mon_x = monitor.x().map_err(map_xcap_err)?;
-    let mon_y = monitor.y().map_err(map_xcap_err)?;
     let scale = monitor.scale_factor().map_err(map_xcap_err)?;
+    let raw_bounds = RawMonitorBounds {
+        x: monitor.x().map_err(map_xcap_err)? as f64,
+        y: monitor.y().map_err(map_xcap_err)? as f64,
+        w: monitor.width().map_err(map_xcap_err)? as f64,
+        h: monitor.height().map_err(map_xcap_err)? as f64,
+    };
+    let plan = make_capture_plan(rect, raw_bounds, scale, cfg!(target_os = "windows"))?;
     log::debug!(
-        "capture_region rect=({},{},{},{}) -> monitor origin=({},{}) scale={}",
-        rect.x, rect.y, rect.w, rect.h, mon_x, mon_y, scale
+        "capture_region rect=({},{},{},{}) -> local=({},{},{},{}) scale={}",
+        rect.x,
+        rect.y,
+        rect.w,
+        rect.h,
+        plan.x,
+        plan.y,
+        plan.w,
+        plan.h,
+        scale
     );
 
-    // 整屏物理像素位图。
-    let shot = monitor.capture_image().map_err(map_xcap_err)?;
-    let (img_w, img_h) = (shot.width(), shot.height());
-
-    // 逻辑坐标 → 该屏内物理像素,并夹紧到屏幕边界避免越界。
-    let local_x = (((rect.x - mon_x) as f32) * scale).round().max(0.0) as u32;
-    let local_y = (((rect.y - mon_y) as f32) * scale).round().max(0.0) as u32;
-    let crop_w = (((rect.w as f32) * scale).round() as u32)
-        .min(img_w.saturating_sub(local_x))
-        .max(1);
-    let crop_h = (((rect.h as f32) * scale).round() as u32)
-        .min(img_h.saturating_sub(local_y))
-        .max(1);
-
-    let cropped =
-        image::imageops::crop_imm(&shot, local_x, local_y, crop_w, crop_h).to_image();
+    // Windows 的 xcap 坐标/尺寸是物理像素;macOS 是 CoreGraphics 逻辑点。
+    // make_capture_plan 已按平台换算为 capture_region 期望的屏内单位。
+    let shot = monitor
+        .capture_region(plan.x, plan.y, plan.w, plan.h)
+        .map_err(map_xcap_err)?;
+    let (pixel_w, pixel_h) = (shot.width(), shot.height());
 
     let mut png = Vec::new();
-    DynamicImage::ImageRgba8(cropped)
+    DynamicImage::ImageRgba8(shot)
         .write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
         .map_err(|e| LenzError::Internal(format!("png encode: {e}")))?;
 
-    // 截图区域在虚拟屏的物理像素(逻辑 × scale),回映射时用。
+    // 截图区域在虚拟屏的物理像素(逻辑 × 当前屏 scale),回映射时用。
     let pixel_rect = Rect {
-        x: ((rect.x as f32) * scale).round() as i32,
-        y: ((rect.y as f32) * scale).round() as i32,
-        w: crop_w as i32,
-        h: crop_h as i32,
+        x: (f64::from(plan.logical_x) * f64::from(scale)).round() as i32,
+        y: (f64::from(plan.logical_y) * f64::from(scale)).round() as i32,
+        w: pixel_w as i32,
+        h: pixel_h as i32,
     };
 
     Ok(CaptureResult {
@@ -78,14 +81,76 @@ pub fn capture_region(rect: Rect) -> Result<CaptureResult, LenzError> {
     })
 }
 
+#[derive(Debug, Clone, Copy)]
+struct RawMonitorBounds {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CapturePlan {
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
+    logical_x: i32,
+    logical_y: i32,
+}
+
+/// 把虚拟屏逻辑选区换成 xcap 的屏内采集单位。Windows 的 monitor 元数据与
+/// capture_region 均为物理像素;macOS 的元数据/入参均为逻辑点。
+fn make_capture_plan(
+    rect: Rect,
+    raw: RawMonitorBounds,
+    scale: f32,
+    raw_is_physical: bool,
+) -> Result<CapturePlan, LenzError> {
+    let scale = f64::from(scale.max(0.01));
+    let divisor = if raw_is_physical { scale } else { 1.0 };
+    let unit_scale = if raw_is_physical { scale } else { 1.0 };
+    let logical = RawMonitorBounds {
+        x: raw.x / divisor,
+        y: raw.y / divisor,
+        w: raw.w / divisor,
+        h: raw.h / divisor,
+    };
+
+    let left = f64::from(rect.x).max(logical.x);
+    let top = f64::from(rect.y).max(logical.y);
+    let right = f64::from(rect.x + rect.w).min(logical.x + logical.w);
+    let bottom = f64::from(rect.y + rect.h).min(logical.y + logical.h);
+    if right <= left || bottom <= top {
+        return Err(LenzError::Internal(
+            "capture rect is outside monitor".into(),
+        ));
+    }
+
+    Ok(CapturePlan {
+        x: ((left - logical.x) * unit_scale).round().max(0.0) as u32,
+        y: ((top - logical.y) * unit_scale).round().max(0.0) as u32,
+        w: ((right - left) * unit_scale).round().max(1.0) as u32,
+        h: ((bottom - top) * unit_scale).round().max(1.0) as u32,
+        logical_x: left.round() as i32,
+        logical_y: top.round() as i32,
+    })
+}
+
 /// 在所有显示器中选出与 `rect`(逻辑坐标)重叠面积最大者;无重叠则回退首屏。
 fn pick_monitor(monitors: &[Monitor], rect: Rect) -> Result<&Monitor, LenzError> {
     let mut best: Option<(&Monitor, i64)> = None;
     for m in monitors {
-        let mx = m.x().map_err(map_xcap_err)?;
-        let my = m.y().map_err(map_xcap_err)?;
-        let mw = m.width().map_err(map_xcap_err)? as i32;
-        let mh = m.height().map_err(map_xcap_err)? as i32;
+        let scale = m.scale_factor().map_err(map_xcap_err)?;
+        let divisor = if cfg!(target_os = "windows") {
+            scale
+        } else {
+            1.0
+        };
+        let mx = (m.x().map_err(map_xcap_err)? as f32 / divisor).round() as i32;
+        let my = (m.y().map_err(map_xcap_err)? as f32 / divisor).round() as i32;
+        let mw = (m.width().map_err(map_xcap_err)? as f32 / divisor).round() as i32;
+        let mh = (m.height().map_err(map_xcap_err)? as f32 / divisor).round() as i32;
         // 选区与该屏的交集面积。
         let ix = (rect.x.max(mx)).min(rect.x + rect.w);
         let iy = (rect.y.max(my)).min(rect.y + rect.h);
@@ -113,5 +178,75 @@ fn map_xcap_err(e: xcap::XCapError) -> LenzError {
         LenzError::Permission(format!("screen capture: {msg}"))
     } else {
         LenzError::Internal(format!("capture: {msg}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{make_capture_plan, CapturePlan, RawMonitorBounds};
+    use crate::types::Rect;
+
+    #[test]
+    fn windows_mixed_dpi_uses_logical_monitor_bounds_and_physical_capture_units() {
+        let plan = make_capture_plan(
+            Rect {
+                x: 1400,
+                y: 100,
+                w: 200,
+                h: 80,
+            },
+            RawMonitorBounds {
+                x: 1920.0,
+                y: 0.0,
+                w: 2560.0,
+                h: 1440.0,
+            },
+            1.5,
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            plan,
+            CapturePlan {
+                x: 180,
+                y: 150,
+                w: 300,
+                h: 120,
+                logical_x: 1400,
+                logical_y: 100
+            }
+        );
+    }
+
+    #[test]
+    fn capture_plan_clips_selection_to_monitor_intersection() {
+        let plan = make_capture_plan(
+            Rect {
+                x: -20,
+                y: 10,
+                w: 100,
+                h: 50,
+            },
+            RawMonitorBounds {
+                x: 0.0,
+                y: 0.0,
+                w: 1920.0,
+                h: 1080.0,
+            },
+            2.0,
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            plan,
+            CapturePlan {
+                x: 0,
+                y: 10,
+                w: 80,
+                h: 50,
+                logical_x: 0,
+                logical_y: 10
+            }
+        );
     }
 }

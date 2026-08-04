@@ -56,7 +56,12 @@ impl ConfigStore {
         } else {
             match std::fs::read_to_string(&path) {
                 Ok(raw) => match parse_and_migrate(&raw) {
-                    Ok(cfg) => cfg,
+                    Ok((cfg, migrated)) => {
+                        if migrated {
+                            write_atomic(&dir, &cfg)?;
+                        }
+                        cfg
+                    }
                     Err(parse_err) => {
                         // 损坏:备份 + 重建。
                         if let Err(backup_err) = backup_corrupted(&path) {
@@ -96,11 +101,7 @@ impl ConfigStore {
     /// 应用 RFC 7396 JSON Merge Patch,持久化并 emit `config://changed`。
     ///
     /// 返回合并后的最新配置。
-    pub fn set<R: Runtime>(
-        &self,
-        app: &AppHandle<R>,
-        patch: Value,
-    ) -> Result<Config, LenzError> {
+    pub fn set<R: Runtime>(&self, app: &AppHandle<R>, patch: Value) -> Result<Config, LenzError> {
         let new_config = {
             let mut guard = self
                 .inner
@@ -126,10 +127,7 @@ impl ConfigStore {
         };
 
         let (config, keypaths) = new_config;
-        let _ = app.emit(
-            EVENT_CONFIG_CHANGED,
-            ConfigChangedPayload { keypaths },
-        );
+        let _ = app.emit(EVENT_CONFIG_CHANGED, ConfigChangedPayload { keypaths });
         Ok(config)
     }
 
@@ -155,21 +153,19 @@ impl ConfigStore {
 }
 
 /// 解析原始 JSON 并按需迁移。
-fn parse_and_migrate(raw: &str) -> Result<Config, LenzError> {
+fn parse_and_migrate(raw: &str) -> Result<(Config, bool), LenzError> {
     let value: Value = serde_json::from_str(raw)?;
-    let version = value
-        .get("version")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0) as u32;
+    let version = value.get("version").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
 
-    let migrated = if version < schema::CURRENT_VERSION {
+    let needs_migration = version < schema::CURRENT_VERSION;
+    let migrated = if needs_migration {
         migrate::migrate(value, version)
     } else {
         value
     };
 
     let config: Config = serde_json::from_value(migrated)?;
-    Ok(config)
+    Ok((config, needs_migration))
 }
 
 /// 原子写:序列化到 `config.json.tmp` 后 `rename` 到 `config.json`(spec 01 §4.2)。
@@ -287,7 +283,8 @@ mod tests {
 
     #[test]
     fn keypaths_are_dotted_leaves() {
-        let patch = serde_json::json!({"shortcuts": {"selection": "Alt+D"}, "app": {"theme": "dark"}});
+        let patch =
+            serde_json::json!({"shortcuts": {"selection": "Alt+D"}, "app": {"theme": "dark"}});
         let mut paths = collect_changed_keypaths(&patch, "");
         paths.sort();
         assert_eq!(paths, vec!["app.theme", "shortcuts.selection"]);

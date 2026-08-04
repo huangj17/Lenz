@@ -50,8 +50,7 @@ function validate(e: TranslatorEngine): string[] {
   if (e.kind === "openai" && !(e.model ?? "").trim()) issues.push("engines.warnModel");
   if (e.kind === "youdao" && !e.apiKey.includes(":")) issues.push("engines.warnYoudaoKey");
   if (e.kind === "baidu" && !e.apiKey.includes(":")) issues.push("engines.warnBaiduKey");
-  // 谷歌留空 Key 即用内置默认 Key,故不作必填校验。
-  if ((e.kind === "deepl" || e.kind === "microsoft") && !e.apiKey.trim())
+  if ((e.kind === "google" || e.kind === "deepl" || e.kind === "microsoft") && !e.apiKey.trim())
     issues.push("engines.warnKey");
   if (e.kind === "microsoft" && !(e.region ?? "").trim()) issues.push("engines.warnRegion");
   return issues;
@@ -146,7 +145,9 @@ export function EnginesPane() {
     const tr = liveTranslator();
     const nextEngines = tr.engines.map((e) => (e.id === merged.id ? merged : e));
     const next: EnginePatch = { engines: nextEngines };
-    if (!v && tr.defaultEngineId === merged.id) {
+    if (v && !nextEngines.some((e) => e.enabled && e.id === tr.defaultEngineId)) {
+      next.defaultEngineId = merged.id;
+    } else if (!v && tr.defaultEngineId === merged.id) {
       next.defaultEngineId = nextEngines.find((e) => e.enabled && e.id !== merged.id)?.id ?? "";
     }
     void patch({ translator: next });
@@ -175,7 +176,9 @@ export function EnginesPane() {
     if (txt === "") val = undefined;
     else {
       const n = parseInt(txt, 10);
-      val = Number.isFinite(n) ? Math.min(1000000, Math.max(1, n)) : draft.maxTokens;
+      val = Number.isFinite(n)
+        ? Math.min(1000000, Math.max(1, n))
+        : (draft.maxTokens ?? undefined);
     }
     setMaxTokensText(val == null ? "" : String(val));
     if (val !== draft.maxTokens) commitNow({ maxTokens: val });
@@ -189,7 +192,9 @@ export function EnginesPane() {
     if (txt === "") val = undefined;
     else {
       const n = parseFloat(txt);
-      val = Number.isFinite(n) ? Math.min(2, Math.max(0, n)) : draft.temperature;
+      val = Number.isFinite(n)
+        ? Math.min(2, Math.max(0, n))
+        : (draft.temperature ?? undefined);
     }
     setTempText(val == null ? "" : String(val));
     if (val !== draft.temperature) commitNow({ temperature: val });

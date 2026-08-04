@@ -1,8 +1,7 @@
 //! 配置版本迁移(spec 01 §7)。
 //!
-//! `migrate` 按 `version` 字段逐级提升。当前只有 v1,故为占位实现:
-//! 未来新增 schema 版本时,在此处添加 `migrate_vN_to_vN+1` 并串联调用,
-//! 同时补充单元测试(旧 fixture → 迁移后等价性)。
+//! `migrate` 按 `version` 字段逐级提升。新增 schema 版本时,在此处添加
+//! `migrate_vN_to_vN+1` 并串联调用,同时补充单元测试(旧 fixture → 迁移后等价性)。
 
 use serde_json::Value;
 
@@ -25,12 +24,16 @@ pub fn migrate(mut raw: Value, from_version: u32) -> Value {
         version = 2;
     }
 
-    // v2 → v3:追加百度翻译预设 + 谷歌默认开启(内置 Key)。
+    // v2 → v3:重放历史迁移(追加百度翻译预设 + 曾默认开启 Google)。
     if version < 3 {
         raw = migrate_v2_to_v3(raw);
         version = 3;
     }
-    let _ = version;
+
+    // v3 → v4:移除内置 Google Key 后,关闭所有未配置凭据或尚未实现的内置引擎。
+    if version < 4 {
+        raw = migrate_v3_to_v4(raw);
+    }
 
     // 兜底:确保 version 字段为当前版本。
     if let Value::Object(ref mut map) = raw {
@@ -71,8 +74,8 @@ fn migrate_v1_to_v2(mut raw: Value) -> Value {
     raw
 }
 
-/// v2 → v3:为老配置追加 `builtin-baidu` 预设;谷歌若仍是内置且未填 Key
-/// (即未被用户改动),则默认开启,享受内置默认 Key 开箱即用。
+/// v2 → v3 的历史迁移:追加 `builtin-baidu`,并曾开启未填 Key 的内置 Google。
+/// 后续 v3 → v4 会立即撤销不安全的无凭据启用状态。
 ///
 /// 只做增量补丁,不动用户已改的引擎;`builtin-baidu` 已存在则跳过。
 fn migrate_v2_to_v3(mut raw: Value) -> Value {
@@ -105,11 +108,73 @@ fn migrate_v2_to_v3(mut raw: Value) -> Value {
         .iter()
         .any(|e| e.get("id").and_then(Value::as_str) == Some("builtin-baidu"));
     if !has_baidu {
-        if let Some(baidu) = default_engines().into_iter().find(|e| e.id == "builtin-baidu") {
+        if let Some(baidu) = default_engines()
+            .into_iter()
+            .find(|e| e.id == "builtin-baidu")
+        {
             if let Ok(v) = serde_json::to_value(baidu) {
                 engines.push(v);
             }
         }
+    }
+
+    raw
+}
+
+/// v3 → v4:旧版本曾默认开启若干没有凭据的在线引擎,并把未实现的 Apple 引擎
+/// 加入运行态。仅修正内置预设;用户自建的无鉴权本地端点保持原样。
+fn migrate_v3_to_v4(mut raw: Value) -> Value {
+    let Some(translator) = raw.get_mut("translator").and_then(Value::as_object_mut) else {
+        return raw;
+    };
+    let default_id = translator
+        .get("defaultEngineId")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let Some(engines) = translator.get_mut("engines").and_then(Value::as_array_mut) else {
+        return raw;
+    };
+
+    for engine in engines.iter_mut() {
+        let id = engine.get("id").and_then(Value::as_str).unwrap_or_default();
+        let key_empty = engine
+            .get("apiKey")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or_default()
+            .is_empty();
+        let unavailable = id == "builtin-apple"
+            || (key_empty
+                && matches!(
+                    id,
+                    "builtin-youdao"
+                        | "builtin-google"
+                        | "builtin-zhipu"
+                        | "builtin-siliconflow"
+                        | "builtin-baidu"
+                        | "builtin-microsoft"
+                ));
+        if unavailable {
+            if let Value::Object(map) = engine {
+                map.insert("enabled".into(), Value::Bool(false));
+            }
+        }
+    }
+
+    let default_enabled = engines.iter().any(|engine| {
+        engine.get("id").and_then(Value::as_str) == Some(default_id.as_str())
+            && engine.get("enabled").and_then(Value::as_bool) == Some(true)
+    });
+    if !default_enabled {
+        let fallback = engines
+            .iter()
+            .find(|engine| engine.get("enabled").and_then(Value::as_bool) == Some(true))
+            .and_then(|engine| engine.get("id"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        translator.insert("defaultEngineId".into(), Value::String(fallback));
     }
 
     raw
@@ -128,12 +193,12 @@ mod tests {
         let out = migrate(raw, 1);
         let engines = out["translator"]["engines"].as_array().unwrap();
         assert_eq!(engines.len(), 9);
-        assert_eq!(out["translator"]["defaultEngineId"], "builtin-youdao");
+        assert_eq!(out["translator"]["defaultEngineId"], "");
         assert_eq!(out["version"], CURRENT_VERSION);
     }
 
     #[test]
-    fn v2_appends_baidu_and_enables_google() {
+    fn v2_appends_baidu_then_v4_disables_keyless_google() {
         let raw = serde_json::json!({
             "version": 2,
             "translator": {
@@ -149,9 +214,12 @@ mod tests {
         let engines = out["translator"]["engines"].as_array().unwrap();
         // 追加了 builtin-baidu。
         assert!(engines.iter().any(|e| e["id"] == "builtin-baidu"));
-        // 谷歌(未填 Key)默认开启。
-        let google = engines.iter().find(|e| e["id"] == "builtin-google").unwrap();
-        assert_eq!(google["enabled"], true);
+        // v3 曾开启未填 Key 的 Google;完整迁移到 v4 后必须重新关闭。
+        let google = engines
+            .iter()
+            .find(|e| e["id"] == "builtin-google")
+            .unwrap();
+        assert_eq!(google["enabled"], false);
         assert_eq!(out["version"], CURRENT_VERSION);
     }
 
@@ -186,7 +254,7 @@ mod tests {
             "translator": {
                 "defaultEngineId": "mine",
                 "targetLang": "zh-CN",
-                "engines": [{ "id": "mine" }]
+                "engines": [{ "id": "mine", "enabled": true }]
             }
         });
         let out = migrate(raw, 1);
@@ -196,5 +264,28 @@ mod tests {
         assert!(engines.iter().any(|e| e["id"] == "mine"));
         assert!(engines.iter().any(|e| e["id"] == "builtin-baidu"));
         assert_eq!(out["translator"]["defaultEngineId"], "mine");
+    }
+
+    #[test]
+    fn v3_disables_unconfigured_builtins_and_repairs_default() {
+        let raw = serde_json::json!({
+            "version": 3,
+            "translator": {
+                "defaultEngineId": "builtin-youdao",
+                "targetLang": "zh-CN",
+                "engines": [
+                    { "id": "builtin-youdao", "enabled": true, "apiKey": "" },
+                    { "id": "builtin-apple", "enabled": true, "apiKey": "" },
+                    { "id": "local", "enabled": true, "apiKey": "" }
+                ]
+            }
+        });
+        let out = migrate(raw, 3);
+        let engines = out["translator"]["engines"].as_array().unwrap();
+        assert_eq!(engines[0]["enabled"], false);
+        assert_eq!(engines[1]["enabled"], false);
+        assert_eq!(engines[2]["enabled"], true);
+        assert_eq!(out["translator"]["defaultEngineId"], "local");
+        assert_eq!(out["version"], CURRENT_VERSION);
     }
 }

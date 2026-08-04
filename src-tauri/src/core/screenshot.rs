@@ -15,12 +15,12 @@ use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 use crate::config::ConfigStore;
-use crate::error::LenzError;
 use crate::core::ocr::{OcrBlock, OcrEngine, OcrInput, OcrOptions};
 use crate::core::translator::TranslatorManager;
 use crate::core::{capture, keystroke, selection_window};
+use crate::error::LenzError;
 use crate::types::{
-    RegionSelectedPayload, Rect, ScreenshotCost, ScreenshotError, ScreenshotProgress,
+    Rect, RegionSelectedPayload, ScreenshotCost, ScreenshotError, ScreenshotProgress,
     ScreenshotResult, ScreenshotTranslating, TranslateRequest, TriggerKind,
 };
 
@@ -217,7 +217,11 @@ pub fn on_region_selected(app: &AppHandle, payload: &str) {
 fn start_f2(app: AppHandle, region: Rect) {
     // w<4 || h<4 视为点击取消(spec 06 §2.2)。
     if region.w < 4 || region.h < 4 {
-        log::debug!("selection too small ({}x{}), treated as cancel", region.w, region.h);
+        log::debug!(
+            "selection too small ({}x{}), treated as cancel",
+            region.w,
+            region.h
+        );
         return;
     }
 
@@ -311,7 +315,13 @@ async fn run_pipeline(app: &AppHandle, region: Rect, gen: u64) {
         mgr.get(None)
     };
     let Some(translator) = translator else {
-        return emit_error(app, "translate", "failed", "no engine configured", Some(original));
+        return emit_error(
+            app,
+            "translate",
+            "failed",
+            "no engine configured",
+            Some(original),
+        );
     };
     let req = TranslateRequest {
         texts: vec![original.clone()],
@@ -325,9 +335,7 @@ async fn run_pipeline(app: &AppHandle, region: Rect, gen: u64) {
     }
     let resp = match resp {
         Ok(r) => r,
-        Err(e) => {
-            return emit_error(app, "translate", "failed", &e.to_string(), Some(original))
-        }
+        Err(e) => return emit_error(app, "translate", "failed", &e.to_string(), Some(original)),
     };
     let cost_translate = t2.elapsed().as_millis() as u32;
 
@@ -502,7 +510,7 @@ const MOD_WAIT_TIMEOUT: Duration = Duration::from_millis(400);
 /// 1. 记录复制前剪贴板;向前台应用合成 `Cmd/Ctrl+C` 复制当前选区;
 /// 2. 轮询等待剪贴板变化,取得「选中文本」;
 /// 3. 有新选区 → 居中显示 popup + 翻译;
-/// 4. 无新选区(未选中 / 无权限)→ 回显上次结果;都没有则回退到当前剪贴板内容。
+/// 4. 无新选区(未选中 / 无权限)→ 回显上次结果;都没有则静默忽略。
 pub fn on_selection_shortcut(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -563,18 +571,54 @@ async fn translate_selection(app: &AppHandle, text: String) {
     if text.is_empty() {
         return;
     }
-    // 去重:同一段原文重复选中/点击 → 回显缓存结果,不重复翻译。
+    // 去重键必须包含原文、目标语言和实际默认引擎。仅按原文缓存会在用户切换语言或
+    // 默认引擎后回显旧译文。
     if let Some(last) = app.state::<LastResult>().get() {
-        if last.original == text {
-            log::info!("划词:原文与上次相同,回显缓存结果(去重,不重复翻译)");
-            return reshow_result(app, last).await;
+        if let Ok(cfg) = app.state::<ConfigStore>().get() {
+            let current_engine = app
+                .state::<TranslatorManager>()
+                .get(None)
+                .map(|engine| engine.id().to_string());
+            if cached_result_matches(
+                &last,
+                &text,
+                &cfg.translator.target_lang,
+                current_engine.as_deref(),
+            ) {
+                log::info!("划词:原文/目标语言/引擎均相同,回显缓存结果");
+                return reshow_result(app, last).await;
+            }
         }
     }
     let gen = app.state::<ScreenshotSession>().begin();
     position_popup_at_cursor(app);
     // 首帧投递前等待 popup webview 就绪,避免冷启动首次触发丢掉 progress/result(方案 A)。
     wait_popup_ready(app).await;
-    let _ = tokio::time::timeout(TOTAL_TIMEOUT, run_text_pipeline(app, text, gen)).await;
+    let timeout_original = text.clone();
+    if tokio::time::timeout(TOTAL_TIMEOUT, run_text_pipeline(app, text, gen))
+        .await
+        .is_err()
+        && app.state::<ScreenshotSession>().is_current(gen)
+    {
+        emit_error(
+            app,
+            "translate",
+            "timeout",
+            "response timed out",
+            Some(timeout_original),
+        );
+    }
+}
+
+fn cached_result_matches(
+    result: &ScreenshotResult,
+    original: &str,
+    target_lang: &str,
+    engine_id: Option<&str>,
+) -> bool {
+    result.original == original
+        && result.target_lang == target_lang
+        && engine_id == Some(result.engine_id.as_str())
 }
 
 /// 回显一份已有结果到光标处 popup(「无新选区回显上次」与「同原文去重」共用)。
@@ -604,8 +648,15 @@ async fn wait_modifiers_released() {
 /// 也不会像「与旧值比对」那样把重复同字误判为无选区);读毕**还原原剪贴板**(不留痕)。
 /// 返回选中文本;没复制到内容(无选区 / 无权限 / 修饰键仍污染)则返回 `None`。
 async fn copy_selection_via_clipboard(app: &AppHandle) -> Option<String> {
-    // 原剪贴板(可能非文本 → None,则无法精确还原,属少见边角)。
-    let original = app.clipboard().read_text().ok();
+    // 插件只能无损恢复纯文本。若当前剪贴板没有文本,它可能保存图片、文件或其他富内容;
+    // 此时写哨兵会永久销毁原内容,所以宁可放弃本次兜底并保留用户数据。
+    let original = match app.clipboard().read_text() {
+        Ok(text) => text,
+        Err(e) => {
+            log::debug!("selection clipboard fallback skipped: cannot preserve clipboard: {e}");
+            return None;
+        }
+    };
     // 不可见字符包裹的哨兵,极不可能与真实选区相同。
     const SENTINEL: &str = "\u{2063}lenz-selection-probe\u{2063}";
     if app.clipboard().write_text(SENTINEL.to_string()).is_err() {
@@ -629,18 +680,8 @@ async fn copy_selection_via_clipboard(app: &AppHandle) -> Option<String> {
         tokio::time::sleep(COPY_POLL_INTERVAL).await;
     };
 
-    // 还原原剪贴板(贯彻「不主动改剪贴板」)。原剪贴板非文本(None)时无法精确还原,
-    // 但若此刻剪贴板仍是我们写入的哨兵(说明没复制到选区),必须清掉,避免把哨兵留给用户。
-    match original {
-        Some(s) => {
-            let _ = app.clipboard().write_text(s);
-        }
-        None => {
-            if app.clipboard().read_text().ok().as_deref() == Some(SENTINEL) {
-                let _ = app.clipboard().write_text(String::new());
-            }
-        }
-    }
+    // 还原原纯文本剪贴板(贯彻「不主动改剪贴板」)。
+    let _ = app.clipboard().write_text(original);
 
     let text = copied?;
     let trimmed = text.trim();
@@ -671,7 +712,13 @@ async fn run_text_pipeline(app: &AppHandle, original: String, gen: u64) {
         mgr.get(None)
     };
     let Some(translator) = translator else {
-        return emit_error(app, "translate", "failed", "no engine configured", Some(original));
+        return emit_error(
+            app,
+            "translate",
+            "failed",
+            "no engine configured",
+            Some(original),
+        );
     };
     let req = TranslateRequest {
         texts: vec![original.clone()],
@@ -696,7 +743,12 @@ async fn run_text_pipeline(app: &AppHandle, original: String, gen: u64) {
             source_lang: resp.detected_source_lang,
             target_lang: cfg.translator.target_lang.clone(),
             engine_id: resp.engine_id,
-            region: Rect { x: 0, y: 0, w: 0, h: 0 },
+            region: Rect {
+                x: 0,
+                y: 0,
+                w: 0,
+                h: 0,
+            },
             cost: ScreenshotCost {
                 capture: 0,
                 ocr: 0,
@@ -807,9 +859,9 @@ fn emit_error(app: &AppHandle, stage: &str, code: &str, message: &str, original:
 
 #[cfg(test)]
 mod tests {
-    use super::join_blocks;
+    use super::{cached_result_matches, join_blocks};
     use crate::core::ocr::OcrBlock;
-    use crate::types::Rect;
+    use crate::types::{Rect, ScreenshotCost, ScreenshotResult};
 
     fn block(text: &str, x: i32, y: i32, w: i32, h: i32) -> OcrBlock {
         OcrBlock {
@@ -822,14 +874,20 @@ mod tests {
     #[test]
     fn joins_same_line_with_space() {
         // 两块大致同一基线 → 空格相连。
-        let blocks = vec![block("Hello", 0, 100, 50, 20), block("World", 60, 102, 50, 20)];
+        let blocks = vec![
+            block("Hello", 0, 100, 50, 20),
+            block("World", 60, 102, 50, 20),
+        ];
         assert_eq!(join_blocks(&blocks), "Hello World");
     }
 
     #[test]
     fn joins_next_line_with_newline() {
         // 第二块明显下移 → 换行相连。
-        let blocks = vec![block("Line1", 0, 100, 50, 20), block("Line2", 0, 140, 50, 20)];
+        let blocks = vec![
+            block("Line1", 0, 100, 50, 20),
+            block("Line2", 0, 140, 50, 20),
+        ];
         assert_eq!(join_blocks(&blocks), "Line1\nLine2");
     }
 
@@ -837,7 +895,10 @@ mod tests {
     fn keeps_blank_line_between_paragraphs() {
         // 行间空隙(top2-bottom1)超过一整行高 → 段落间保留空行。
         // 行高 20:紧邻行 gap=20(=行高)仍是单换行;此处 gap=40>20 → 空行。
-        let blocks = vec![block("Para1", 0, 100, 50, 20), block("Para2", 0, 160, 50, 20)];
+        let blocks = vec![
+            block("Para1", 0, 100, 50, 20),
+            block("Para2", 0, 160, 50, 20),
+        ];
         assert_eq!(join_blocks(&blocks), "Para1\n\nPara2");
     }
 
@@ -845,5 +906,51 @@ mod tests {
     fn skips_empty_blocks() {
         let blocks = vec![block("A", 0, 0, 10, 10), block("   ", 20, 0, 10, 10)];
         assert_eq!(join_blocks(&blocks), "A");
+    }
+
+    #[test]
+    fn cache_key_includes_target_language_and_engine() {
+        let result = ScreenshotResult {
+            original: "hello".into(),
+            translation: "你好".into(),
+            source_lang: Some("en".into()),
+            target_lang: "zh-CN".into(),
+            engine_id: "engine-a".into(),
+            region: Rect {
+                x: 0,
+                y: 0,
+                w: 0,
+                h: 0,
+            },
+            cost: ScreenshotCost {
+                capture: 0,
+                ocr: 0,
+                translate: 1,
+            },
+        };
+        assert!(cached_result_matches(
+            &result,
+            "hello",
+            "zh-CN",
+            Some("engine-a")
+        ));
+        assert!(!cached_result_matches(
+            &result,
+            "hello",
+            "ja",
+            Some("engine-a")
+        ));
+        assert!(!cached_result_matches(
+            &result,
+            "hello",
+            "zh-CN",
+            Some("engine-b")
+        ));
+        assert!(!cached_result_matches(
+            &result,
+            "different",
+            "zh-CN",
+            Some("engine-a")
+        ));
     }
 }

@@ -59,13 +59,16 @@ interface Config {
 interface TranslatorEngine {
   id: string;                       // uuid
   name: string;                     // 用户自定义
-  kind: "openai" | "google" | "deepl" | "youdao";
+  kind: "openai" | "google" | "deepl" | "youdao" | "baidu" | "microsoft" | "apple";
   enabled: boolean;
   apiUrl: string;
   apiKey: string;
   model?: string;                   // LLM 类必填
   systemPrompt?: string;            // LLM 类,支持 {sourceLang}/{targetLang}
   timeoutMs: number;                // 默认 15000
+  region?: string;                  // Microsoft Azure 区域
+  maxTokens?: number;               // OpenAI 兼容引擎
+  temperature?: number;             // OpenAI 兼容引擎
 }
 ```
 
@@ -73,11 +76,12 @@ interface TranslatorEngine {
 
 首次启动生成的默认 config:
 
-- `version = 1`
+- `version = 4`
 - `app.locale = "system"`, `theme = "system"`
 - `shortcuts` 按 PRD §4.1 平台默认值填充
 - `selection.autoDetect = false`(避免误触;用户按需开启)
-- `translator.engines = []`,用户需手动添加第一个引擎
+- `translator.engines` 预置内置服务模板,但全部默认关闭;用户填好凭据或本地端点后启用
+- `translator.defaultEngineId = ""`,启用首个可用引擎时写入默认 id
 
 ## 4. 读写时序
 

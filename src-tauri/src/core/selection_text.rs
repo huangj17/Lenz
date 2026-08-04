@@ -63,11 +63,8 @@ pub fn read_selected_text() -> Option<String> {
 
         // 焦点元素 → 选中文本(CFStringRef,+1 引用)。
         let mut value: *const c_void = ptr::null();
-        let err = AXUIElementCopyAttributeValue(
-            focused,
-            &*selected_attr as *const CFString,
-            &mut value,
-        );
+        let err =
+            AXUIElementCopyAttributeValue(focused, &*selected_attr as *const CFString, &mut value);
         CFRelease(focused);
         if err != 0 || value.is_null() {
             return None;

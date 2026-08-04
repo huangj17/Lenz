@@ -68,11 +68,7 @@ pub trait OcrEngine: Send + Sync {
     /// 支持的识别语言(BCP-47)。
     fn supported_languages(&self) -> Vec<String>;
     /// 识别一张位图。
-    async fn recognize(
-        &self,
-        input: OcrInput,
-        opts: OcrOptions,
-    ) -> Result<OcrResult, LenzError>;
+    async fn recognize(&self, input: OcrInput, opts: OcrOptions) -> Result<OcrResult, LenzError>;
 }
 
 /// 返回当前平台默认 OCR 引擎(spec 03 §2.1)。启动阶段构造一次。
@@ -93,20 +89,18 @@ pub fn default_engine() -> Arc<dyn OcrEngine> {
 
 /// 把 Vision 归一化 bbox(原点左下,0..1)回映射为屏幕逻辑坐标(spec 03 §5)。
 ///
-/// - `(nx, ny, nw, nh)`:归一化 bbox;
-/// - `(img_w, img_h)`:截图物理像素尺寸;
+/// - `normalized`:归一化 bbox `(x, y, width, height)`;
+/// - `image_size`:截图物理像素尺寸 `(width, height)`;
 /// - `pixel_rect`:截图在虚拟屏的物理像素矩形;
 /// - `scale`:缩放因子。
 pub fn map_normalized_bbox(
-    nx: f64,
-    ny: f64,
-    nw: f64,
-    nh: f64,
-    img_w: f64,
-    img_h: f64,
+    normalized: (f64, f64, f64, f64),
+    image_size: (f64, f64),
     pixel_rect: &Rect,
     scale: f32,
 ) -> Rect {
+    let (nx, ny, nw, nh) = normalized;
+    let (img_w, img_h) = image_size;
     // Vision 原点在左下,翻转 Y 到左上原点。
     let flipped_y = 1.0 - ny - nh;
     let phys_x = pixel_rect.x as f64 + nx * img_w;
@@ -153,12 +147,10 @@ impl OcrEngine for UnsupportedOcr {
     fn supported_languages(&self) -> Vec<String> {
         Vec::new()
     }
-    async fn recognize(
-        &self,
-        _input: OcrInput,
-        _opts: OcrOptions,
-    ) -> Result<OcrResult, LenzError> {
-        Err(LenzError::OcrUnavailable("ocr unsupported on this platform".into()))
+    async fn recognize(&self, _input: OcrInput, _opts: OcrOptions) -> Result<OcrResult, LenzError> {
+        Err(LenzError::OcrUnavailable(
+            "ocr unsupported on this platform".into(),
+        ))
     }
 }
 
@@ -171,8 +163,14 @@ mod tests {
     #[test]
     fn maps_full_image_with_scale() {
         let r = map_normalized_bbox(
-            0.0, 0.0, 1.0, 1.0, 200.0, 100.0,
-            &Rect { x: 0, y: 0, w: 200, h: 100 },
+            (0.0, 0.0, 1.0, 1.0),
+            (200.0, 100.0),
+            &Rect {
+                x: 0,
+                y: 0,
+                w: 200,
+                h: 100,
+            },
             2.0,
         );
         assert_eq!((r.x, r.y, r.w, r.h), (0, 0, 100, 50));
@@ -182,8 +180,14 @@ mod tests {
     #[test]
     fn flips_y_origin_bottom_left() {
         let r = map_normalized_bbox(
-            0.1, 0.8, 0.2, 0.1, 1000.0, 500.0,
-            &Rect { x: 0, y: 0, w: 1000, h: 500 },
+            (0.1, 0.8, 0.2, 0.1),
+            (1000.0, 500.0),
+            &Rect {
+                x: 0,
+                y: 0,
+                w: 1000,
+                h: 500,
+            },
             1.0,
         );
         assert_eq!((r.x, r.y, r.w, r.h), (100, 50, 200, 50));
@@ -193,8 +197,14 @@ mod tests {
     #[test]
     fn applies_pixel_rect_offset_and_scale_3x() {
         let r = map_normalized_bbox(
-            0.0, 0.0, 1.0, 1.0, 300.0, 300.0,
-            &Rect { x: 300, y: 600, w: 300, h: 300 },
+            (0.0, 0.0, 1.0, 1.0),
+            (300.0, 300.0),
+            &Rect {
+                x: 300,
+                y: 600,
+                w: 300,
+                h: 300,
+            },
             3.0,
         );
         assert_eq!((r.x, r.y, r.w, r.h), (100, 200, 100, 100));
@@ -204,8 +214,16 @@ mod tests {
     #[test]
     fn maps_absolute_pixel_bbox() {
         let r = map_pixel_bbox(
-            10.0, 20.0, 100.0, 40.0,
-            &Rect { x: 200, y: 0, w: 800, h: 600 },
+            10.0,
+            20.0,
+            100.0,
+            40.0,
+            &Rect {
+                x: 200,
+                y: 0,
+                w: 800,
+                h: 600,
+            },
             2.0,
         );
         // (200+10)/2=105, (0+20)/2=10, 100/2=50, 40/2=20

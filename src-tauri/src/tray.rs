@@ -59,9 +59,8 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Menu<R>, LenzError> {
     let screenshot =
         MenuItemBuilder::with_id(ID_SCREENSHOT, label_with_acc("截图翻译", &sc.screenshot))
             .build(app)?;
-    let overlay =
-        MenuItemBuilder::with_id(ID_OVERLAY, label_with_acc("原图覆盖翻译", &sc.overlay))
-            .build(app)?;
+    let overlay = MenuItemBuilder::with_id(ID_OVERLAY, label_with_acc("原图覆盖翻译", &sc.overlay))
+        .build(app)?;
     let listen = CheckMenuItemBuilder::with_id(ID_TOGGLE_LISTEN, "划词监听")
         .checked(config.selection.enabled)
         .build(app)?;

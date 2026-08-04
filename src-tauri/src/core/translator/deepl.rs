@@ -68,7 +68,10 @@ impl Translator for DeepLTranslator {
             .client
             .post(self.endpoint())
             .timeout(Duration::from_millis(self.cfg.timeout_ms.max(1) as u64))
-            .header("Authorization", format!("DeepL-Auth-Key {}", self.cfg.api_key))
+            .header(
+                "Authorization",
+                format!("DeepL-Auth-Key {}", self.cfg.api_key),
+            )
             .form(&params);
 
         let resp: DeepLResp = send_json(rb).await?;
@@ -98,11 +101,7 @@ fn deepl_lang_code(code: &str) -> String {
         "zh" | "zh-cn" | "zh-hans" | "zh-tw" | "zh-hant" => "ZH".to_string(),
         "pt-br" => "PT-BR".to_string(),
         "pt" | "pt-pt" => "PT-PT".to_string(),
-        _ => c
-            .split('-')
-            .next()
-            .unwrap_or(&c)
-            .to_ascii_uppercase(),
+        _ => c.split('-').next().unwrap_or(&c).to_ascii_uppercase(),
     }
 }
 

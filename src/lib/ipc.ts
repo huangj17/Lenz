@@ -228,6 +228,7 @@ export const selectionApi = {
 
 /** 系统 / 更新命令(spec 10) */
 export const systemApi = {
+  setAutoStart: (enabled: boolean) => invoke<void>("set_auto_start", { enabled }),
   checkUpdate: () => invoke<unknown>("check_update"),
 };
 

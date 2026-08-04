@@ -49,6 +49,12 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     let config = store.get().unwrap_or_default();
     app.manage(store);
 
+    // 旧版本仅保存了偏好但未注册系统登录项;启动时以配置为准补齐真实状态。
+    if let Err(e) = crate::commands::overlay::apply_auto_start(handle, config.app.auto_start) {
+        log::warn!("sync autostart at startup failed: {e}");
+        warn(app, "autostart", &e.to_string());
+    }
+
     // 翻译引擎管理器:按配置构建引擎并注入(spec 04 §2)。
     let translator_manager = TranslatorManager::new();
     translator_manager.reload(
@@ -67,6 +73,12 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         // selection.* 变更(总开关 / 自动检测开关)→ 重新评估监听器启停。
         if config_change_affects_selection(payload) {
             selection::sync(&reload_handle);
+        }
+        if config_change_affects_shortcuts(payload) {
+            reload_shortcuts(&reload_handle);
+        }
+        if config_change_affects_auto_start(payload) {
+            reload_auto_start(&reload_handle);
         }
     });
 
@@ -208,6 +220,51 @@ fn config_change_affects_selection(payload: &str) -> bool {
             .iter()
             .any(|k| k.is_empty() || k.starts_with("selection")),
         Err(_) => true,
+    }
+}
+
+/// 判断一次配置变更是否涉及全局快捷键。
+fn config_change_affects_shortcuts(payload: &str) -> bool {
+    match serde_json::from_str::<ConfigChangedPayload>(payload) {
+        Ok(p) => p
+            .keypaths
+            .iter()
+            .any(|k| k.is_empty() || k.starts_with("shortcuts")),
+        Err(_) => true,
+    }
+}
+
+fn reload_shortcuts(handle: &AppHandle) {
+    let store = handle.state::<ConfigStore>();
+    match store.get() {
+        Ok(cfg) => {
+            if let Err(e) = shortcut::register_shortcuts(handle, &cfg.shortcuts) {
+                log::warn!("reload shortcuts failed: {e}");
+            }
+        }
+        Err(e) => log::warn!("reload shortcuts: read config failed: {e}"),
+    }
+}
+
+fn config_change_affects_auto_start(payload: &str) -> bool {
+    match serde_json::from_str::<ConfigChangedPayload>(payload) {
+        Ok(p) => p
+            .keypaths
+            .iter()
+            .any(|k| k.is_empty() || k == "app.autoStart"),
+        Err(_) => true,
+    }
+}
+
+fn reload_auto_start(handle: &AppHandle) {
+    let store = handle.state::<ConfigStore>();
+    match store.get() {
+        Ok(cfg) => {
+            if let Err(e) = crate::commands::overlay::apply_auto_start(handle, cfg.app.auto_start) {
+                log::warn!("reload autostart failed: {e}");
+            }
+        }
+        Err(e) => log::warn!("reload autostart: read config failed: {e}"),
     }
 }
 

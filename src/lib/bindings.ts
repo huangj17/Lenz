@@ -88,6 +88,11 @@ export const commands = {
 	triggerSelectionTranslate: () => typedError<null, LenzError>(__TAURI_INVOKE("trigger_selection_translate")),
 	/**  打开系统「辅助功能」隐私设置,引导用户授权划词监听(spec 05 §2.1)。 */
 	openAccessibilitySettings: () => typedError<null, LenzError>(__TAURI_INVOKE("open_accessibility_settings")),
+	/**
+	 *  启停系统登录自启动。先修改操作系统注册项,成功后再写配置;写配置失败时回滚注册项,
+	 *  避免 UI 偏好与真实系统状态分叉。
+	 */
+	setAutoStart: (enabled: boolean) => typedError<null, LenzError>(__TAURI_INVOKE("set_auto_start", { enabled })),
 	/**  手动 / 启动后触发检查更新(spec 10 §4)。M1 仅占位。 */
 	checkUpdate: () => typedError<null, LenzError>(__TAURI_INVOKE("check_update")),
 };
@@ -112,6 +117,12 @@ export type CaptureResult = {
 
 /**  顶层配置。 */
 export type Config = Config_Serialize | Config_Deserialize;
+
+/**  `config://changed` 事件载荷:携带变更的 keypath 列表。 */
+export type ConfigChangedPayload = {
+	/**  形如 `["shortcuts.selection"]` 的点分路径列表。 */
+	keypaths: string[],
+};
 
 /**  顶层配置。 */
 export type Config_Deserialize = {
@@ -197,6 +208,18 @@ export type OcrResult = {
 	costMs: number,
 };
 
+/**
+ *  `selection://permission-required` 事件载荷(spec 05 §2.1)。
+ *  macOS 划词监听依赖「辅助功能(Accessibility)」权限;未授时 emit,前端引导用户
+ *  去系统设置开启。
+ */
+export type PermissionRequired = {
+	/**  平台标识:`macos` / `windows`。 */
+	platform: string,
+	/**  人类可读说明。 */
+	detail: string,
+};
+
 export type PopupUiConfig = {
 	/**  字号,默认 14。 */
 	fontSize: number,
@@ -214,6 +237,85 @@ export type Rect = {
 	h: number,
 };
 
+/**
+ *  前端 selection 窗口框选完成后回传(`capture://region-selected`,spec 02 §3.3)。
+ *  坐标为虚拟屏逻辑坐标。
+ */
+export type RegionSelectedPayload = {
+	x: number,
+	y: number,
+	w: number,
+	h: number,
+	/**  选区起点所在显示器 id(可选)。 */
+	displayId?: number | null,
+	/**  触发来源(screenshot / overlay)。 */
+	trigger: TriggerKind,
+};
+
+/**  各阶段耗时(毫秒),随 `screenshot://result` 上报(spec 06 §2.6)。 */
+export type ScreenshotCost = {
+	capture: number,
+	ocr: number,
+	translate: number,
+};
+
+/**  `screenshot://error` 事件载荷(spec 06 §4)。 */
+export type ScreenshotError = ScreenshotError_Serialize | ScreenshotError_Deserialize;
+
+/**  `screenshot://error` 事件载荷(spec 06 §4)。 */
+export type ScreenshotError_Deserialize = {
+	/**  失败阶段:`capture` / `ocr` / `translate` / `timeout`。 */
+	stage: string,
+	/**  细分码:`permission` / `no_text` / `failed` / `timeout`。 */
+	code: string,
+	message: string,
+	/**  翻译阶段失败时附带 OCR 原文,供 UI 展示原文 + 重试(spec 06 §4)。 */
+	original: string | null,
+};
+
+/**  `screenshot://error` 事件载荷(spec 06 §4)。 */
+export type ScreenshotError_Serialize = {
+	/**  失败阶段:`capture` / `ocr` / `translate` / `timeout`。 */
+	stage: string,
+	/**  细分码:`permission` / `no_text` / `failed` / `timeout`。 */
+	code: string,
+	message: string,
+	/**  翻译阶段失败时附带 OCR 原文,供 UI 展示原文 + 重试(spec 06 §4)。 */
+	original?: string | null,
+};
+
+/**  `screenshot://progress` 事件载荷(spec 06 §5)。 */
+export type ScreenshotProgress = {
+	/**  当前阶段:`capture` / `ocr` / `translate`。 */
+	stage: string,
+};
+
+/**  `screenshot://result` 事件载荷(spec 06 §2.6)。 */
+export type ScreenshotResult = {
+	/**  OCR 拼接原文。 */
+	original: string,
+	/**  译文。 */
+	translation: string,
+	sourceLang: string | null,
+	targetLang: string,
+	engineId: string,
+	/**  选区逻辑坐标(供 popup 定位参考)。 */
+	region: Rect,
+	cost: ScreenshotCost,
+};
+
+/**
+ *  `screenshot://translating` 事件载荷:进入翻译阶段、原文已知但译文未出时先发一份,
+ *  让 popup 立即渲染「原文 + 语言条 + 引擎行(右侧转圈)」的完整布局,而非整块骨架
+ *  (spec 06 §2.6 / spec 09 §3)。`sourceLang` 此刻可能未检测(None)。
+ */
+export type ScreenshotTranslating = {
+	original: string,
+	sourceLang: string | null,
+	targetLang: string,
+	engineId: string,
+};
+
 /**  划词监听相关。 */
 export type SelectionConfig = {
 	/**  总开关。 */
@@ -222,6 +324,17 @@ export type SelectionConfig = {
 	autoDetect: boolean,
 	/**  选中后延迟触发的去抖时长(毫秒)。 */
 	popupDelayMs: number,
+};
+
+/**
+ *  `selection://detected` 事件载荷:监听到一次「划词/双击选中」手势。
+ *  坐标为光标松开处的全局显示逻辑坐标(top-left 原点,单位 point),供前端在该处
+ *  浮出划词指示图标(spec 05 §2.1 / §7)。此时**尚未**读取选中文本——只有用户
+ *  hover/点击图标才会去复制并翻译,避免无谓地改动剪贴板。
+ */
+export type SelectionDetected = {
+	x: number | null,
+	y: number | null,
 };
 
 /**  全局快捷键。`None` 表示禁用对应功能。 */
@@ -234,6 +347,14 @@ export type ShortcutConfig = {
 	overlay: string | null,
 	/**  打开主窗口快捷键。 */
 	openMain: string | null,
+};
+
+/**  `app://startup-warning` 事件载荷(spec 00 §7)。 */
+export type StartupWarning = {
+	/**  失败的启动步骤标识,如 "shortcuts"、"tray"。 */
+	step: string,
+	/**  人类可读的失败说明。 */
+	message: string,
 };
 
 /**  `test_engine` 命令的返回结果(spec 01 §5)。 */

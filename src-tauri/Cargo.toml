@@ -61,4 +61,3 @@ windows = { version = "0.62.2", features = ["Media_Ocr", "Graphics_Imaging", "St
 # 用于 OCR 单元测试:在内存位图上渲染高对比度文字后让 Vision 识别(无需屏幕权限)。
 ab_glyph = "0.2.32"
 imageproc = "0.27.0"
-

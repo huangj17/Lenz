@@ -49,6 +49,10 @@
     "openMain": "打开主窗口",
     "openMainHint": "调出设置页",
     "change": "修改",
+    "recording": "请按键…",
+    "recordingHint": "按下新快捷键；退格键清除，Esc 取消。",
+    "modifierRequired": "字母和数字快捷键至少需要一个修饰键。",
+    "duplicate": "该快捷键已用于「{{name}}」。",
     "permissionNote": "划词翻译需要 macOS 的辅助功能权限;原图覆盖需要屏幕录制权限。两者都在首次使用时请求。"
   },
   "services": {
@@ -81,7 +85,7 @@
     "keyHint": "明文保存于本地配置(MVP)",
     "youdaoKeyHint": "格式:appKey:appSecret",
     "baiduKeyHint": "格式:appid:密钥(百度翻译开放平台控制台获取)",
-    "googleKeyHint": "留空即用内置默认 Key;填自己的 Key 可覆盖",
+    "googleKeyHint": "Google Cloud Translation API Key（必填）",
     "urlPlaceholder": "https://…(留空用默认端点)",
     "keyPlaceholder": "sk-…",
     "modelPlaceholder": "如 gpt-4o-mini",

@@ -133,7 +133,7 @@ OpenAI 引擎不做客户端语言检测;在 system prompt 里写 "auto-detect s
 - 参数:`q`(可多值)、`source`、`target`、`key`。
 - 支持批量:一次请求传多个 `q`,返回 `data.translations[]`。
 - 语言检测:响应中含 `detectedSourceLanguage`。
-- **内置默认 Key**:`google.rs` 内置一个编译期常量 Key(`BUILTIN_API_KEY`);当 `apiKey` 留空时回退用之,故 `builtin-google` 开箱即用、默认开启。用户在设置里填自己的 Key 即覆盖内置。Key 仅存于二进制,不落配置文件。
+- 认证:`apiKey` 必填。仓库和发行二进制不携带共享 Key;缺少 Key 的 Google 引擎不会进入运行态路由。
 
 ## 5. DeepL 实现
 
@@ -255,16 +255,17 @@ async fn test_engine(
 
 首次启动 / 重置时,`Config::default()` 预置以下引擎(`schema::default_engines()`);
 id 用稳定 slug(`builtin-*`),`apiKey` / `region` 留空待用户填写。schema v1→v2 迁移在
-`translator.engines` 为空时注入同一套预设;v2→v3 迁移为老配置追加 `builtin-baidu`,
-并把未填 Key 的 `builtin-google` 默认开启(享内置 Key)。默认引擎 id = `builtin-youdao`。
+`translator.engines` 为空时注入同一套预设;v2→v3 追加 `builtin-baidu`;v3→v4 移除
+共享 Google Key 设计,关闭所有缺少凭据或尚未实现的内置引擎。首次启动默认引擎 id 为空,
+用户启用首个可用引擎时再写入。
 
 | id | 名称 | kind | 默认开启 | apiUrl | model |
 |---|---|---|---|---|---|
-| builtin-youdao | 有道翻译 | youdao | ✅ | (默认端点) | — |
-| builtin-apple | 苹果翻译 | apple | ✅ | — | — |
-| builtin-google | Google 翻译 | google | ✅(内置 Key) | (默认端点) | — |
-| builtin-zhipu | 智谱 GLM | openai | ✅ | `open.bigmodel.cn/api/paas/v4` | glm-4-flash |
-| builtin-siliconflow | 硅基流动 | openai | ✅ | `api.siliconflow.cn/v1` | Qwen/Qwen2.5-7B-Instruct |
+| builtin-youdao | 有道翻译 | youdao | ❌(需 appKey:appSecret) | (默认端点) | — |
+| builtin-apple | 苹果翻译 | apple | ❌(尚未实现) | — | — |
+| builtin-google | Google 翻译 | google | ❌(需 Key) | (默认端点) | — |
+| builtin-zhipu | 智谱 GLM | openai | ❌(需 Key) | `open.bigmodel.cn/api/paas/v4` | glm-4-flash |
+| builtin-siliconflow | 硅基流动 | openai | ❌(需 Key) | `api.siliconflow.cn/v1` | Qwen/Qwen2.5-7B-Instruct |
 | builtin-baidu | 百度翻译 | baidu | ❌(需 appid:密钥) | (默认端点) | — |
 | builtin-microsoft | 微软翻译 | microsoft | ❌ | (默认端点) | — |
 | builtin-ollama | Ollama | openai | ❌ | `localhost:11434/v1` | qwen2.5 |

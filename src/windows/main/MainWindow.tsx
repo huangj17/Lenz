@@ -35,7 +35,8 @@ export function MainWindow() {
     void load();
   }, [load]);
 
-  const def = engines.find((e) => e.id === defaultId) ?? engines[0];
+  const enabledEngines = engines.filter((e) => e.enabled);
+  const def = enabledEngines.find((e) => e.id === defaultId) ?? enabledEngines[0];
   const endpoint = def ? def.apiUrl.replace(/^https?:\/\//, "") : null;
 
   return (

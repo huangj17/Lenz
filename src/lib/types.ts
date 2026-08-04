@@ -1,41 +1,61 @@
 /**
- * 前后端共享类型契约(手写)。
+ * 前后端共享类型契约。
  *
- * 注意:Rust 后端 agent 会用 tauri-specta 生成 `src/lib/bindings.ts`。
- * 在生成链路打通前,本文件作为前端与后端约定的"权威契约",二者必须保持一致。
- * 线缆格式统一为 camelCase。
+ * Rust command 与事件类型由 tauri-specta 生成到 `src/lib/bindings.ts`;本文件只做
+ * 前端友好别名、有限值收窄及尚无 Rust 事件的本地类型。不要在这里复制 Rust schema。
  *
  * 参考:docs/spec/00-architecture.md §5、docs/spec/01-config-storage.md §2
  */
+
+import type {
+  AppConfig as RustAppConfig,
+  CaptureResult as RustCaptureResult,
+  ConfigChangedPayload as RustConfigChangedPayload,
+  Config_Serialize as RustConfig,
+  EngineKind,
+  LenzError as RustLenzError,
+  Locale,
+  OcrBlock as RustOcrBlock,
+  OcrConfig as RustOcrConfig,
+  OcrResult as RustOcrResult,
+  PermissionRequired,
+  PopupUiConfig as RustPopupUiConfig,
+  Rect as RustRect,
+  RegionSelectedPayload,
+  ScreenshotCost as RustScreenshotCost,
+  ScreenshotError_Serialize,
+  ScreenshotProgress,
+  ScreenshotResult as RustScreenshotResult,
+  ScreenshotTranslating,
+  SelectionConfig as RustSelectionConfig,
+  SelectionDetected,
+  ShortcutConfig,
+  StartupWarning,
+  TestEngineResult as RustTestEngineResult,
+  Theme,
+  TranslateResponse as RustTranslateResponse,
+  TranslatorConfig_Serialize,
+  TranslatorEngine_Serialize,
+  TriggerKind as RustTriggerKind,
+  UiConfig as RustUiConfig,
+} from "./bindings";
 
 // ──────────────────────────────────────────────────────────────────────────
 // 基础几何 / 触发类型
 // ──────────────────────────────────────────────────────────────────────────
 
 /** 矩形(逻辑坐标) */
-export interface Rect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
+export type Rect = RustRect;
 
 /** 功能触发类型 */
-export type TriggerKind = "selection" | "screenshot" | "overlay";
+export type TriggerKind = RustTriggerKind;
 
 // ──────────────────────────────────────────────────────────────────────────
 // 错误
 // ──────────────────────────────────────────────────────────────────────────
 
 /** 统一错误码,与 Rust 侧 LenzError 枚举判别值同构 */
-export type LenzErrorCode =
-  | "Config"
-  | "OcrUnavailable"
-  | "OcrFailed"
-  | "TranslateFailed"
-  | "Network"
-  | "Permission"
-  | "Internal";
+export type LenzErrorCode = RustLenzError["code"];
 
 /**
  * 统一错误结构。
@@ -43,118 +63,29 @@ export type LenzErrorCode =
  * Rust 侧使用 `#[serde(tag = "code", content = "message")]`,
  * 因此线缆形态为 `{ code: "Network", message: "timeout" }`。
  */
-export interface LenzError {
-  code: LenzErrorCode;
-  message: string;
-}
+export type LenzError = RustLenzError;
 
 // ──────────────────────────────────────────────────────────────────────────
 // 翻译引擎
 // ──────────────────────────────────────────────────────────────────────────
 
-export type TranslatorEngineKind =
-  | "openai"
-  | "google"
-  | "deepl"
-  | "youdao"
-  | "baidu"
-  | "microsoft"
-  | "apple";
-
-export interface TranslatorEngine {
-  /** uuid 或内置 slug(如 "builtin-youdao") */
-  id: string;
-  /** 用户自定义名称 */
-  name: string;
-  kind: TranslatorEngineKind;
-  enabled: boolean;
-  apiUrl: string;
-  apiKey: string;
-  /** LLM 类必填 */
-  model?: string;
-  /** LLM 类,支持 {sourceLang}/{targetLang} 变量 */
-  systemPrompt?: string;
-  /** 默认 15000 */
-  timeoutMs: number;
-  /** Azure 翻译区域(仅 microsoft 引擎用) */
-  region?: string;
-  /** LLM 最大输出 token(仅 openai);省略=不限 */
-  maxTokens?: number;
-  /** LLM 采样温度(仅 openai);省略=默认 0.1 */
-  temperature?: number;
-}
+export type TranslatorEngineKind = EngineKind;
+export type TranslatorEngine = TranslatorEngine_Serialize;
 
 // ──────────────────────────────────────────────────────────────────────────
 // 配置(无 history 字段 —— 历史记录功能已删除)
 // ──────────────────────────────────────────────────────────────────────────
 
-export type LocaleSetting = "system" | "zh-CN" | "en-US";
-export type ThemeSetting = "system" | "light" | "dark";
-
-export interface AppConfig {
-  locale: LocaleSetting;
-  theme: ThemeSetting;
-  autoStart: boolean;
-  checkUpdate: boolean;
-  /** 启动时是否展示主窗口 */
-  openOnLaunch: boolean;
-}
-
-export interface ShortcutsConfig {
-  /** 如 "Alt+D",null 表示禁用 */
-  selection: string | null;
-  screenshot: string | null;
-  overlay: string | null;
-  openMain: string | null;
-}
-
-export interface SelectionConfig {
-  /** 总开关 */
-  enabled: boolean;
-  /** 是否启用自动弹框 */
-  autoDetect: boolean;
-  /** 选中后延迟触发,防抖 */
-  popupDelayMs: number;
-}
-
-export interface OcrConfig {
-  /** MVP 仅系统 */
-  engine: "system";
-  /** BCP-47 */
-  preferredLanguages: string[];
-  /** 0~1 */
-  minConfidence: number;
-}
-
-export interface TranslatorConfig {
-  defaultEngineId: string;
-  /** 默认 "zh-CN" */
-  targetLang: string;
-  engines: TranslatorEngine[];
-}
-
-export interface PopupUiConfig {
-  /** 默认 14 */
-  fontSize: number;
-  showOriginal: boolean;
-  /** 弹框逻辑宽度(可拖拽调节并记忆),默认 360;夹 [300, 720] */
-  width: number;
-}
-
-export interface UiConfig {
-  popup: PopupUiConfig;
-}
-
-export interface Config {
-  /** schema 版本号,用于迁移 */
-  version: number;
-  app: AppConfig;
-  shortcuts: ShortcutsConfig;
-  selection: SelectionConfig;
-  ocr: OcrConfig;
-  translator: TranslatorConfig;
-  ui: UiConfig;
-}
+export type LocaleSetting = Locale;
+export type ThemeSetting = Theme;
+export type AppConfig = RustAppConfig;
+export type ShortcutsConfig = ShortcutConfig;
+export type SelectionConfig = RustSelectionConfig;
+export type OcrConfig = Omit<RustOcrConfig, "minConfidence"> & { minConfidence: number };
+export type TranslatorConfig = TranslatorConfig_Serialize;
+export type PopupUiConfig = RustPopupUiConfig;
+export type UiConfig = RustUiConfig;
+export type Config = Omit<RustConfig, "ocr"> & { ocr: OcrConfig };
 
 // ──────────────────────────────────────────────────────────────────────────
 // 翻译请求 / 响应(spec 00 §5)
@@ -168,20 +99,10 @@ export interface TranslateRequest {
   engineId?: string;
 }
 
-export interface TranslateResponse {
-  translations: string[];
-  detectedSourceLang?: string;
-  engineId: string;
-  costMs: number;
-}
+export type TranslateResponse = RustTranslateResponse;
 
 /** test_engine 命令返回 */
-export interface TestEngineResult {
-  ok: boolean;
-  latencyMs: number;
-  sample: string;
-  error?: string;
-}
+export type TestEngineResult = RustTestEngineResult;
 
 // ──────────────────────────────────────────────────────────────────────────
 // 事件载荷(spec 00 §4.3)
@@ -194,22 +115,16 @@ export interface SelectionTextChangedPayload {
 }
 
 /** `selection://detected` —— 监听到划词/双击选中,坐标为光标处全局逻辑坐标 */
-export interface SelectionDetectedPayload {
+export type SelectionDetectedPayload = Omit<SelectionDetected, "x" | "y"> & {
   x: number;
   y: number;
-}
+};
 
 /** `selection://permission-required` —— 缺少辅助功能权限 */
-export interface PermissionRequiredPayload {
-  platform: string;
-  detail: string;
-}
+export type PermissionRequiredPayload = PermissionRequired;
 
 /** `capture://region-selected` */
-export interface CaptureRegionSelectedPayload extends Rect {
-  displayId?: number;
-  trigger?: TriggerKind;
-}
+export type CaptureRegionSelectedPayload = RegionSelectedPayload;
 
 /** `overlay://closed` */
 export interface OverlayClosedPayload {
@@ -219,54 +134,29 @@ export interface OverlayClosedPayload {
 // ── 截图翻译 F2 事件载荷(spec 06)──────────────────────────────────────────
 
 /** 各阶段耗时(毫秒) */
-export interface ScreenshotCost {
-  capture: number;
-  ocr: number;
-  translate: number;
-}
+export type ScreenshotCost = RustScreenshotCost;
 
 /** `screenshot://result` */
-export interface ScreenshotResult {
-  original: string;
-  translation: string;
-  sourceLang: string | null;
-  targetLang: string;
-  engineId: string;
-  region: Rect;
-  cost: ScreenshotCost;
-}
+export type ScreenshotResult = RustScreenshotResult;
 
 /** `screenshot://error` —— stage: capture/ocr/translate/timeout */
-export interface ScreenshotErrorPayload {
+export type ScreenshotErrorPayload = Omit<ScreenshotError_Serialize, "stage"> & {
   stage: "capture" | "ocr" | "translate" | "timeout";
-  /** permission / no_text / failed / timeout */
-  code: string;
-  message: string;
-  /** 翻译阶段失败时附 OCR 原文 */
-  original?: string;
-}
+};
 
 /** `screenshot://progress` */
-export interface ScreenshotProgressPayload {
+export type ScreenshotProgressPayload = Omit<ScreenshotProgress, "stage"> & {
   stage: "capture" | "ocr" | "translate";
-}
+};
 
 /** `screenshot://translating` —— 进入翻译阶段(原文已知、译文未出),供 popup 显示完整布局 + 引擎行转圈 */
-export interface ScreenshotTranslatingPayload {
-  original: string;
-  sourceLang: string | null;
-  targetLang: string;
-  engineId: string;
-}
+export type ScreenshotTranslatingPayload = ScreenshotTranslating;
 
 /** `config://changed` —— 变更的 keypath 列表(如 ["shortcuts.selection"]) */
-export type ConfigChangedPayload = string[];
+export type ConfigChangedPayload = RustConfigChangedPayload;
 
 /** `app://startup-warning` */
-export interface StartupWarningPayload {
-  step: string;
-  message: string;
-}
+export type StartupWarningPayload = StartupWarning;
 
 // ──────────────────────────────────────────────────────────────────────────
 // 工具类型
@@ -285,18 +175,8 @@ export type DeepPartial<T> = {
 // OCR / 截图(spec 02 / 03)
 // ──────────────────────────────────────────────────────────────────────────
 
-export interface OcrBlock {
-  text: string;
-  /** 已回映射的屏幕逻辑坐标 */
-  bbox: Rect;
-  confidence: number;
-}
-
-export interface OcrResult {
-  blocks: OcrBlock[];
-  detectedLanguage: string | null;
-  costMs: number;
-}
+export type OcrBlock = Omit<RustOcrBlock, "confidence"> & { confidence: number };
+export type OcrResult = Omit<RustOcrResult, "blocks"> & { blocks: OcrBlock[] };
 
 export interface OcrOptions {
   preferredLanguages: string[];
@@ -305,8 +185,4 @@ export interface OcrOptions {
 }
 
 /** 截图采集结果;png 经 IPC 序列化为字节数组 */
-export interface CaptureResult {
-  png: number[];
-  pixelRect: Rect;
-  scaleFactor: number;
-}
+export type CaptureResult = Omit<RustCaptureResult, "scaleFactor"> & { scaleFactor: number };
