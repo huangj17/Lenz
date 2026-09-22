@@ -99,8 +99,20 @@ pub fn show_debounced(app: &AppHandle, x: f64, y: f64) {
         if DETECT_GEN.load(Ordering::SeqCst) != my {
             return;
         }
-        let gen = show_at(&app, x, y);
-        capture_selection_async(&app, gen);
+        let on_main = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if DETECT_GEN.load(Ordering::SeqCst) != my
+                || !on_main
+                    .state::<crate::config::ConfigStore>()
+                    .get()
+                    .map(|cfg| cfg.selection.enabled)
+                    .unwrap_or(false)
+            {
+                return;
+            }
+            let gen = show_at(&on_main, x, y);
+            capture_selection_async(&on_main, gen);
+        });
     });
 }
 
@@ -167,7 +179,13 @@ pub fn show_at(app: &AppHandle, x: f64, y: f64) -> u64 {
 }
 
 /// 隐藏图标并令自动隐藏计时失效(点别处 / 用户触发翻译 / 自动到时调用)。
+pub fn cancel_pending() {
+    DETECT_GEN.fetch_add(1, Ordering::SeqCst);
+}
+
 pub fn hide(app: &AppHandle) {
+    cancel_pending();
+    *CAPTURED.lock().unwrap() = None;
     app.state::<IndicatorSession>().begin();
     VISIBLE.store(false, Ordering::SeqCst);
     if let Some(win) = app.get_webview_window(LABEL) {

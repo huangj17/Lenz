@@ -6,7 +6,7 @@
 //!
 //! - macOS:`CGEvent` 合成键盘事件。**需「辅助功能(Accessibility)」权限**,
 //!   未授权时系统会静默丢弃事件(函数仍返回 Ok);调用方据「复制前后剪贴板是否
-//!   变化」判断是否真有选中文本,故权限缺失会自然退化为「读当前剪贴板」。
+//!   变化」判断是否真有选中文本,故权限缺失会自然退化为「回显上次结果」。
 //! - Windows:`SendInput` 合成 `Ctrl+C`。
 
 use crate::error::LenzError;
@@ -29,16 +29,16 @@ pub fn modifiers_held() -> bool {
 
 /// 向前台应用合成一次系统「复制」快捷键。
 ///
-/// 返回 `Ok` 仅表示事件已派发,**不保证**前台应用真的复制了内容
+/// 返回 `Ok` 仅表示事件已派发;Windows 附带输入时间戳。**不保证**前台应用真的复制了内容
 /// (无选中 / 权限不足时剪贴板不会变化)。调用方应在其后比较剪贴板内容。
-pub fn copy_selection() -> Result<(), LenzError> {
+pub fn copy_selection() -> Result<Option<u32>, LenzError> {
     #[cfg(target_os = "macos")]
     {
-        macos::copy()
+        macos::copy().map(|()| None)
     }
     #[cfg(target_os = "windows")]
     {
-        windows_impl::copy()
+        windows_impl::copy().map(Some)
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
@@ -94,7 +94,14 @@ mod windows_impl {
 
     use crate::error::LenzError;
 
-    pub fn copy() -> Result<(), LenzError> {
+    pub fn copy() -> Result<u32, LenzError> {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetTickCount() -> u32;
+        }
+        // Explicit event time lets the clipboard probe distinguish our injected
+        // Ctrl+C from intervening physical input through GetLastInputInfo.
+        let stamp = unsafe { GetTickCount() }.max(1);
         let key = |vk, up: bool| INPUT {
             r#type: INPUT_KEYBOARD,
             Anonymous: INPUT_0 {
@@ -106,7 +113,7 @@ mod windows_impl {
                     } else {
                         Default::default()
                     },
-                    time: 0,
+                    time: stamp,
                     dwExtraInfo: 0,
                 },
             },
@@ -122,6 +129,6 @@ mod windows_impl {
         if sent as usize != inputs.len() {
             return Err(LenzError::internal("SendInput Ctrl+C partially failed"));
         }
-        Ok(())
+        Ok(stamp)
     }
 }

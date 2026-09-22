@@ -24,6 +24,8 @@ fn specta_builder() -> SpectaBuilder<tauri::Wry> {
             commands::config::list_engines,
             // translate
             commands::translate::translate_text,
+            commands::translate::begin_popup_session,
+            commands::translate::translate_popup,
             commands::translate::translate_batch,
             commands::translate::test_engine,
             // ocr

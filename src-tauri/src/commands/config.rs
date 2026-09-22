@@ -29,10 +29,13 @@ pub async fn set_config(
     // 故前端 JSON.stringify、后端在此 parse。
     let patch: Value = serde_json::from_str(&patch)
         .map_err(|e| LenzError::Config(format!("invalid merge patch json: {e}")))?;
+    let affects_tray = patch.get("shortcuts").is_some() || patch.get("selection").is_some();
     let config = state.set(&app, patch)?;
     // 配置可能影响托盘显示(快捷键 / 划词勾选),重建菜单。
-    if let Err(e) = tray::rebuild_tray_menu(&app) {
-        log::warn!("rebuild tray menu after set_config failed: {e}");
+    if affects_tray {
+        if let Err(e) = tray::rebuild_tray_menu(&app) {
+            log::warn!("rebuild tray menu after set_config failed: {e}");
+        }
     }
     Ok(config)
 }

@@ -73,14 +73,17 @@ Alt+D(及点击划词图标)按下后,`handle_selection_shortcut` 按优先级�
        ├─ ① AX 直读:read_selected_text()(AXSelectedText,不碰剪贴板)
        │      └─ 命中 → 翻译 + 光标处弹框
        ├─ ② 兜底(AX 取不到,如部分 Chrome/Electron):
-       │      等修饰键松开 → 哨兵串法合成 Cmd+C 读剪贴板 → 还原原剪贴板
+       │      等修饰键松开 → 原生格式快照 + 合成 Cmd/Ctrl+C → 版本号判定变化 → 条件恢复
        │      └─ 命中 → 翻译 + 光标处弹框
        └─ ③ 都无(无选区 / 剪贴板空 / 无权限):
               ├─ 有「上次结果」→ 光标处弹框回显上次译文(不重新翻译)
               └─ 无「上次结果」→ 忽略(仅记日志)
 ```
 
-- ①②③ 详见 `core/screenshot.rs`(`handle_selection_shortcut`)与 `core/selection_text.rs`。
+- 剪贴板兜底串行执行,重叠探测直接放弃;不写占位哨兵。复制前保存所有可还原的原生格式(含富文本),超过 16 MiB 或存在无法备份的格式时跳过兜底。
+- macOS 用 `NSPasteboard.changeCount` 和输入事件计数,Windows 用剪贴板序号、锁和合成输入时间戳检查干扰;检测到新的复制或用户输入时放弃恢复,保留较新的剪贴板内容。系统接口无法为所有跨进程写入提供事务保证,仍需实机测试常用源应用。
+- 图标外的普通点击也会取消尚未显示的去抖任务;停用监听时立即隐藏图标并清理预读缓存。
+- ①②③ 详见 `core/screenshot.rs`(`handle_selection_shortcut`)、`core/clipboard_selection.rs` 与 `core/selection_text.rs`。
 - 划词图标点击走同一编排,但**优先复用图标浮出瞬间 AX 预读的缓存**(源应用仍在前台时读),规避点击图标夺焦后读到错内容;缓存缺失才回退上述 ①②③。见 [§6](#6-popup-窗口行为) 与 `commands/overlay.rs::trigger_selection_translate`。
 
 ### 3.1 「上次结果」回显与持久化

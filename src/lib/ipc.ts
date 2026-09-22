@@ -51,6 +51,8 @@ const ERROR_CODES: readonly LenzErrorCode[] = [
   "OcrFailed",
   "TranslateFailed",
   "Network",
+  "Timeout",
+  "Cancelled",
   "Permission",
   "Internal",
 ];
@@ -100,6 +102,7 @@ export function onLenzError(handler: LenzErrorHandler): () => void {
  * M1 暂以 console 占位,UI 就绪后由 {@link onLenzError} 接管。
  */
 function dispatchError(err: LenzError): void {
+  if (err.code === "Cancelled") return;
   for (const handler of handlers) {
     if (handler(err) === true) return;
   }
@@ -177,6 +180,9 @@ export const engineApi = {
 
 /** 翻译命令(spec 04) */
 export const translateApi = {
+  beginPopupSession: () => invoke<number>("begin_popup_session"),
+  popup: (req: TranslateRequest, sessionId: number) =>
+    invoke<TranslateResponse>("translate_popup", { req, sessionId }),
   text: (req: TranslateRequest) =>
     invoke<TranslateResponse>("translate_text", { req }),
   batch: (req: TranslateRequest) =>

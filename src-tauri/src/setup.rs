@@ -48,6 +48,7 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
 
     let config = store.get().unwrap_or_default();
     app.manage(store);
+    app.manage(shortcut::ShortcutRegistry::default());
 
     // 旧版本仅保存了偏好但未注册系统登录项;启动时以配置为准补齐真实状态。
     if let Err(e) = crate::commands::overlay::apply_auto_start(handle, config.app.auto_start) {
@@ -74,9 +75,6 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         if config_change_affects_selection(payload) {
             selection::sync(&reload_handle);
         }
-        if config_change_affects_shortcuts(payload) {
-            reload_shortcuts(&reload_handle);
-        }
         if config_change_affects_auto_start(payload) {
             reload_auto_start(&reload_handle);
         }
@@ -95,6 +93,14 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(selection::SelectionListener::new());
     // 划词指示图标的显示会话(自动隐藏代号,spec 05 §6)。
     app.manage(crate::core::indicator::IndicatorSession::default());
+
+    let h_main = handle.clone();
+    handle.listen("shortcut://open-main", move |_| {
+        if let Some(window) = h_main.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    });
 
     // F2 接线(spec 06):
     //  - Alt+S(shortcut://screenshot)→ 打开选区蒙层;
@@ -204,10 +210,13 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
 /// 载荷解析失败时保守重载。
 fn config_change_needs_reload(payload: &str) -> bool {
     match serde_json::from_str::<ConfigChangedPayload>(payload) {
-        Ok(p) => p
-            .keypaths
-            .iter()
-            .any(|k| k.is_empty() || k.starts_with("translator")),
+        Ok(p) => p.keypaths.iter().any(|k| {
+            k.is_empty()
+                || k == "translator"
+                || k == "translator.engines"
+                || k.starts_with("translator.engines.")
+                || k == "translator.defaultEngineId"
+        }),
         Err(_) => true,
     }
 }
@@ -220,29 +229,6 @@ fn config_change_affects_selection(payload: &str) -> bool {
             .iter()
             .any(|k| k.is_empty() || k.starts_with("selection")),
         Err(_) => true,
-    }
-}
-
-/// 判断一次配置变更是否涉及全局快捷键。
-fn config_change_affects_shortcuts(payload: &str) -> bool {
-    match serde_json::from_str::<ConfigChangedPayload>(payload) {
-        Ok(p) => p
-            .keypaths
-            .iter()
-            .any(|k| k.is_empty() || k.starts_with("shortcuts")),
-        Err(_) => true,
-    }
-}
-
-fn reload_shortcuts(handle: &AppHandle) {
-    let store = handle.state::<ConfigStore>();
-    match store.get() {
-        Ok(cfg) => {
-            if let Err(e) = shortcut::register_shortcuts(handle, &cfg.shortcuts) {
-                log::warn!("reload shortcuts failed: {e}");
-            }
-        }
-        Err(e) => log::warn!("reload shortcuts: read config failed: {e}"),
     }
 }
 
@@ -287,4 +273,19 @@ fn warn(app: &App, step: &str, message: &str) {
             message: message.to_string(),
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn language_preference_does_not_rebuild_http_clients() {
+        assert!(!config_change_needs_reload(
+            r#"{"keypaths":["translator.targetLang"]}"#
+        ));
+        assert!(config_change_needs_reload(
+            r#"{"keypaths":["translator.engines"]}"#
+        ));
+        assert!(config_change_needs_reload(r#"{"keypaths":[""]}"#));
+    }
 }

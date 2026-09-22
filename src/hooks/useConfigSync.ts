@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useConfigStore } from "@/stores/config";
 import { applyTheme } from "@/lib/theme";
 import { applyLocale } from "@/lib/i18n";
-import { configApi, Events, listenEvent } from "@/lib/ipc";
+import { Events, listenEvent } from "@/lib/ipc";
 
 /**
  * 把 config 的主题 / 语言落到 DOM 与 i18n,并订阅后端 config://changed
@@ -13,7 +13,7 @@ import { configApi, Events, listenEvent } from "@/lib/ipc";
 export function useConfigSync() {
   const theme = useConfigStore((s) => s.config.app.theme);
   const locale = useConfigStore((s) => s.config.app.locale);
-  const setConfig = useConfigStore((s) => s.setConfig);
+  const load = useConfigStore((s) => s.load);
 
   // 主题 → <html>.dark(system 模式内部还会监听 prefers-color-scheme)
   useEffect(() => applyTheme(theme), [theme]);
@@ -27,12 +27,7 @@ export function useConfigSync() {
     let active = true;
 
     listenEvent(Events.ConfigChanged, () => {
-      void configApi
-        .get()
-        .then((cfg) => setConfig(cfg))
-        .catch(() => {
-          /* ipc 已分发错误 */
-        });
+      void load();
     })
       .then((fn) => {
         if (active) unlisten = fn;
@@ -46,5 +41,5 @@ export function useConfigSync() {
       active = false;
       unlisten?.();
     };
-  }, [setConfig]);
+  }, [load]);
 }

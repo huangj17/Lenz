@@ -59,7 +59,7 @@ pub enum Theme {
 }
 
 /// 全局快捷键。`None` 表示禁用对应功能。
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ShortcutConfig {
     /// 划词翻译快捷键,如 "Alt+D"。
@@ -179,7 +179,12 @@ pub struct PopupUiConfig {
     /// 是否展示原文。
     pub show_original: bool,
     /// 弹框逻辑宽度(用户可拖拽右缘调节并记忆),默认 360;取值夹 [300, 720]。
+    #[serde(default = "default_popup_width")]
     pub width: u32,
+}
+
+fn default_popup_width() -> u32 {
+    360
 }
 
 /// 内置默认翻译引擎预设(spec 04 §12)。

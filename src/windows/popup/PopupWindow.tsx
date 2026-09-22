@@ -1,3 +1,5 @@
+import { errorMessage } from "@/lib/errors";
+import { PopupSessions } from "@/lib/popupSessions";
 /**
  * 翻译结果弹框窗口(spec 06 §3 / spec 09 §3)。视觉对齐设计交接包 popup-f1/f2:
  * 暖色毛玻璃卡片 + Lens 头部 + 原文块(识别语言 chip + 字数)+ 语言切换条 +
@@ -13,7 +15,7 @@ import { useTranslation } from "react-i18next";
 import { Icon, Kbd } from "@/components/Icon";
 import { LensMark } from "@/components/LensMark";
 import { Select, type SelectOption } from "@/components/Select";
-import { emit, Events, listenEvent, screenshotApi, translateApi } from "@/lib/ipc";
+import { isLenzError, emit, Events, listenEvent, screenshotApi, translateApi } from "@/lib/ipc";
 import { TRANSLATE_LANGUAGES } from "@/lib/languages";
 import { useConfigStore } from "@/stores/config";
 import type { ScreenshotErrorPayload } from "@/lib/types";
@@ -107,9 +109,9 @@ export function PopupWindow() {
   // 供失焦回调读取最新状态(回调在挂载时绑定,闭包内 view 会过期)。
   const viewRef = useRef(view);
   viewRef.current = view;
-  // 手动重译请求代号:只允许最新请求更新视图。Tauri invoke 暂不支持取消正在执行的
-  // command,但递增代号可阻止旧语言/旧文本请求晚到后覆盖新结果。
+  // 前端请求代号配合后端会话:过滤 IPC 途中迟到的响应和事件。
   const translateGenerationRef = useRef(0);
+  const sessions = useRef(new PopupSessions());
   const cancelAndHide = useCallback(() => {
     translateGenerationRef.current += 1;
     void screenshotApi.cancel();
@@ -187,12 +189,12 @@ export function PopupWindow() {
   // ── 订阅 F2 / F1 事件 ─────────────────────────────────────────────────
   useEffect(() => {
     const subs = [
-      listenEvent(Events.ScreenshotProgress, (e) => {
+      listenEvent(Events.ScreenshotProgress, (e) => sessions.current.event(e.payload.sessionId ?? 0, () => {
         translateGenerationRef.current += 1;
         setCopiedId(null);
         setView({ kind: "loading", stage: e.payload.stage });
-      }),
-      listenEvent(Events.ScreenshotTranslating, (e) => {
+      })),
+      listenEvent(Events.ScreenshotTranslating, (e) => sessions.current.event(e.payload.sessionId ?? 0, () => {
         translateGenerationRef.current += 1;
         const p = e.payload;
         setCopiedId(null);
@@ -203,8 +205,8 @@ export function PopupWindow() {
           targetLang: p.targetLang,
           engineId: p.engineId,
         });
-      }),
-      listenEvent(Events.ScreenshotResult, (e) => {
+      })),
+      listenEvent(Events.ScreenshotResult, (e) => sessions.current.event(e.payload.sessionId ?? 0, () => {
         translateGenerationRef.current += 1;
         const r = e.payload;
         setView({
@@ -216,13 +218,13 @@ export function PopupWindow() {
           engineId: r.engineId,
           costMs: r.cost.translate,
         });
-      }),
-      listenEvent(Events.ScreenshotError, (e) => {
+      })),
+      listenEvent(Events.ScreenshotError, (e) => sessions.current.event(e.payload.sessionId ?? 0, () => {
         translateGenerationRef.current += 1;
         setView({ kind: "error", ...e.payload });
-      }),
+      })),
     ];
-    // 三个监听全部挂上后,通知后端 popup 可接收事件——关闭冷启动首帧竞态:
+    // 四个监听全部挂上后,通知后端 popup 可接收事件——关闭冷启动首帧竞态:
     // 首次划词/截图时后端会先等这个 `popup://ready` 再投递 progress/result(方案 A)。
     void Promise.all(subs).then(() => void emit("popup://ready"));
     return () => {
@@ -326,12 +328,15 @@ export function PopupWindow() {
         targetLang: tgt,
         engineId: defaultEngineId,
       });
+      const ticket = sessions.current.begin();
       try {
-        const resp = await translateApi.text({
+        const sessionId = await translateApi.beginPopupSession();
+        if (!sessions.current.commit(ticket, sessionId) || requestGeneration !== translateGenerationRef.current) return;
+        const resp = await translateApi.popup({
           texts: [original],
           targetLang: tgt,
           sourceLang: src ?? undefined,
-        });
+        }, sessionId);
         if (requestGeneration !== translateGenerationRef.current) return;
         setView({
           kind: "success",
@@ -343,12 +348,15 @@ export function PopupWindow() {
           costMs: resp.costMs,
         });
       } catch (err) {
+        sessions.current.fail(ticket);
+        if (isLenzError(err) && err.code === "Cancelled") return;
         if (requestGeneration !== translateGenerationRef.current) return;
         setView({
           kind: "error",
+          sessionId: 0,
           stage: "translate",
-          code: "failed",
-          message: err instanceof Error ? err.message : String(err),
+          code: isLenzError(err) && err.code === "Timeout" ? "timeout" : "failed",
+          message: errorMessage(err),
           original,
         });
       }
@@ -394,11 +402,12 @@ export function PopupWindow() {
   };
   // 互换源/目标:源已知才有意义;源为「自动检测」(未知)时保持不变(安全 no-op)。
   const onSwapLang = () => {
-    if (!panel?.sourceLang) return;
-    const newTarget = panel.sourceLang;
-    const newSource = panel.targetLang;
+    if (!succ?.sourceLang || !succ.translation.trim()) return;
+    const newTarget = succ.sourceLang;
+    const newSource = succ.targetLang;
+    setDraft(succ.translation);
     void patch({ translator: { targetLang: newTarget } });
-    void runTranslate(curOriginal(), newSource, newTarget);
+    void runTranslate(succ.translation, newSource, newTarget);
   };
 
   return (
@@ -488,7 +497,7 @@ export function PopupWindow() {
               <button
                 type="button"
                 onClick={onSwapLang}
-                disabled={!panel.sourceLang}
+                disabled={!succ?.sourceLang || !succ.translation.trim()}
                 aria-label={t("popup.swapLang")}
                 title={t("popup.swapLang")}
                 className="mx-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md text-sub hover:bg-field hover:text-fg disabled:pointer-events-none disabled:opacity-40"
@@ -573,7 +582,7 @@ export function PopupWindow() {
                   ? t("popup.error.permission")
                   : view.code === "no_text"
                     ? t("popup.error.noText")
-                    : view.stage === "timeout"
+                    : view.code === "timeout"
                       ? t("popup.error.timeout")
                       : view.stage === "translate"
                         ? t("popup.error.translateFailed", { msg: view.message })

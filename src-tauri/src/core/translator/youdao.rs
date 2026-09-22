@@ -103,9 +103,11 @@ impl Translator for YoudaoTranslator {
         let from = req
             .source_lang
             .as_deref()
+            .filter(|code| !code.eq_ignore_ascii_case("auto"))
             .map(youdao_lang_code)
+            .transpose()?
             .unwrap_or("auto");
-        let to = youdao_lang_code(&req.target_lang);
+        let to = youdao_lang_code(&req.target_lang)?;
 
         let mut translations = Vec::with_capacity(req.texts.len());
         let mut detected: Option<String> = None;
@@ -125,7 +127,9 @@ impl Translator for YoudaoTranslator {
                     .l
                     .as_deref()
                     .and_then(|l| l.split('2').next())
-                    .map(|s| s.to_string());
+                    .and_then(|code| {
+                        super::languages::from_provider(code, super::languages::YOUDAO)
+                    });
             }
             let translated = resp
                 .translation
@@ -171,18 +175,8 @@ fn truncate_q(q: &str) -> String {
 }
 
 /// BCP-47 → 有道语言代码(简/繁中文用 `zh-CHS` / `zh-CHT`)。
-fn youdao_lang_code(code: &str) -> &'static str {
-    match code.trim().to_ascii_lowercase().as_str() {
-        "zh" | "zh-cn" | "zh-hans" => "zh-CHS",
-        "zh-tw" | "zh-hant" | "zh-hk" => "zh-CHT",
-        "ja" | "ja-jp" => "ja",
-        "ko" | "ko-kr" => "ko",
-        "fr" | "fr-fr" => "fr",
-        "de" | "de-de" => "de",
-        "es" | "es-es" => "es",
-        "ru" | "ru-ru" => "ru",
-        _ => "en",
-    }
+fn youdao_lang_code(code: &str) -> Result<&'static str, LenzError> {
+    super::languages::to_provider(code, super::languages::YOUDAO)
 }
 
 #[derive(Deserialize)]
@@ -229,8 +223,8 @@ mod tests {
 
     #[test]
     fn youdao_codes() {
-        assert_eq!(youdao_lang_code("zh-CN"), "zh-CHS");
-        assert_eq!(youdao_lang_code("zh-Hant"), "zh-CHT");
-        assert_eq!(youdao_lang_code("en-US"), "en");
+        assert_eq!(youdao_lang_code("zh-CN").unwrap(), "zh-CHS");
+        assert_eq!(youdao_lang_code("zh-Hant").unwrap(), "zh-CHT");
+        assert_eq!(youdao_lang_code("en-US").unwrap(), "en");
     }
 }

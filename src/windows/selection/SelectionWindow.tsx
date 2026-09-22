@@ -1,3 +1,4 @@
+import { frameScheduler } from "@/lib/frameScheduler";
 /**
  * 截图选区蒙层窗口(spec 02 §3 / spec 09 §4)。
  *
@@ -92,13 +93,15 @@ export function SelectionWindow() {
       ctx.fillText(label, lx, ly);
     }
 
+    const frames = frameScheduler(draw, requestAnimationFrame, cancelAnimationFrame);
+
     function resize() {
       canvas.width = Math.round(window.innerWidth * dpr);
       canvas.height = Math.round(window.innerHeight * dpr);
       canvas.style.width = `${window.innerWidth}px`;
       canvas.style.height = `${window.innerHeight}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      draw();
+      frames.flush();
     }
 
     /** 窗口左上角的虚拟屏逻辑坐标(spec 09 §4.3)。 */
@@ -110,27 +113,30 @@ export function SelectionWindow() {
     }
 
     function onDown(e: MouseEvent) {
+      if (e.button !== 0) return;
       drag.dragging = true;
       drag.sx = e.clientX;
       drag.sy = e.clientY;
       drag.cx = e.clientX;
       drag.cy = e.clientY;
-      draw();
+      frames.flush();
     }
     function onMove(e: MouseEvent) {
       if (!drag.dragging) return;
       drag.cx = e.clientX;
       drag.cy = e.clientY;
-      draw();
+      frames.schedule();
     }
-    async function onUp() {
+    async function onUp(e: MouseEvent) {
       if (!drag.dragging) return;
+      drag.cx = e.clientX;
+      drag.cy = e.clientY;
       drag.dragging = false;
       const x = Math.min(drag.sx, drag.cx);
       const y = Math.min(drag.sy, drag.cy);
       const rw = Math.abs(drag.cx - drag.sx);
       const rh = Math.abs(drag.cy - drag.sy);
-      draw();
+      frames.flush();
       // 过小视为点击取消(spec 02 §6)。
       if (rw < 4 || rh < 4) {
         await emit(Events.CaptureRegionCancelled);
@@ -159,6 +165,7 @@ export function SelectionWindow() {
     window.addEventListener("mouseup", onUp);
     window.addEventListener("keydown", onKey);
     return () => {
+      frames.cancel();
       window.removeEventListener("resize", resize);
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("mousemove", onMove);

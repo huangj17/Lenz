@@ -1,3 +1,4 @@
+import { listen, onLenzError } from "@/lib/ipc";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { clsx } from "clsx";
@@ -27,6 +28,8 @@ const NAV: { id: TabId; icon: IconName }[] = [
 export function MainWindow() {
   const { t } = useTranslation();
   const [tab, setTab] = useState<TabId>("general");
+  const error = useConfigStore((s) => s.error);
+  const setError = useConfigStore((s) => s.setError);
   const load = useConfigStore((s) => s.load);
   const engines = useConfigStore((s) => s.config.translator.engines);
   const defaultId = useConfigStore((s) => s.config.translator.defaultEngineId);
@@ -34,6 +37,16 @@ export function MainWindow() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    let active = true;
+    let cleanup: (() => void) | undefined;
+    void listen("tray://open-about", () => setTab("about")).then((fn) => {
+      if (active) cleanup = fn; else fn();
+    }).catch(setError);
+    const offError = onLenzError((err) => { setError(err); return true; });
+    return () => { active = false; cleanup?.(); offError(); };
+  }, [setError]);
 
   const enabledEngines = engines.filter((e) => e.enabled);
   const def = enabledEngines.find((e) => e.id === defaultId) ?? enabledEngines[0];
@@ -108,6 +121,8 @@ export function MainWindow() {
             <span>{t("header.search")}</span>
           </div>
         </header>
+
+        {error && <div role="alert" className="mx-6 mt-3 rounded-md border border-danger p-3 text-xs text-danger">{error}</div>}
 
         {tab === "services" ? (
           <div className="min-h-0 flex-1 overflow-hidden px-6 pt-[22px] pb-6">

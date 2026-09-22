@@ -1,65 +1,177 @@
-//! 全局快捷键注册 / 解绑(spec 10 §2)。
-//!
-//! 与 `core/` 的其他模块不同,快捷键在 M1 即需可用:启动阶段按 config 注册,
-//! 触发时 emit 对应 `shortcut://*` 事件。配置变更(`shortcuts.*`)后重绑。
-
-use std::str::FromStr;
-
-use tauri::{AppHandle, Emitter, Runtime};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
-
+//! Transactional shortcut registration: preserve unchanged bindings and roll back
+//! newly registered/removed keys on failure before accepting the config.
 use crate::config::schema::ShortcutConfig;
 use crate::error::LenzError;
+use std::collections::BTreeMap;
+use std::str::FromStr;
+use std::sync::Mutex;
+use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
-/// 各快捷键触发时 emit 的事件名(spec 00 §4.3)。
-const EVENT_SELECTION: &str = "shortcut://selection";
-const EVENT_SCREENSHOT: &str = "shortcut://screenshot";
-const EVENT_OVERLAY: &str = "shortcut://overlay";
-const EVENT_OPEN_MAIN: &str = "shortcut://open-main";
+type Bindings = BTreeMap<u32, (Shortcut, &'static str)>;
+#[derive(Default)]
+pub struct ShortcutRegistry(Mutex<Bindings>);
 
-/// 依据配置注册全部全局快捷键(先全部注销,再逐项注册)。
-pub fn register_shortcuts<R: Runtime>(
-    app: &AppHandle<R>,
-    shortcuts: &ShortcutConfig,
+fn bindings(config: &ShortcutConfig) -> Result<Bindings, LenzError> {
+    let mut result = BTreeMap::new();
+    for (value, event) in [
+        (&config.selection, "shortcut://selection"),
+        (&config.screenshot, "shortcut://screenshot"),
+        (&config.overlay, "shortcut://overlay"),
+        (&config.open_main, "shortcut://open-main"),
+    ] {
+        let Some(value) = value.as_ref().filter(|s| !s.trim().is_empty()) else {
+            continue;
+        };
+        let shortcut = Shortcut::from_str(value)
+            .map_err(|e| LenzError::config(format!("invalid shortcut '{value}': {e}")))?;
+        if result.insert(shortcut.id(), (shortcut, event)).is_some() {
+            return Err(LenzError::config(format!("duplicate shortcut '{value}'")));
+        }
+    }
+    Ok(result)
+}
+
+/// OS operations are injected so failure/rollback paths can be tested without
+/// stealing real system shortcuts from the test machine.
+fn transition(
+    old: &Bindings,
+    next: &Bindings,
+    mut register: impl FnMut(Shortcut) -> Result<(), LenzError>,
+    mut unregister: impl FnMut(Shortcut) -> Result<(), LenzError>,
 ) -> Result<(), LenzError> {
-    let manager = app.global_shortcut();
-    manager
-        .unregister_all()
-        .map_err(|e| LenzError::internal(format!("unregister_all: {e}")))?;
-
-    register_if_set(app, &shortcuts.selection, EVENT_SELECTION)?;
-    register_if_set(app, &shortcuts.screenshot, EVENT_SCREENSHOT)?;
-    register_if_set(app, &shortcuts.overlay, EVENT_OVERLAY)?;
-    register_if_set(app, &shortcuts.open_main, EVENT_OPEN_MAIN)?;
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
+    let result = (|| {
+        for (id, (key, _)) in next {
+            if !old.contains_key(id) {
+                register(*key)?;
+                added.push(*key);
+            }
+        }
+        for (id, (key, _)) in old {
+            if !next.contains_key(id) {
+                unregister(*key)?;
+                removed.push(*key);
+            }
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        let mut failures = Vec::new();
+        for key in removed {
+            if let Err(e) = register(key) {
+                failures.push(e.to_string());
+            }
+        }
+        for key in added {
+            if let Err(e) = unregister(key) {
+                failures.push(e.to_string());
+            }
+        }
+        if !failures.is_empty() {
+            return Err(LenzError::config(format!(
+                "{error}; shortcut rollback failed: {}",
+                failures.join("; ")
+            )));
+        }
+        return Err(error);
+    }
     Ok(())
 }
 
-/// 若快捷键字符串非空,则解析并注册;按下时 emit `event`。
-fn register_if_set<R: Runtime>(
+pub fn register_shortcuts<R: Runtime>(
     app: &AppHandle<R>,
-    accelerator: &Option<String>,
-    event: &'static str,
+    config: &ShortcutConfig,
 ) -> Result<(), LenzError> {
-    let Some(acc) = accelerator.as_ref().filter(|s| !s.trim().is_empty()) else {
-        return Ok(());
-    };
-
-    let shortcut = Shortcut::from_str(acc)
-        .map_err(|e| LenzError::config(format!("invalid shortcut '{acc}': {e}")))?;
-
-    let manager = app.global_shortcut();
-    let app_for_cb = app.clone();
-    manager
-        .on_shortcut(shortcut, move |_app, _sc, sc_event| {
-            // 仅在按下(Pressed)时触发一次,避免 Released 重复。
-            if sc_event.state() == ShortcutState::Pressed {
-                if let Err(e) = app_for_cb.emit(event, ()) {
-                    log::warn!("emit {event} failed: {e}");
-                }
-            }
-        })
-        .map_err(|e| LenzError::config(format!("register shortcut '{acc}': {e}")))?;
-
-    log::info!("registered global shortcut '{acc}' -> {event}");
+    let next = bindings(config)?;
+    let state = app.state::<ShortcutRegistry>();
+    let mut current = state
+        .0
+        .lock()
+        .map_err(|_| LenzError::internal("shortcut lock poisoned"))?;
+    transition(
+        &current,
+        &next,
+        |key| {
+            app.global_shortcut()
+                .on_shortcut(key, |app, key, event| {
+                    if event.state() != ShortcutState::Pressed {
+                        return;
+                    }
+                    let event = app
+                        .state::<ShortcutRegistry>()
+                        .0
+                        .lock()
+                        .ok()
+                        .and_then(|map| map.get(&key.id()).map(|(_, event)| *event));
+                    if let Some(event) = event {
+                        let _ = app.emit(event, ());
+                    }
+                })
+                .map_err(|e| LenzError::config(format!("register shortcut {key}: {e}")))
+        },
+        |key| {
+            app.global_shortcut()
+                .unregister(key)
+                .map_err(|e| LenzError::config(format!("unregister shortcut {key}: {e}")))
+        },
+    )?;
+    *current = next;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+    use std::collections::BTreeSet;
+    fn config(selection: &str, screenshot: &str) -> ShortcutConfig {
+        ShortcutConfig {
+            selection: Some(selection.into()),
+            screenshot: Some(screenshot.into()),
+            overlay: None,
+            open_main: None,
+        }
+    }
+    #[test]
+    fn conflict_preserves_every_previous_binding() {
+        let old = bindings(&config("Alt+D", "Alt+S")).unwrap();
+        let next = bindings(&config("Alt+Q", "Alt+W")).unwrap();
+        let active = RefCell::new(old.keys().copied().collect::<BTreeSet<_>>());
+        let conflict = *next.keys().last().unwrap();
+        assert!(transition(
+            &old,
+            &next,
+            |key| {
+                if key.id() == conflict {
+                    return Err(LenzError::config("occupied"));
+                }
+                active.borrow_mut().insert(key.id());
+                Ok(())
+            },
+            |key| {
+                active.borrow_mut().remove(&key.id());
+                Ok(())
+            }
+        )
+        .is_err());
+        assert_eq!(*active.borrow(), old.keys().copied().collect());
+    }
+    #[test]
+    fn duplicates_fail_before_os_registration() {
+        assert!(bindings(&config("Alt+D", "Alt+D")).is_err());
+    }
+    #[test]
+    fn swapping_actions_keeps_registered_keys() {
+        let old = bindings(&config("Alt+D", "Alt+S")).unwrap();
+        let next = bindings(&config("Alt+S", "Alt+D")).unwrap();
+        transition(
+            &old,
+            &next,
+            |_| panic!("unnecessary register"),
+            |_| panic!("unnecessary unregister"),
+        )
+        .unwrap();
+    }
 }

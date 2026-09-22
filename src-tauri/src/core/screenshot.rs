@@ -4,15 +4,14 @@
 //! async task 中串行执行 截图 → OCR → 翻译,并在关键节点 emit
 //! `screenshot://progress` / `screenshot://result` / `screenshot://error`,popup 窗口订阅渲染。
 //!
-//! 取消(spec 06 §7):用自增**会话代号**实现——新触发 / 用户 ESC 都会 `begin` 一个
-//! 更大的代号,运行中的旧流程在每个 await 点检查 `is_current`,不再当前即静默放弃。
+//! 取消:所有 popup 请求共享 watch 会话;新请求/ESC 使旧 future 立即释放。
+//! 原生阻塞任务可能继续完成,但不能投递过期事件。
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager};
-use tauri_plugin_clipboard_manager::ClipboardExt;
 
 use crate::config::ConfigStore;
 use crate::core::ocr::{OcrBlock, OcrEngine, OcrInput, OcrOptions};
@@ -43,8 +42,8 @@ pub fn popup_width(app: &AppHandle) -> f64 {
 const POPUP_INIT_HEIGHT: f64 = 150.0;
 /// 选区与 popup 的垂直间距(spec 06 §2.6)。
 const POPUP_GAP: f64 = 12.0;
-/// 整体超时(spec 06 §4)。
-const TOTAL_TIMEOUT: Duration = Duration::from_millis(10_000);
+/// 截图 + OCR 的预算;翻译使用各引擎自身的 timeoutMs。
+const CAPTURE_OCR_TIMEOUT: Duration = Duration::from_millis(10_000);
 /// 抓屏前等待选区蒙层从屏幕消失的时延:覆盖「事件线程→主线程」派发 + 合成器出帧,
 /// 避免截到遮罩 / 销毁残帧导致 OCR 空结果(spec 02 §7)。
 const OVERLAY_CLEAR_DELAY_MS: u64 = 150;
@@ -61,24 +60,40 @@ pub const EVENT_POPUP_READY: &str = "popup://ready";
 const POPUP_READY_TIMEOUT: Duration = Duration::from_secs(3);
 const POPUP_READY_POLL: Duration = Duration::from_millis(20);
 
-/// F2 会话代号(spec 06 §7)。作为 Tauri managed state 注入。
-#[derive(Default)]
+/// All popup requests share one cancellation scope. Dropping the losing future
+/// cancels reqwest work immediately instead of merely suppressing its result.
 pub struct ScreenshotSession {
-    generation: AtomicU64,
+    generation: tokio::sync::watch::Sender<u32>,
 }
-
+impl Default for ScreenshotSession {
+    fn default() -> Self {
+        Self {
+            generation: tokio::sync::watch::channel(0).0,
+        }
+    }
+}
 impl ScreenshotSession {
-    /// 开启新会话并返回其代号(令所有旧会话失效)。
-    pub fn begin(&self) -> u64 {
-        self.generation.fetch_add(1, Ordering::SeqCst) + 1
+    pub fn begin(&self) -> u32 {
+        let mut next = 0;
+        self.generation.send_modify(|value| {
+            *value += 1;
+            next = *value;
+        });
+        next
     }
-    /// 该代号是否仍是当前会话。
-    pub fn is_current(&self, gen: u64) -> bool {
-        self.generation.load(Ordering::SeqCst) == gen
+    pub fn is_current(&self, gen: u32) -> bool {
+        *self.generation.borrow() == gen
     }
-    /// 取消当前会话(令运行中的流程在下个检查点放弃)。
     pub fn cancel(&self) {
-        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.begin();
+    }
+    pub async fn run<T>(&self, gen: u32, work: impl std::future::Future<Output = T>) -> Option<T> {
+        let mut changes = self.generation.subscribe();
+        tokio::select! {
+            biased;
+            _ = changes.wait_for(|current| *current != gen) => None,
+            value = work => Some(value),
+        }
     }
 }
 
@@ -213,7 +228,16 @@ pub fn on_region_selected(app: &AppHandle, payload: &str) {
     }
 }
 
-/// 启动 F2:校验选区 → 立即显示 popup(loading)→ spawn 流程(带总超时)。
+/// 在进入选区或抓屏前隐藏所有翻译浮层。
+pub fn hide_for_capture(app: &AppHandle) {
+    app.state::<ScreenshotSession>().cancel();
+    crate::core::indicator::hide(app);
+    if let Some(popup) = app.get_webview_window(POPUP_LABEL) {
+        let _ = popup.hide();
+    }
+}
+
+/// 启动 F2:校验选区 → 隐藏浮层 → 抓屏 → 显示 popup 并继续 OCR/翻译。
 fn start_f2(app: AppHandle, region: Rect) {
     // w<4 || h<4 视为点击取消(spec 06 §2.2)。
     if region.w < 4 || region.h < 4 {
@@ -225,54 +249,58 @@ fn start_f2(app: AppHandle, region: Rect) {
         return;
     }
 
+    hide_for_capture(&app);
     let gen = app.state::<ScreenshotSession>().begin();
-    position_and_show_popup(&app, &region);
 
     tauri::async_runtime::spawn(async move {
-        match tokio::time::timeout(TOTAL_TIMEOUT, run_pipeline(&app, region, gen)).await {
-            Ok(()) => {}
-            Err(_) => {
-                if app.state::<ScreenshotSession>().is_current(gen) {
-                    emit_error(&app, "timeout", "timeout", "response timed out", None);
-                }
-            }
-        }
+        app.state::<ScreenshotSession>()
+            .run(gen, run_pipeline(&app, region, gen))
+            .await;
     });
 }
 
 /// 截图 → OCR → 翻译,逐阶段 emit 进度 / 结果 / 错误。
-async fn run_pipeline(app: &AppHandle, region: Rect, gen: u64) {
-    // 首帧投递前等待 popup webview 就绪,避免冷启动首次截图丢掉 progress/result(方案 A)。
-    // popup 已在 `on_region_selected` 同步 show;此处仅门控随后的 emit。
-    wait_popup_ready(app).await;
-
+async fn run_pipeline(app: &AppHandle, region: Rect, gen: u32) {
     let cfg = match app.state::<ConfigStore>().get() {
         Ok(c) => c,
-        Err(e) => return emit_error(app, "capture", "failed", &e.to_string(), None),
+        Err(e) => return emit_error(app, gen, "capture", "failed", &e.to_string(), None),
     };
 
     // ── 截图 ──
-    emit_progress(app, "capture");
+
     // 等待选区蒙层真正从屏幕消失再抓屏:close/hide 是投递到主线程的异步操作,
     // 立即抓屏会截到遮罩或销毁残帧,导致 OCR「未识别到文字」(spec 02 §7)。
     tokio::time::sleep(Duration::from_millis(OVERLAY_CLEAR_DELAY_MS)).await;
     let t0 = Instant::now();
-    let cap = tokio::task::spawn_blocking(move || capture::capture_region(region)).await;
+    let cap = tokio::time::timeout(
+        CAPTURE_OCR_TIMEOUT,
+        tokio::task::spawn_blocking(move || capture::capture_region(region)),
+    )
+    .await;
+    if !is_current(app, gen) {
+        return;
+    }
+    position_and_show_popup(app, &region);
+    wait_popup_ready(app).await;
     if !is_current(app, gen) {
         return;
     }
     let cap = match cap {
+        Ok(cap) => cap,
+        Err(_) => return emit_error(app, gen, "capture", "timeout", "capture timed out", None),
+    };
+    let cap = match cap {
         Ok(Ok(c)) => c,
         Ok(Err(LenzError::Permission(m))) => {
-            return emit_error(app, "capture", "permission", &m, None)
+            return emit_error(app, gen, "capture", "permission", &m, None)
         }
-        Ok(Err(e)) => return emit_error(app, "capture", "failed", &e.to_string(), None),
-        Err(e) => return emit_error(app, "capture", "failed", &format!("join: {e}"), None),
+        Ok(Err(e)) => return emit_error(app, gen, "capture", "failed", &e.to_string(), None),
+        Err(e) => return emit_error(app, gen, "capture", "failed", &format!("join: {e}"), None),
     };
     let cost_capture = t0.elapsed().as_millis() as u32;
 
     // ── OCR ──
-    emit_progress(app, "ocr");
+    emit_progress(app, gen, "ocr");
     let t1 = Instant::now();
     let engine = app.state::<Arc<dyn OcrEngine>>().inner().clone();
     let opts = OcrOptions {
@@ -285,18 +313,28 @@ async fn run_pipeline(app: &AppHandle, region: Rect, gen: u64) {
         pixel_rect: cap.pixel_rect,
         scale_factor: cap.scale_factor,
     };
-    let ocr = engine.recognize(input, opts).await;
+    let ocr = tokio::time::timeout(
+        CAPTURE_OCR_TIMEOUT.saturating_sub(t0.elapsed()),
+        engine.recognize(input, opts),
+    )
+    .await;
+    let ocr = match ocr {
+        Ok(result) => result,
+        Err(_) => return emit_error(app, gen, "ocr", "timeout", "OCR timed out", None),
+    };
     if !is_current(app, gen) {
         return;
     }
     let ocr = match ocr {
         Ok(r) => r,
-        Err(LenzError::Permission(m)) => return emit_error(app, "ocr", "permission", &m, None),
-        Err(e) => return emit_error(app, "ocr", "failed", &e.to_string(), None),
+        Err(LenzError::Permission(m)) => {
+            return emit_error(app, gen, "ocr", "permission", &m, None)
+        }
+        Err(e) => return emit_error(app, gen, "ocr", "failed", &e.to_string(), None),
     };
     let original = join_blocks(&ocr.blocks);
     if original.trim().is_empty() {
-        return emit_error(app, "ocr", "no_text", "no text recognized", None);
+        return emit_error(app, gen, "ocr", "no_text", "no text recognized", None);
     }
     let cost_ocr = t1.elapsed().as_millis() as u32;
 
@@ -304,6 +342,7 @@ async fn run_pipeline(app: &AppHandle, region: Rect, gen: u64) {
     // 原文(OCR 结果)已知:发 translating,让 popup 显示原文 + 引擎行转圈,而非整块骨架。
     emit_translating(
         app,
+        gen,
         &original,
         ocr.detected_language.clone(),
         &cfg.translator.target_lang,
@@ -317,6 +356,7 @@ async fn run_pipeline(app: &AppHandle, region: Rect, gen: u64) {
     let Some(translator) = translator else {
         return emit_error(
             app,
+            gen,
             "translate",
             "failed",
             "no engine configured",
@@ -335,7 +375,20 @@ async fn run_pipeline(app: &AppHandle, region: Rect, gen: u64) {
     }
     let resp = match resp {
         Ok(r) => r,
-        Err(e) => return emit_error(app, "translate", "failed", &e.to_string(), Some(original)),
+        Err(e) => {
+            return emit_error(
+                app,
+                gen,
+                "translate",
+                if matches!(e, LenzError::Timeout(_)) {
+                    "timeout"
+                } else {
+                    "failed"
+                },
+                &e.to_string(),
+                Some(original),
+            )
+        }
     };
     let cost_translate = t2.elapsed().as_millis() as u32;
 
@@ -343,6 +396,7 @@ async fn run_pipeline(app: &AppHandle, region: Rect, gen: u64) {
     emit_result(
         app,
         ScreenshotResult {
+            session_id: gen,
             original,
             translation,
             source_lang: resp.detected_source_lang.or(ocr.detected_language),
@@ -496,10 +550,6 @@ pub fn clamp_popup_into_monitor(app: &AppHandle, height: f64) {
 // F1 划词翻译 —— 快捷键模式(spec 05 §3)
 // ──────────────────────────────────────────────────────────────────────────
 
-/// 选中文本送入剪贴板后,等待系统写入完成的轮询间隔与上限。
-const COPY_POLL_INTERVAL: Duration = Duration::from_millis(20);
-const COPY_POLL_TIMEOUT: Duration = Duration::from_millis(180);
-
 /// 合成 Cmd+C 前等待触发快捷键的修饰键松开的轮询间隔与上限(spec 05 §3)。
 const MOD_WAIT_INTERVAL: Duration = Duration::from_millis(10);
 const MOD_WAIT_TIMEOUT: Duration = Duration::from_millis(400);
@@ -512,22 +562,24 @@ const MOD_WAIT_TIMEOUT: Duration = Duration::from_millis(400);
 /// 3. 有新选区 → 居中显示 popup + 翻译;
 /// 4. 无新选区(未选中 / 无权限)→ 回显上次结果;都没有则静默忽略。
 pub fn on_selection_shortcut(app: &AppHandle) {
+    let gen = app.state::<ScreenshotSession>().begin();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        handle_selection_shortcut(app).await;
+        handle_selection_shortcut(app, gen).await;
     });
 }
 
 /// 直接用已拿到的选中文本翻译(划词图标点击时,复用图标浮出瞬间 AX 预读的缓存)。
 /// 跳过实时读取,规避「点击图标夺焦后读到错内容」。
 pub fn translate_with_text(app: &AppHandle, text: String) {
+    let gen = app.state::<ScreenshotSession>().begin();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        translate_selection(&app, text).await;
+        translate_selection(&app, text, gen).await;
     });
 }
 
-async fn handle_selection_shortcut(app: AppHandle) {
+async fn handle_selection_shortcut(app: AppHandle, gen: u32) {
     // ① 首选 Accessibility API 直读选中文本:不碰剪贴板、不合成按键,规避修饰键污染 /
     //    同文字重复 / 焦点时序 / 剪贴板被覆盖等一系列问题(spec 05 §3)。AX 调用可能对
     //    无响应目标应用造成同步 IPC 阻塞,放到 spawn_blocking 上跑,避免堵塞 async 运行时。
@@ -535,24 +587,34 @@ async fn handle_selection_shortcut(app: AppHandle) {
         .await
         .ok()
         .flatten();
+    if !is_current(&app, gen) {
+        return;
+    }
     if let Some(text) = ax {
         log::info!("划词:AX 直读命中 {} 字", text.chars().count());
-        return translate_selection(&app, text).await;
+        return translate_selection(&app, text, gen).await;
     }
 
     // ② 兜底(AX 取不到,如部分 Chrome/Electron):合成 Cmd+C 读剪贴板。
     //    Alt+D 触发时 Option 等修饰键往往仍按着,会并入合成的 Cmd+C(→ ⌘⌥C,前台不复制),
-    //    先等其松开;再用哨兵串法判定是否真复制到选区(不靠与旧剪贴板差异,规避同文字重复)。
+    //    先等其松开;原生剪贴板版本号可识别重复复制的相同文字。
     wait_modifiers_released().await;
-    if let Some(text) = copy_selection_via_clipboard(&app).await {
+    if !is_current(&app, gen) {
+        return;
+    }
+    let copied = copy_selection_via_clipboard(&app).await;
+    if !is_current(&app, gen) {
+        return;
+    }
+    if let Some(text) = copied {
         log::info!("划词:剪贴板兜底命中 {} 字", text.chars().count());
-        return translate_selection(&app, text).await;
+        return translate_selection(&app, text, gen).await;
     }
 
     // ③ AX 与剪贴板都拿不到选区:回显上次结果(spec 05 §3 —— 再次按键复现上次内容)。
     if let Some(last) = app.state::<LastResult>().get() {
         log::info!("划词:无新选区,回显上次结果");
-        reshow_result(&app, last).await;
+        reshow_result(&app, last, gen).await;
     } else {
         log::info!("划词:AX 空 + 剪贴板无选区 + 无历史;忽略(未选中文本或无权限)");
     }
@@ -566,7 +628,10 @@ async fn handle_selection_shortcut(app: AppHandle) {
 ///   (满足验收「同段不重复触发」,且省一次 LLM 调用)。
 ///
 /// 通过过滤后:新会话代号 + 光标处弹框 + 翻译。
-async fn translate_selection(app: &AppHandle, text: String) {
+async fn translate_selection(app: &AppHandle, text: String, gen: u32) {
+    if !is_current(app, gen) {
+        return;
+    }
     let text: String = text.trim().chars().take(5000).collect();
     if text.is_empty() {
         return;
@@ -586,28 +651,19 @@ async fn translate_selection(app: &AppHandle, text: String) {
                 current_engine.as_deref(),
             ) {
                 log::info!("划词:原文/目标语言/引擎均相同,回显缓存结果");
-                return reshow_result(app, last).await;
+                return reshow_result(app, last, gen).await;
             }
         }
     }
-    let gen = app.state::<ScreenshotSession>().begin();
+    if !is_current(app, gen) {
+        return;
+    }
     position_popup_at_cursor(app);
     // 首帧投递前等待 popup webview 就绪,避免冷启动首次触发丢掉 progress/result(方案 A)。
     wait_popup_ready(app).await;
-    let timeout_original = text.clone();
-    if tokio::time::timeout(TOTAL_TIMEOUT, run_text_pipeline(app, text, gen))
-        .await
-        .is_err()
-        && app.state::<ScreenshotSession>().is_current(gen)
-    {
-        emit_error(
-            app,
-            "translate",
-            "timeout",
-            "response timed out",
-            Some(timeout_original),
-        );
-    }
+    app.state::<ScreenshotSession>()
+        .run(gen, run_text_pipeline(app, text, gen))
+        .await;
 }
 
 fn cached_result_matches(
@@ -623,11 +679,16 @@ fn cached_result_matches(
 
 /// 回显一份已有结果到光标处 popup(「无新选区回显上次」与「同原文去重」共用)。
 /// 起一个新会话代号令进行中的旧流程作废,再在光标处摆出 popup 并重发 result 事件。
-async fn reshow_result(app: &AppHandle, result: ScreenshotResult) {
-    app.state::<ScreenshotSession>().begin();
+async fn reshow_result(app: &AppHandle, mut result: ScreenshotResult, gen: u32) {
+    if !is_current(app, gen) {
+        return;
+    }
+    result.session_id = gen;
     position_popup_at_cursor(app);
     wait_popup_ready(app).await;
-    let _ = app.emit(EVT_RESULT, result);
+    if is_current(app, result.session_id) {
+        let _ = app.emit(EVT_RESULT, result);
+    }
 }
 
 /// 合成 Cmd+C 前等待触发快捷键的修饰键松开,避免被仍按住的 Option/Cmd 等并入合成事件
@@ -643,64 +704,37 @@ async fn wait_modifiers_released() {
     }
 }
 
-/// 兜底:合成 Cmd+C 取前台选区(AX 读不到时用)。先写入唯一**哨兵串**占位,再合成
-/// Cmd+C;若随后剪贴板 != 哨兵,说明前台确实复制了选区(即便它恰好等于用户原剪贴板,
-/// 也不会像「与旧值比对」那样把重复同字误判为无选区);读毕**还原原剪贴板**(不留痕)。
-/// 返回选中文本;没复制到内容(无选区 / 无权限 / 修饰键仍污染)则返回 `None`。
-async fn copy_selection_via_clipboard(app: &AppHandle) -> Option<String> {
-    // 插件只能无损恢复纯文本。若当前剪贴板没有文本,它可能保存图片、文件或其他富内容;
-    // 此时写哨兵会永久销毁原内容,所以宁可放弃本次兜底并保留用户数据。
-    let original = match app.clipboard().read_text() {
-        Ok(text) => text,
-        Err(e) => {
-            log::debug!("selection clipboard fallback skipped: cannot preserve clipboard: {e}");
-            return None;
-        }
-    };
-    // 不可见字符包裹的哨兵,极不可能与真实选区相同。
-    const SENTINEL: &str = "\u{2063}lenz-selection-probe\u{2063}";
-    if app.clipboard().write_text(SENTINEL.to_string()).is_err() {
-        return None;
-    }
-
-    if let Err(e) = keystroke::copy_selection() {
-        log::warn!("synthesize copy keystroke failed: {e}");
-    }
-
-    // 轮询等前台把选区写入剪贴板(写入是异步的);超时仍是哨兵 → 没复制到东西。
-    let deadline = Instant::now() + COPY_POLL_TIMEOUT;
-    let copied = loop {
-        let cur = app.clipboard().read_text().unwrap_or_default();
-        if cur != SENTINEL {
-            break Some(cur);
-        }
-        if Instant::now() >= deadline {
-            break None;
-        }
-        tokio::time::sleep(COPY_POLL_INTERVAL).await;
-    };
-
-    // 还原原纯文本剪贴板(贯彻「不主动改剪贴板」)。
-    let _ = app.clipboard().write_text(original);
-
-    let text = copied?;
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    }
+/// 原生剪贴板事务必须跑完恢复阶段,不能被翻译会话取消中断。
+async fn copy_selection_via_clipboard(_app: &AppHandle) -> Option<String> {
+    tokio::task::spawn_blocking(crate::core::clipboard_selection::read)
+        .await
+        .ok()
+        .flatten()
 }
 
 /// 纯文本翻译 pipeline(F1 快捷键复用 F2 的翻译 + 事件,无截图 / OCR 阶段)。
-async fn run_text_pipeline(app: &AppHandle, original: String, gen: u64) {
+async fn run_text_pipeline(app: &AppHandle, original: String, gen: u32) {
     let cfg = match app.state::<ConfigStore>().get() {
         Ok(c) => c,
-        Err(e) => return emit_error(app, "translate", "failed", &e.to_string(), Some(original)),
+        Err(e) => {
+            return emit_error(
+                app,
+                gen,
+                "translate",
+                if matches!(e, LenzError::Timeout(_)) {
+                    "timeout"
+                } else {
+                    "failed"
+                },
+                &e.to_string(),
+                Some(original),
+            )
+        }
     };
     // 原文已知:发 translating,让 popup 立即显示原文 + 引擎行转圈(F1 无截图/OCR 阶段)。
     emit_translating(
         app,
+        gen,
         &original,
         None,
         &cfg.translator.target_lang,
@@ -714,6 +748,7 @@ async fn run_text_pipeline(app: &AppHandle, original: String, gen: u64) {
     let Some(translator) = translator else {
         return emit_error(
             app,
+            gen,
             "translate",
             "failed",
             "no engine configured",
@@ -732,12 +767,26 @@ async fn run_text_pipeline(app: &AppHandle, original: String, gen: u64) {
     }
     let resp = match resp {
         Ok(r) => r,
-        Err(e) => return emit_error(app, "translate", "failed", &e.to_string(), Some(original)),
+        Err(e) => {
+            return emit_error(
+                app,
+                gen,
+                "translate",
+                if matches!(e, LenzError::Timeout(_)) {
+                    "timeout"
+                } else {
+                    "failed"
+                },
+                &e.to_string(),
+                Some(original),
+            )
+        }
     };
     let translation = resp.translations.into_iter().next().unwrap_or_default();
     emit_result(
         app,
         ScreenshotResult {
+            session_id: gen,
             original,
             translation,
             source_lang: resp.detected_source_lang,
@@ -805,22 +854,31 @@ fn position_popup_centered(app: &AppHandle) {
     show_and_focus_popup(app, &popup);
 }
 
-fn is_current(app: &AppHandle, gen: u64) -> bool {
+fn is_current(app: &AppHandle, gen: u32) -> bool {
     app.state::<ScreenshotSession>().is_current(gen)
 }
 
 /// emit `screenshot://result` 并缓存为「上次结果」(供划词快捷键回显)。内存 + 磁盘各存一份。
 fn emit_result(app: &AppHandle, result: ScreenshotResult) {
+    if !is_current(app, result.session_id) {
+        return;
+    }
     let last = app.state::<LastResult>();
     last.set(&result);
     last.persist(app);
-    let _ = app.emit(EVT_RESULT, result);
+    if is_current(app, result.session_id) {
+        let _ = app.emit(EVT_RESULT, result);
+    }
 }
 
-fn emit_progress(app: &AppHandle, stage: &str) {
+fn emit_progress(app: &AppHandle, gen: u32, stage: &str) {
+    if !is_current(app, gen) {
+        return;
+    }
     let _ = app.emit(
         EVT_PROGRESS,
         ScreenshotProgress {
+            session_id: gen,
             stage: stage.to_string(),
         },
     );
@@ -829,14 +887,19 @@ fn emit_progress(app: &AppHandle, stage: &str) {
 /// 进入翻译阶段:原文/目标语言/引擎已知,先发一份让 popup 渲染完整布局 + 引擎行转圈。
 fn emit_translating(
     app: &AppHandle,
+    gen: u32,
     original: &str,
     source_lang: Option<String>,
     target_lang: &str,
     engine_id: &str,
 ) {
+    if !is_current(app, gen) {
+        return;
+    }
     let _ = app.emit(
         EVT_TRANSLATING,
         ScreenshotTranslating {
+            session_id: gen,
             original: original.to_string(),
             source_lang,
             target_lang: target_lang.to_string(),
@@ -845,10 +908,21 @@ fn emit_translating(
     );
 }
 
-fn emit_error(app: &AppHandle, stage: &str, code: &str, message: &str, original: Option<String>) {
+fn emit_error(
+    app: &AppHandle,
+    gen: u32,
+    stage: &str,
+    code: &str,
+    message: &str,
+    original: Option<String>,
+) {
+    if !is_current(app, gen) {
+        return;
+    }
     let _ = app.emit(
         EVT_ERROR,
         ScreenshotError {
+            session_id: gen,
             stage: stage.to_string(),
             code: code.to_string(),
             message: message.to_string(),
@@ -862,6 +936,58 @@ mod tests {
     use super::{cached_result_matches, join_blocks};
     use crate::core::ocr::OcrBlock;
     use crate::types::{Rect, ScreenshotCost, ScreenshotResult};
+
+    #[tokio::test]
+    async fn superseding_request_drops_in_flight_work() {
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+        let session = Arc::new(super::ScreenshotSession::default());
+        let gen = session.begin();
+        let dropped = Arc::new(AtomicBool::new(false));
+        struct PendingGuard(Arc<AtomicBool>);
+        impl Drop for PendingGuard {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let worker = session.clone();
+        let flag = dropped.clone();
+        let task = tokio::spawn(async move {
+            worker
+                .run(gen, async move {
+                    let _guard = PendingGuard(flag);
+                    let _ = started.send(());
+                    std::future::pending::<()>().await;
+                })
+                .await
+        });
+        ready.await.unwrap();
+        session.begin();
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), task)
+                .await
+                .unwrap()
+                .unwrap(),
+            None
+        );
+        assert!(dropped.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn cancelled_before_polling_never_starts_work() {
+        let session = super::ScreenshotSession::default();
+        let gen = session.begin();
+        session.cancel();
+        assert_eq!(
+            session
+                .run(gen, async { panic!("stale HTTP request started") })
+                .await,
+            None::<()>
+        );
+    }
 
     fn block(text: &str, x: i32, y: i32, w: i32, h: i32) -> OcrBlock {
         OcrBlock {
@@ -911,6 +1037,7 @@ mod tests {
     #[test]
     fn cache_key_includes_target_language_and_engine() {
         let result = ScreenshotResult {
+            session_id: 0,
             original: "hello".into(),
             translation: "你好".into(),
             source_lang: Some("en".into()),

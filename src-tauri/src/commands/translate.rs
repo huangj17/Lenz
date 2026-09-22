@@ -69,3 +69,24 @@ pub async fn test_engine(
         }),
     }
 }
+
+/// Reserve a popup session before a manual request, cancelling all older work.
+#[tauri::command]
+#[specta::specta]
+pub fn begin_popup_session(session: State<'_, crate::core::screenshot::ScreenshotSession>) -> u32 {
+    session.begin()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn translate_popup(
+    req: TranslateRequest,
+    session_id: u32,
+    session: State<'_, crate::core::screenshot::ScreenshotSession>,
+    mgr: State<'_, TranslatorManager>,
+) -> Result<TranslateResponse, LenzError> {
+    session
+        .run(session_id, mgr.translate(req))
+        .await
+        .unwrap_or_else(|| Err(LenzError::Cancelled("superseded or closed".into())))
+}

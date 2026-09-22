@@ -119,6 +119,8 @@ pub struct ScreenshotCost {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ScreenshotResult {
+    #[serde(default)]
+    pub session_id: u32,
     /// OCR 拼接原文。
     pub original: String,
     /// 译文。
@@ -137,6 +139,8 @@ pub struct ScreenshotResult {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ScreenshotTranslating {
+    #[serde(default)]
+    pub session_id: u32,
     pub original: String,
     pub source_lang: Option<String>,
     pub target_lang: String,
@@ -147,6 +151,8 @@ pub struct ScreenshotTranslating {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ScreenshotError {
+    #[serde(default)]
+    pub session_id: u32,
     /// 失败阶段:`capture` / `ocr` / `translate` / `timeout`。
     pub stage: String,
     /// 细分码:`permission` / `no_text` / `failed` / `timeout`。
@@ -161,6 +167,8 @@ pub struct ScreenshotError {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ScreenshotProgress {
+    #[serde(default)]
+    pub session_id: u32,
     /// 当前阶段:`capture` / `ocr` / `translate`。
     pub stage: String,
 }

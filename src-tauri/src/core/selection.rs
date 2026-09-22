@@ -118,6 +118,7 @@ pub fn sync(app: &AppHandle) {
         listener.start(app);
     } else {
         listener.stop();
+        crate::core::indicator::hide(app);
     }
 }
 
@@ -316,7 +317,8 @@ mod macos {
             ctx.down.set(Some((p.x, p.y)));
             // 图标可见且点击落在图标外 → 立刻隐藏(失去选区即消失,spec 05 §6)。
             // 落在图标内则放行,交由 WebView 的点击触发翻译。
-            if crate::core::indicator::is_visible() && !crate::core::indicator::hit_test(p.x, p.y) {
+            if !crate::core::indicator::hit_test(p.x, p.y) {
+                crate::core::indicator::cancel_pending();
                 let _ = ctx.app.emit(EVENT_SELECTION_DISMISS, ());
             }
         } else if etype == CGEventType::LeftMouseUp {

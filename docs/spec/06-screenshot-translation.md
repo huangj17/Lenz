@@ -34,7 +34,7 @@ emit screenshot://result { ... }             [Rust → frontend popup]
 popup 窗口展示原文 + 译文                    [前端 popup 窗口]
 ```
 
-所有步骤在 Rust 主线程的 async task 中串行执行(非命令链路,由 Rust 内部协调)。
+所有步骤在 Rust 异步运行时任务中串行执行(非命令链路,由 Rust 内部协调)。
 
 ## 2. 详细步骤
 
@@ -47,12 +47,13 @@ popup 窗口展示原文 + 译文                    [前端 popup 窗口]
 
 - 监听 `capture://region-selected` event,payload 含 `trigger = "screenshot"`。
 - 若 `w < 4 || h < 4` → 视为点击取消,关闭选区窗口,流程结束。
-- 同时关闭选区窗口(销毁)。
+- 关闭选区窗口(销毁),保持 popup 和划词图标隐藏;抓屏完成前不显示翻译浮层。
 
 ### 2.3 截图
 
 - 调 `capture_screen_region(rect)`,逻辑见 [Spec 02](./02-capture.md)。
-- 超时:5s。失败 → emit `screenshot://error { stage: "capture", ... }`。
+- 截图与 OCR 共用 10s 预算,翻译另按引擎 `timeoutMs` 执行。失败 → emit `screenshot://error { stage: "capture", ... }`。
+- 等选区蒙层离屏后抓取;拿到图片后才显示 popup,避免大选区截到自己的翻译框。
 
 ### 2.4 OCR
 
@@ -76,6 +77,7 @@ popup 窗口展示原文 + 译文                    [前端 popup 窗口]
 ```ts
 // screenshot://translating 事件载荷(原文已知、译文未出)
 interface ScreenshotTranslating {
+  sessionId: number;
   original: string;
   sourceLang: string | null;   // F2 为 OCR 检测值;F1 划词为 null
   targetLang: string;
@@ -91,13 +93,14 @@ interface ScreenshotTranslating {
 ```ts
 // screenshot://result 事件载荷
 interface ScreenshotResult {
+  sessionId: number;
   original: string;          // OCR 拼接文本
   translation: string;       // 译文
   sourceLang: string | null;
   targetLang: string;
   engineId: string;
   region: { x: number; y: number; w: number; h: number };  // 逻辑坐标
-  costMs: { capture: number; ocr: number; translate: number };
+  cost: { capture: number; ocr: number; translate: number };
 }
 ```
 
@@ -121,17 +124,17 @@ popup 窗口监听 `screenshot://progress`、`screenshot://translating`、`scree
 | capture 权限不足 | popup 展示"需要屏幕录制权限",含跳转系统设置按钮 |
 | ocr no_text | popup 展示"未识别到文字,请重新框选" |
 | translate 失败 | popup 展示 OCR 原文 + "翻译失败:{error}",含重试按钮 |
-| 超时(总体 > 10s) | popup 展示"响应超时" |
+| 截图/OCR 超过 10s 或引擎超过 `timeoutMs` | popup 展示"响应超时";翻译超时保留原文并允许重试 |
 
 ## 5. 进度反馈
 
-从选区完成到结果显示期间,popup 需立即出现(占位)并显示进度:
+抓屏完成后 popup 出现(占位)并显示进度;抓屏期间保持隐藏:
 
 ```
-[截图中…] → [识别中…] → [翻译中(原文 + 引擎行转圈)] → 结果
+[抓屏,浮层隐藏] → [识别中…] → [翻译中(原文 + 引擎行转圈)] → 结果
 ```
 
-- `capture` / `ocr` 阶段(尚无文本):emit `screenshot://progress { stage }`,popup 显示整块骨架占位。
+- `ocr` 阶段(尚无文本):emit `screenshot://progress { sessionId, stage }`,popup 显示整块骨架占位。
 - `translate` 阶段(原文已知):改 emit `screenshot://translating`(见 §2.5),popup 显示
   「原文 + 语言条 + 引擎行右侧转圈」的完整布局,译文区留骨架占位;译文到达
   (`screenshot://result`)后转圈变 `✓ 耗时`、译文就地填入。故 translate 阶段**不再**走
@@ -155,20 +158,22 @@ ERROR                SHOWING
                        IDLE
 ```
 
-任何阶段按 ESC → 回 IDLE,取消正在进行的异步操作(通过 `CancellationToken`)。
+popup 或选区窗口聚焦时按 ESC → 回 IDLE,取消会话;抓屏期间浮层隐藏,可用新请求取代旧请求。
 
 ## 7. 取消机制
 
-- Rust 侧维护 `Option<CancellationToken>` per-session。
-- 新的 F2 触发 → 取消旧 token,创建新 token。
-- OCR 和翻译调用均传 token,在 `spawn_blocking` 完成后检查;HTTP 请求使用 `reqwest` timeout + `select!`。
+- Rust `ScreenshotSession` 用 `watch` 维护递增会话号;F1、F2、手动重译共享取消域。
+- 新触发 / 关闭调用 `begin` 或 `cancel`,通过 `select!` 释放旧 HTTP future;已开始的原生阻塞截图/OCR可继续结束,结果不投递。
+- 所有 `screenshot://*` 事件带 `sessionId`。手动重译先调用 `begin_popup_session`,再调用 `translate_popup(req, sessionId)`;前端屏蔽旧会话事件,保留预约期间已到达的新会话结果。
+- 剪贴板事务在阻塞任务内完成恢复步骤,不随翻译取消中断。
+- 语言互换仅在成功且源语言已知时可用,用当前译文作为新原文。
 
 ## 8. 验收标准
 
 - [ ] Alt+S → 进入截图模式 ≤ 300ms。
-- [ ] 框选完成 → 弹框出现(含 "截图中" 进度) ≤ 500ms。
+- [ ] 框选完成 → 抓屏结束后弹框出现(识别进度),通常 ≤ 500ms。
 - [ ] 框选完成 → 完整结果显示 ≤ 3s(本地 OCR + 本地 LLM)。
-- [ ] ESC 在任何阶段都能取消,不残留窗口。
+- [ ] popup / 选区的 ESC 能取消;连续触发会取消旧流程,不残留窗口。
 - [ ] 弹框位置在选区正下方,不超出屏幕。
 - [ ] 翻译失败时展示原文,不空白。
 

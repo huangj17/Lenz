@@ -1,3 +1,4 @@
+import { errorMessage } from "@/lib/errors";
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { clsx } from "clsx";
@@ -62,7 +63,7 @@ type EnginePatch = { engines: TranslatorEngine[]; defaultEngineId?: string };
  * 文本翻译引擎 —— 左列表(可拖动排序)+ 右编辑器(可编辑表单 + 测试 / 设默认 / 删除)。
  *
  * 写入约定:merge patch 对数组整体替换,故任何引擎改动都整体回写 `translator.engines`;
- * 提交时用 `useConfigStore.getState()` 读最新值,避免事件闭包里的旧 engines。
+ * 由 store 串行执行 updater,在提交时读取后端最新列表。
  * 不变量:默认引擎恒为「已启用」——设默认会顺带启用,停用默认会改派给下一个启用引擎。
  */
 export function EnginesPane() {
@@ -84,6 +85,7 @@ export function EnginesPane() {
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const [overAfter, setOverAfter] = useState(false);
+  const testGeneration = useRef(0);
   const delTimer = useRef<number | undefined>(undefined);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -94,6 +96,7 @@ export function EnginesPane() {
 
   // 切换选中引擎:重置草稿与瞬态(超时输入 / Key 显隐 / 测试结果 / 删除确认)。
   useEffect(() => {
+    testGeneration.current += 1;
     setDraft(selected ? { ...selected } : null);
     setMaxTokensText(selected?.maxTokens != null ? String(selected.maxTokens) : "");
     setTempText(selected?.temperature != null ? String(selected.temperature) : "");
@@ -105,14 +108,20 @@ export function EnginesPane() {
   }, [selected?.id]);
 
   // 卸载时清理删除确认计时器。
-  useEffect(() => () => window.clearTimeout(delTimer.current), []);
+  useEffect(() => () => {
+    window.clearTimeout(delTimer.current);
+    testGeneration.current += 1;
+  }, []);
 
-  const liveTranslator = () => useConfigStore.getState().config.translator;
-  const writeEngines = (next: TranslatorEngine[]) =>
-    patch({ translator: { engines: next } });
+  const writeEngines = (update: (engines: TranslatorEngine[]) => TranslatorEngine[]) =>
+    patch((current) => ({ translator: { engines: update(current.translator.engines) } }));
 
   // 任意编辑都让上一次测试结果失效(避免「改了配置却还显示 ✓」)。
-  const invalidateTest = () => setTestResult(null);
+  const invalidateTest = () => {
+    testGeneration.current += 1;
+    setTesting(false);
+    setTestResult(null);
+  };
 
   // 即时提交(下拉等离散操作):更新草稿并整体回写。
   const commitNow = (partial: Partial<TranslatorEngine>) => {
@@ -120,7 +129,7 @@ export function EnginesPane() {
     invalidateTest();
     const merged = { ...draft, ...partial };
     setDraft(merged);
-    void writeEngines(liveTranslator().engines.map((e) => (e.id === merged.id ? merged : e)));
+    void writeEngines((current) => current.map((e) => (e.id === merged.id ? merged : e)));
   };
 
   // 文本类:本地改草稿,失焦再整体回写(避免逐键写盘 + 逐键热重载)。
@@ -130,10 +139,8 @@ export function EnginesPane() {
   };
   const commitDraft = () => {
     if (!draft) return;
-    const cur = liveTranslator().engines;
-    const orig = cur.find((e) => e.id === draft.id);
-    if (orig && JSON.stringify(orig) === JSON.stringify(draft)) return;
-    void writeEngines(cur.map((e) => (e.id === draft.id ? draft : e)));
+    const saved = { ...draft };
+    void writeEngines((current) => current.map((e) => (e.id === saved.id ? saved : e)));
   };
 
   // 启用 / 停用:停用当前默认引擎时,默认改派给下一个仍启用的引擎(默认恒启用)。
@@ -142,15 +149,16 @@ export function EnginesPane() {
     invalidateTest();
     const merged = { ...draft, enabled: v };
     setDraft(merged);
-    const tr = liveTranslator();
-    const nextEngines = tr.engines.map((e) => (e.id === merged.id ? merged : e));
-    const next: EnginePatch = { engines: nextEngines };
-    if (v && !nextEngines.some((e) => e.enabled && e.id === tr.defaultEngineId)) {
-      next.defaultEngineId = merged.id;
-    } else if (!v && tr.defaultEngineId === merged.id) {
-      next.defaultEngineId = nextEngines.find((e) => e.enabled && e.id !== merged.id)?.id ?? "";
-    }
-    void patch({ translator: next });
+    void patch(({ translator: tr }) => {
+      const nextEngines = tr.engines.map((e) => (e.id === merged.id ? merged : e));
+      const next: EnginePatch = { engines: nextEngines };
+      if (v && !nextEngines.some((e) => e.enabled && e.id === tr.defaultEngineId)) {
+        next.defaultEngineId = merged.id;
+      } else if (!v && tr.defaultEngineId === merged.id) {
+        next.defaultEngineId = nextEngines.find((e) => e.enabled && e.id !== merged.id)?.id ?? "";
+      }
+      return { translator: next };
+    });
   };
 
   // 设为默认:顺带启用,保证默认引擎可用。
@@ -159,13 +167,12 @@ export function EnginesPane() {
     invalidateTest();
     const merged = { ...draft, enabled: true };
     setDraft(merged);
-    const cur = liveTranslator().engines;
-    void patch({
+    void patch(({ translator: tr }) => ({
       translator: {
-        engines: cur.map((e) => (e.id === merged.id ? merged : e)),
+        engines: tr.engines.map((e) => (e.id === merged.id ? merged : e)),
         defaultEngineId: merged.id,
       },
-    });
+    }));
   };
 
   // 最大输出 token:留空 = 不限(undefined),否则夹到 [1, 1000000]。
@@ -203,15 +210,17 @@ export function EnginesPane() {
   // 插到目标行「之前 / 之后」(由光标落在上下半区决定),支持拖到末尾。
   const reorder = (fromId: string, toId: string, after: boolean) => {
     if (fromId === toId) return;
-    const next = [...liveTranslator().engines];
-    const from = next.findIndex((e) => e.id === fromId);
-    if (from < 0) return;
-    const [moved] = next.splice(from, 1);
-    let insertAt = next.findIndex((e) => e.id === toId);
-    if (insertAt < 0) return;
-    if (after) insertAt += 1;
-    next.splice(insertAt, 0, moved);
-    void writeEngines(next);
+    void writeEngines((current) => {
+      const next = [...current];
+      const from = next.findIndex((e) => e.id === fromId);
+      if (from < 0) return current;
+      const [moved] = next.splice(from, 1);
+      let insertAt = next.findIndex((e) => e.id === toId);
+      if (insertAt < 0) return current;
+      if (after) insertAt += 1;
+      next.splice(insertAt, 0, moved);
+      return next;
+    });
   };
 
   // 命中测试:光标 Y 落在哪一行、上半区(之前)还是下半区(之后)。
@@ -273,20 +282,19 @@ export function EnginesPane() {
       model: "",
       timeoutMs: 30000,
     };
-    void writeEngines([...liveTranslator().engines, ne]);
-    setSelectedId(ne.id);
+    void writeEngines((current) => [...current, ne]).then((saved) => { if (saved) setSelectedId(ne.id); });
   };
 
   const removeEngine = () => {
     if (!draft) return;
-    const tr = liveTranslator();
-    const next = tr.engines.filter((e) => e.id !== draft.id);
-    const p: EnginePatch = { engines: next };
-    if (tr.defaultEngineId === draft.id) {
-      p.defaultEngineId = next.find((e) => e.enabled)?.id ?? next[0]?.id ?? "";
-    }
-    void patch({ translator: p });
-    setSelectedId(next[0]?.id ?? null);
+    const id = draft.id;
+    invalidateTest();
+    void patch(({ translator: tr }) => {
+      const next = tr.engines.filter((e) => e.id !== id);
+      const p: EnginePatch = { engines: next };
+      if (tr.defaultEngineId === id) p.defaultEngineId = next.find((e) => e.enabled)?.id ?? "";
+      return { translator: p };
+    }).then((saved) => { if (saved) setSelectedId(null); });
   };
 
   // 两步删除:首次点击进入确认态(3.5s 自动取消),再次点击才删除。
@@ -304,19 +312,22 @@ export function EnginesPane() {
 
   const runTest = async () => {
     if (!draft) return;
+    const generation = ++testGeneration.current;
     setTesting(true);
     setTestResult(null);
     try {
-      setTestResult(await engineApi.test(draft));
+      const result = await engineApi.test(draft);
+      if (generation === testGeneration.current) setTestResult(result);
     } catch (err) {
+      if (generation !== testGeneration.current) return;
       setTestResult({
         ok: false,
         latencyMs: 0,
         sample: "",
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       });
     } finally {
-      setTesting(false);
+      if (generation === testGeneration.current) setTesting(false);
     }
   };
 
@@ -358,7 +369,7 @@ export function EnginesPane() {
                 <div
                   key={e.id}
                   data-engine-id={e.id}
-                  onClick={() => setSelectedId(e.id)}
+                  onClick={() => { invalidateTest(); setSelectedId(e.id); }}
                   className={clsx(
                     "group flex cursor-pointer items-center gap-2 py-2.5 pr-2 pl-[11px] text-left",
                     i < engines.length - 1 && "border-b-[0.5px] border-line",

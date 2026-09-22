@@ -163,6 +163,7 @@ OpenAI 引擎不做客户端语言检测;在 system prompt 里写 "auto-detect s
 - 认证:**MD5** 签名 `sign = md5(appid + q + salt + 密钥)`(32 位小写十六进制,`q` 用未编码原文),需 `appid` + `密钥`(配置中 `apiKey` 存 `appid:secret` 形式,与有道同构)。
 - 批量:不支持,`supports_batch` 返回 `false`(逐条串行);为保「译文条数 == 原文条数」不变量,不用 `\n` 拼接批量。
 - 语言代码:百度用一批非标准码,需映射 —— 日 `jp`、韩 `kor`、法 `fra`、西 `spa`、阿 `ara`、繁体 `cht`。
+- 百度与有道响应中的检测语言统一转换为 BCP-47 后再传给前端,保证后续重译可复用。当前映射未支持的语言明确返回 `unsupported language`,不静默转成英文。
 - 错误:成功码为无 `error_code` 或 `52000`;其余非空 `error_code`(如 `54001` 签名错、`54003` 频率受限)→ `TranslateFailed("baidu_{code}")`。
 
 ## 6.1 微软 Azure Translator 实现
@@ -185,7 +186,7 @@ OpenAI 引擎不做客户端语言检测;在 system prompt 里写 "auto-detect s
 
 > 原「代理支持」已移除:不再提供应用内代理配置(`ProxyConfig` / `useProxy` 均已删除)。**编号 §7 保留不复用**,与 spec 08 的处理方式一致。
 
-所有引擎共享一个 `reqwest::Client`,仅设 30s 超时,不做任何应用内代理配置——沿用 reqwest 默认行为(尊重系统环境变量 `HTTP(S)_PROXY` / `NO_PROXY`)。构建失败回退默认 client。
+所有引擎共享管理器生命周期内的一个 `reqwest::Client`,默认 30s,单次请求以引擎 `timeoutMs` 覆盖;修改目标语言不重建引擎或连接池。不做应用内代理配置,沿用 reqwest 默认行为(尊重系统环境变量 `HTTP(S)_PROXY` / `NO_PROXY`)。构建失败回退默认 client。
 
 ```rust
 fn build_http_client() -> reqwest::Client {
@@ -231,7 +232,7 @@ async fn test_engine(
 
 | 场景 | LenzError |
 |---|---|
-| 网络超时 | `Network("timeout")` |
+| 网络超时 | `Timeout("response timed out")` |
 | HTTP 4xx(API Key 错误) | `TranslateFailed("auth")` |
 | HTTP 5xx | `TranslateFailed("server_error")` |
 | 响应解析失败 | `TranslateFailed("parse_error")` |

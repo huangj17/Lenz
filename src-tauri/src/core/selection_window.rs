@@ -23,6 +23,7 @@ pub const SELECTION_LABEL_PREFIX: &str = "selection";
 ///
 /// 构建被 dispatch 到主线程(macOS 约束),故本函数立即返回,真正失败仅记日志。
 pub fn open(app: &AppHandle, trigger: TriggerKind) -> Result<(), LenzError> {
+    crate::core::screenshot::hide_for_capture(app);
     let app2 = app.clone();
     app.run_on_main_thread(move || {
         if let Err(e) = open_inner(&app2, trigger) {

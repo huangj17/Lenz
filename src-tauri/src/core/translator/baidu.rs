@@ -101,9 +101,11 @@ impl Translator for BaiduTranslator {
         let from = req
             .source_lang
             .as_deref()
+            .filter(|code| !code.eq_ignore_ascii_case("auto"))
             .map(baidu_lang_code)
+            .transpose()?
             .unwrap_or("auto");
-        let to = baidu_lang_code(&req.target_lang);
+        let to = baidu_lang_code(&req.target_lang)?;
 
         let mut translations = Vec::with_capacity(req.texts.len());
         let mut detected: Option<String> = None;
@@ -116,7 +118,9 @@ impl Translator for BaiduTranslator {
                 }
             }
             if detected.is_none() {
-                detected = resp.from.clone();
+                detected = resp.from.as_deref().and_then(|code| {
+                    super::languages::from_provider(code, super::languages::BAIDU)
+                });
             }
             // trans_result 逐段拼回(百度会按标点/换行切段);单条原文取全部 dst 拼接。
             let result = resp
@@ -149,23 +153,8 @@ fn sign(appid: &str, q: &str, salt: &str, secret: &str) -> String {
 
 /// BCP-47 → 百度语言代码。百度用一批非标准码(日 `jp`、韩 `kor`、法 `fra`、西 `spa`、
 /// 阿 `ara`、繁体 `cht`),需单独映射。
-fn baidu_lang_code(code: &str) -> &'static str {
-    match code.trim().to_ascii_lowercase().as_str() {
-        "zh" | "zh-cn" | "zh-hans" => "zh",
-        "zh-tw" | "zh-hant" | "zh-hk" => "cht",
-        "ja" | "ja-jp" => "jp",
-        "ko" | "ko-kr" => "kor",
-        "fr" | "fr-fr" => "fra",
-        "de" | "de-de" => "de",
-        "es" | "es-es" => "spa",
-        "it" | "it-it" => "it",
-        "pt" | "pt-pt" | "pt-br" => "pt",
-        "ru" | "ru-ru" => "ru",
-        "ar" => "ara",
-        "th" => "th",
-        "vi" => "vie",
-        _ => "en",
-    }
+fn baidu_lang_code(code: &str) -> Result<&'static str, LenzError> {
+    super::languages::to_provider(code, super::languages::BAIDU)
 }
 
 #[derive(Deserialize)]
@@ -205,12 +194,12 @@ mod tests {
 
     #[test]
     fn baidu_codes() {
-        assert_eq!(baidu_lang_code("zh-CN"), "zh");
-        assert_eq!(baidu_lang_code("zh-Hant"), "cht");
-        assert_eq!(baidu_lang_code("ja"), "jp");
-        assert_eq!(baidu_lang_code("ko-KR"), "kor");
-        assert_eq!(baidu_lang_code("fr"), "fra");
-        assert_eq!(baidu_lang_code("es"), "spa");
-        assert_eq!(baidu_lang_code("en-US"), "en");
+        assert_eq!(baidu_lang_code("zh-CN").unwrap(), "zh");
+        assert_eq!(baidu_lang_code("zh-Hant").unwrap(), "cht");
+        assert_eq!(baidu_lang_code("ja").unwrap(), "jp");
+        assert_eq!(baidu_lang_code("ko-KR").unwrap(), "kor");
+        assert_eq!(baidu_lang_code("fr").unwrap(), "fra");
+        assert_eq!(baidu_lang_code("es").unwrap(), "spa");
+        assert_eq!(baidu_lang_code("en-US").unwrap(), "en");
     }
 }

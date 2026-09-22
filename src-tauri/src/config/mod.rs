@@ -102,6 +102,28 @@ impl ConfigStore {
     ///
     /// 返回合并后的最新配置。
     pub fn set<R: Runtime>(&self, app: &AppHandle<R>, patch: Value) -> Result<Config, LenzError> {
+        Self::on_main(app, move |store, app| store.set_inner(app, patch))
+    }
+
+    // Shortcut registration synchronously dispatches to the UI thread. Never hold
+    // the config write lock on a worker while waiting for that thread: tray and
+    // window callbacks also read config. Serialize the whole commit on the UI thread.
+    fn on_main<R: Runtime>(
+        app: &AppHandle<R>,
+        apply: impl FnOnce(&Self, &AppHandle<R>) -> Result<Config, LenzError> + Send + 'static,
+    ) -> Result<Config, LenzError> {
+        let (send, receive) = std::sync::mpsc::channel();
+        let handle = app.clone();
+        app.run_on_main_thread(move || {
+            let store = handle.state::<ConfigStore>();
+            let _ = send.send(apply(&store, &handle));
+        })?;
+        receive
+            .recv()
+            .map_err(|_| LenzError::internal("config commit interrupted"))?
+    }
+
+    fn set_inner<R: Runtime>(&self, app: &AppHandle<R>, patch: Value) -> Result<Config, LenzError> {
         let new_config = {
             let mut guard = self
                 .inner
@@ -117,8 +139,18 @@ impl ConfigStore {
             // 4. 反序列化校验。
             let next: Config = serde_json::from_value(doc)
                 .map_err(|e| LenzError::config(format!("invalid patch result: {e}")))?;
-            // 5. 原子写盘。
-            write_atomic(&self.dir, &next)?;
+            // Register first: conflicts must not persist an unusable shortcut config.
+            if guard.shortcuts != next.shortcuts {
+                crate::core::shortcut::register_shortcuts(app, &next.shortcuts)?;
+            }
+            if let Err(error) = write_atomic(&self.dir, &next) {
+                if guard.shortcuts != next.shortcuts {
+                    crate::core::shortcut::register_shortcuts(app, &guard.shortcuts).map_err(
+                        |rollback| LenzError::config(format!("{error}; rollback: {rollback}")),
+                    )?;
+                }
+                return Err(error);
+            }
             // 6. 更新内存态。
             *guard = next.clone();
 
@@ -133,13 +165,23 @@ impl ConfigStore {
 
     /// 重置为默认配置,持久化并 emit `config://changed`。
     pub fn reset<R: Runtime>(&self, app: &AppHandle<R>) -> Result<Config, LenzError> {
+        Self::on_main(app, |store, app| store.reset_inner(app))
+    }
+
+    fn reset_inner<R: Runtime>(&self, app: &AppHandle<R>) -> Result<Config, LenzError> {
         let default = Config::default();
         {
             let mut guard = self
                 .inner
                 .write()
                 .map_err(|_| LenzError::internal("config lock poisoned"))?;
-            write_atomic(&self.dir, &default)?;
+            crate::core::shortcut::register_shortcuts(app, &default.shortcuts)?;
+            if let Err(error) = write_atomic(&self.dir, &default) {
+                crate::core::shortcut::register_shortcuts(app, &guard.shortcuts).map_err(
+                    |rollback| LenzError::config(format!("{error}; rollback: {rollback}")),
+                )?;
+                return Err(error);
+            }
             *guard = default.clone();
         }
         let _ = app.emit(
@@ -288,6 +330,32 @@ mod tests {
         let mut paths = collect_changed_keypaths(&patch, "");
         paths.sort();
         assert_eq!(paths, vec!["app.theme", "shortcuts.selection"]);
+    }
+
+    #[test]
+    fn legacy_v2_config_keeps_user_settings_without_popup_width() {
+        // Actual v2 shape: width was absent, proxy was still present.
+        let raw = r#"{
+          "version": 2,
+          "app": {"locale":"en-US","theme":"dark","autoStart":false,"checkUpdate":false,"openOnLaunch":true},
+          "shortcuts": {"selection":"Alt+Q","screenshot":"Alt+W","overlay":null,"openMain":null},
+          "selection": {"enabled":false,"autoDetect":false,"popupDelayMs":400},
+          "ocr": {"engine":"system","preferredLanguages":["en-US"],"minConfidence":0.3},
+          "translator": {"defaultEngineId":"local","targetLang":"ja","engines":[
+            {"id":"local","name":"My model","kind":"openai","enabled":true,
+             "apiUrl":"http://localhost:1234/v1","apiKey":"fixture-only","model":"custom","timeoutMs":60000}
+          ]},
+          "proxy": {"mode":"system"},
+          "ui": {"popup":{"fontSize":16,"showOriginal":false}}
+        }"#;
+        let (config, migrated) = parse_and_migrate(raw).unwrap();
+        assert!(migrated);
+        assert_eq!(config.ui.popup.width, 360);
+        assert_eq!(config.ui.popup.font_size, 16);
+        assert!(!config.ui.popup.show_original);
+        assert_eq!(config.translator.engines[0].api_key, "fixture-only");
+        assert_eq!(config.translator.default_engine_id, "local");
+        assert_eq!(config.shortcuts.selection.as_deref(), Some("Alt+Q"));
     }
 
     #[test]

@@ -22,7 +22,11 @@ pub enum LenzError {
     /// 翻译失败(鉴权、解析、服务端错误等)。
     #[error("translate failed: {0}")]
     TranslateFailed(String),
-    /// 网络错误(超时、连接失败等)。
+    #[error("cancelled: {0}")]
+    Cancelled(String),
+    #[error("timeout: {0}")]
+    Timeout(String),
+    /// 网络错误(连接失败等)。
     #[error("network error: {0}")]
     Network(String),
     /// 权限缺失(如 macOS 屏幕录制 / 辅助功能未授权)。

@@ -9,6 +9,7 @@ mod apple;
 mod baidu;
 mod deepl;
 mod google;
+mod languages;
 mod microsoft;
 mod openai;
 mod youdao;
@@ -44,6 +45,7 @@ pub trait Translator: Send + Sync {
 
 /// 多引擎管理器(spec 04 §2)。作为 Tauri managed state 注入。
 pub struct TranslatorManager {
+    client: reqwest::Client,
     engines: RwLock<HashMap<String, Arc<dyn Translator>>>,
     default_id: RwLock<String>,
 }
@@ -52,6 +54,7 @@ impl TranslatorManager {
     /// 空管理器(启动后由 `reload` 注入引擎)。
     pub fn new() -> Self {
         TranslatorManager {
+            client: build_http_client(),
             engines: RwLock::new(HashMap::new()),
             default_id: RwLock::new(String::new()),
         }
@@ -64,7 +67,7 @@ impl TranslatorManager {
     /// - 跳过缺少必需凭据或尚未实现的引擎;
     /// - 解析默认引擎:配置指定且可用则用之,否则按配置顺序取首个可用引擎。
     pub fn reload(&self, engines: &[TranslatorEngine], default_id: &str) {
-        let client = build_http_client();
+        let client = self.client.clone();
 
         let mut map: HashMap<String, Arc<dyn Translator>> = HashMap::new();
         for cfg in engines {
@@ -260,7 +263,7 @@ pub(crate) fn lang_display_name(code: &str) -> String {
 /// 把 `reqwest::Error` 映射为 `LenzError`(spec 04 §9)。
 pub(crate) fn map_reqwest_err(e: reqwest::Error) -> LenzError {
     if e.is_timeout() {
-        LenzError::Network("timeout".into())
+        LenzError::Timeout("response timed out".into())
     } else if e.is_connect() {
         LenzError::Network(format!("connect: {e}"))
     } else {
@@ -273,7 +276,7 @@ pub(crate) fn status_to_error(status: StatusCode, body: &str) -> LenzError {
     let snippet: String = body.chars().take(200).collect();
     match status.as_u16() {
         401 | 403 => LenzError::TranslateFailed("auth".into()),
-        408 => LenzError::Network("timeout".into()),
+        408 => LenzError::Timeout("response timed out".into()),
         429 => LenzError::TranslateFailed("rate_limit".into()),
         400..=499 => {
             LenzError::TranslateFailed(format!("client_error({}): {snippet}", status.as_u16()))

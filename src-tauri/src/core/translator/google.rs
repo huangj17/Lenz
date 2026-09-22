@@ -106,11 +106,11 @@ fn google_lang_code(code: &str) -> String {
 
 /// Google v2 即便 `format=text` 也会 HTML 转义少数实体,这里还原常见几个。
 fn html_unescape(s: &str) -> String {
-    s.replace("&amp;", "&")
-        .replace("&lt;", "<")
+    s.replace("&lt;", "<")
         .replace("&gt;", ">")
         .replace("&quot;", "\"")
         .replace("&#39;", "'")
+        .replace("&amp;", "&")
 }
 
 #[derive(Deserialize)]
@@ -133,6 +133,11 @@ struct GoogleTranslation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unescape_does_not_decode_nested_entities_twice() {
+        assert_eq!(html_unescape("&amp;lt; &amp;#39;"), "&lt; &#39;");
+    }
 
     #[test]
     fn google_codes() {

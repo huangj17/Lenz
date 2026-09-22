@@ -19,3 +19,5 @@ pub mod selection_text;
 pub mod selection_window;
 pub mod shortcut;
 pub mod translator;
+
+pub mod clipboard_selection;

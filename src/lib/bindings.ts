@@ -18,6 +18,9 @@ export const commands = {
 	listEngines: () => typedError<TranslatorEngine_Serialize[], LenzError>(__TAURI_INVOKE("list_engines")),
 	/**  单条翻译(`texts` 通常长度 1)。路由到目标 / 默认引擎。 */
 	translateText: (req: TranslateRequest) => typedError<TranslateResponse, LenzError>(__TAURI_INVOKE("translate_text", { req })),
+	/**  Reserve a popup session before a manual request, cancelling all older work. */
+	beginPopupSession: () => __TAURI_INVOKE<number>("begin_popup_session"),
+	translatePopup: (req: TranslateRequest, sessionId: number) => typedError<TranslateResponse, LenzError>(__TAURI_INVOKE("translate_popup", { req, sessionId })),
 	/**  批量翻译。与 `translate_text` 同路径,引擎内部决定单请求批量或逐条。 */
 	translateBatch: (req: TranslateRequest) => typedError<TranslateResponse, LenzError>(__TAURI_INVOKE("translate_batch", { req })),
 	/**
@@ -173,8 +176,8 @@ export type LenzError =
 /**  OCR 执行失败。 */
 { code: "OcrFailed"; message: string } | 
 /**  翻译失败(鉴权、解析、服务端错误等)。 */
-{ code: "TranslateFailed"; message: string } | 
-/**  网络错误(超时、连接失败等)。 */
+{ code: "TranslateFailed"; message: string } | { code: "Cancelled"; message: string } | { code: "Timeout"; message: string } | 
+/**  网络错误(连接失败等)。 */
 { code: "Network"; message: string } | 
 /**  权限缺失(如 macOS 屏幕录制 / 辅助功能未授权)。 */
 { code: "Permission"; message: string } | 
@@ -226,7 +229,7 @@ export type PopupUiConfig = {
 	/**  是否展示原文。 */
 	showOriginal: boolean,
 	/**  弹框逻辑宽度(用户可拖拽右缘调节并记忆),默认 360;取值夹 [300, 720]。 */
-	width: number,
+	width?: number,
 };
 
 /**  屏幕矩形区域,单位为逻辑像素。 */
@@ -264,6 +267,7 @@ export type ScreenshotError = ScreenshotError_Serialize | ScreenshotError_Deseri
 
 /**  `screenshot://error` 事件载荷(spec 06 §4)。 */
 export type ScreenshotError_Deserialize = {
+	sessionId?: number,
 	/**  失败阶段:`capture` / `ocr` / `translate` / `timeout`。 */
 	stage: string,
 	/**  细分码:`permission` / `no_text` / `failed` / `timeout`。 */
@@ -275,6 +279,7 @@ export type ScreenshotError_Deserialize = {
 
 /**  `screenshot://error` 事件载荷(spec 06 §4)。 */
 export type ScreenshotError_Serialize = {
+	sessionId: number,
 	/**  失败阶段:`capture` / `ocr` / `translate` / `timeout`。 */
 	stage: string,
 	/**  细分码:`permission` / `no_text` / `failed` / `timeout`。 */
@@ -286,12 +291,14 @@ export type ScreenshotError_Serialize = {
 
 /**  `screenshot://progress` 事件载荷(spec 06 §5)。 */
 export type ScreenshotProgress = {
+	sessionId?: number,
 	/**  当前阶段:`capture` / `ocr` / `translate`。 */
 	stage: string,
 };
 
 /**  `screenshot://result` 事件载荷(spec 06 §2.6)。 */
 export type ScreenshotResult = {
+	sessionId?: number,
 	/**  OCR 拼接原文。 */
 	original: string,
 	/**  译文。 */
@@ -310,6 +317,7 @@ export type ScreenshotResult = {
  *  (spec 06 §2.6 / spec 09 §3)。`sourceLang` 此刻可能未检测(None)。
  */
 export type ScreenshotTranslating = {
+	sessionId?: number,
 	original: string,
 	sourceLang: string | null,
 	targetLang: string,

@@ -11,6 +11,7 @@ import type { LocaleSetting, ThemeSetting } from "@/lib/types";
 export function GeneralPane() {
   const { t } = useTranslation();
   const config = useConfigStore((s) => s.config);
+  const setError = useConfigStore((s) => s.setError);
   const patch = useConfigStore((s) => s.patch);
   const { app, selection } = config;
 
@@ -21,7 +22,7 @@ export function GeneralPane() {
           <Row label={t("general.autoStart")} hint={t("general.autoStartHint")}>
             <Toggle
               checked={app.autoStart}
-              onCheckedChange={(v) => void systemApi.setAutoStart(v)}
+              onCheckedChange={(v) => void systemApi.setAutoStart(v).catch(setError)}
             />
           </Row>
           <Row
