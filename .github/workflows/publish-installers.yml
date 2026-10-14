@@ -1,0 +1,65 @@
+name: Publish built installers
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag matching the build
+        type: string
+        required: true
+      run_id:
+        description: Release installers run with successful platform builds
+        type: string
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      BUILD_RUN_ID: ${{ inputs.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify tag and successful platform builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/release/verify-version.mjs --tag "$RELEASE_TAG"
+          [[ "$BUILD_RUN_ID" =~ ^[0-9]+$ ]]
+          tag_sha=$(git rev-parse "$RELEASE_TAG^{commit}")
+          run_sha=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" --jq .head_sha)
+          test "$tag_sha" = "$run_sha"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID/jobs" > build-jobs.json
+          node --input-type=module - <<'JS'
+          import { readFileSync } from 'node:fs';
+          const { jobs } = JSON.parse(readFileSync('build-jobs.json', 'utf8'));
+          const builds = jobs.filter(j => j.name === 'windows' || j.name.startsWith('macos ('));
+          if (builds.length !== 3 || builds.some(j => j.conclusion !== 'success')) throw new Error('All three platform builds must have succeeded.');
+          JS
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          pattern: release-*
+          path: downloaded-artifacts
+          merge-multiple: true
+      - name: Publish existing installers and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/release/collect-assets.mjs --input downloaded-artifacts --output release
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Lenz $RELEASE_TAG" --notes-file "docs/releases/$RELEASE_TAG.md"
+          fi
+          gh release upload "$RELEASE_TAG" release/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest

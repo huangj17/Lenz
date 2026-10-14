@@ -101,13 +101,14 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $output = 'src-tauri/target/msix/release'
-          Compress-Archive -Path "$output/*" -DestinationPath "src-tauri/target/Lenz_$env:RELEASE_VERSION`_windows_x64_test-signed.zip"
+          $assets = 'src-tauri/target/release-assets'
+          New-Item $assets -ItemType Directory -Force | Out-Null
+          Copy-Item "$output/*.msix" $assets
+          Compress-Archive -Path "$output/*" -DestinationPath "$assets/Lenz_$env:RELEASE_VERSION`_windows_x64_test-signed.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: release-windows-x64
-          path: |
-            src-tauri/target/msix/release/*.msix
-            src-tauri/target/Lenz_*_windows_x64_test-signed.zip
+          path: src-tauri/target/release-assets/*
           if-no-files-found: error
           retention-days: 14
 
@@ -122,7 +123,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           pattern: release-*
-          path: release
+          path: downloaded-artifacts
           merge-multiple: true
       - name: Publish installers and checksums
         env:
@@ -131,7 +132,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          (cd release && sha256sum *.dmg *.msix *.zip > SHA256SUMS.txt)
+          node scripts/release/collect-assets.mjs --input downloaded-artifacts --output release
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release create "$RELEASE_TAG" --verify-tag --draft --title "Lenz $RELEASE_TAG" --notes-file "docs/releases/$RELEASE_TAG.md"
           fi
