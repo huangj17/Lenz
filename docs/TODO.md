@@ -14,11 +14,12 @@
 
 - [x] 标签发布工作流:版本一致性检查、macOS arm64/x64 DMG、Windows x64 MSIX + 安装助手 ZIP、SHA256 与 GitHub Release 上传。
 - [x] Xcode 26+ SDK 选择、macOS 12 最低版本及 ad-hoc 签名;Windows 365 天自签测试证书,不导出私钥、不自动修改信任。
-- [x] 发布说明写明签名状态和未验收范围;前端 typecheck/build/19 项测试、版本错配拒绝、工作流 YAML 和 PowerShell 解析通过,改动文件凭据扫描无匹配。
+- [x] 发布说明写明签名状态和未验收范围;前端 typecheck/build/20 项测试(含产物嵌套目录回归)、版本错配拒绝、工作流 YAML 和 PowerShell 解析通过,改动文件凭据扫描无匹配。
 - [x] v0.1.0 标签与发布提交 cc93d55 已推送,触发 [Release installers](https://github.com/huangj17/Lenz/actions/runs/38529429284)。
 - [x] Apple Silicon DMG 与 Windows x64 MSIX 的 GitHub 原生构建成功;Windows MakeAppx/SignTool 链路通过。
 - [x] Intel DMG 原生构建成功;三份安装包齐全。Apple Silicon DMG 完整性/ad-hoc 签名/版本/架构/最低系统检查通过,Windows ZIP 内公开证书和安装助手齐全且无私钥。
 - [x] [v0.1.0 Release](https://github.com/huangj17/Lenz/releases/tag/v0.1.0) 资产上传完成;首轮上传因 Windows 产物嵌套目录失败,已修复收集路径并通过 [Publish built installers](https://github.com/huangj17/Lenz/actions/runs/38532660951) 重用原标签的三份成功构建产物。
+- [x] 下载产物与公开 `SHA256SUMS.txt` 的四项校验值全部匹配;两份 DMG 签名/版本/架构/最低系统与镜像完整性检查通过。`releases/latest` 返回 v0.1.0。
 - [x] 修复 Rust 1.99 CI 的 async_trait 宏 double_must_use 误报(仅限制到两个 trait)及固定大小切片 lint;本地 macOS/Windows GNU clippy 通过。
 - [x] Rust 1.99 的双平台 Clippy 修复已通过实际 CI;macOS Rust 测试通过。
 - [ ] 主分支最终 CI:Windows 仅编译测试。先前 Windows Server 上测试 exe 启动返回 `0xc0000139`(STATUS_ENTRYPOINT_NOT_FOUND),运行验收按用户要求推迟,仍需 Windows 客户端检查;不把此运行失败记为通过。
@@ -519,14 +520,14 @@
 - [-] macOS universal 单包暂用 Apple Silicon / Intel 两份独立 DMG,覆盖两种架构(→ spec 11 §4.3)。
 - [ ] macOS:codesign + notarize + staple(→ spec 11 §4.1)
 - [x] Windows:MSIX MakeAppx/SignTool 测试签名构建及安装助手已实现;正式证书和 Windows 实际安装报告待完成(→ spec 11 §4.2)。
-- [ ] 正式产物:`.dmg`(mac)、`.msix`(win);测试产物流程已编写,尚未公开发布(→ spec 11 §3.1)。
+- [x] v0.1.0 公开产物:macOS arm64/x64 `.dmg`、Windows x64 `.msix` 和带公开证书/安装助手的 ZIP;ad-hoc/测试签名状态见发布说明,正式可信签名仍待后续(→ spec 11 §3.1)。
 - [-] `latest.json` 无需生成:当前使用正式 GitHub Release tag 检查版本(→ spec 10 §4.3)
 - [x] v0.1.0 Release notes 手动整理,写明平台、签名和未验收范围(→ docs/releases/v0.1.0.md)。
 
 ### 9.2 包体
 - [x] Rust release:`opt-level = "s"`、去掉调试信息(→ spec 11 §1.2)。
 - [ ] 前端生产构建 minify + treeshake + shadcn/ui 按需加载(→ spec 11 §1.2)
-- [ ] `.dmg` / `.msix` ≤ 15MB(→ spec 11 §7)
+- [x] v0.1.0 包体:arm64 DMG 7.19MB、Intel DMG 7.43MB、MSIX 6.00MB、Windows ZIP 5.95MB,均 ≤ 15MB(→ spec 11 §7)。
 
 ### 9.3 文档
 - [ ] `README.md`:中文主文档 + English 版本(→ PRD §8)
@@ -538,7 +539,8 @@
 ### 9.4 验收(M9 结束)
 - [ ] macOS 通过 Gatekeeper(公证成功,首次双击打开无警告)(→ spec 11 §7)
 - [ ] Windows MSIX 签名可信、安装后 OCR 诊断通过;正式证书/签名尚未准备(→ spec 11 §7)。
-- [ ] 首个 GitHub Release 发布;updater 验证可识别到新版本(→ spec 10 §4)
+- [x] 首个 GitHub Release v0.1.0 已公开,`releases/latest` 版本源可用(→ spec 10 §4)。
+- [ ] 新版本升级提示端到端验收(需高于已安装版本的后续 Release)。
 - [ ] 抓包确认只有翻译 API + GitHub 更新请求,无其他外联(→ spec 11 §7)
 - [ ] 冷启动 ≤ 2s;空闲内存 ≤ 150MB(M1/i7 均测)(→ spec 11 §7)
 
