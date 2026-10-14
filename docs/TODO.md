@@ -7,6 +7,7 @@
 > - 每项任务右侧 `(→ spec XX §Y)` 指向对应 spec 节。
 > - P0/P1/P2 对应 PRD 优先级;风险项以 ⚠️ 标记。
 > - 跨里程碑的通用约束集中写在本文档末尾的"持续执行"小节。
+> - `[x]` 的范围以任务注释为准:代码实现、构建成功与实机验收分别记录;按日期保留的测试数量为当次结果。
 
 ---
 
@@ -22,7 +23,8 @@
 - [x] 下载产物与公开 `SHA256SUMS.txt` 的四项校验值全部匹配;两份 DMG 签名/版本/架构/最低系统与镜像完整性检查通过。`releases/latest` 返回 v0.1.0。
 - [x] 修复 Rust 1.99 CI 的 async_trait 宏 double_must_use 误报(仅限制到两个 trait)及固定大小切片 lint;本地 macOS/Windows GNU clippy 通过。
 - [x] Rust 1.99 的双平台 Clippy 修复已通过实际 CI;macOS Rust 测试通过。
-- [ ] 主分支最终 CI:Windows 仅编译测试。先前 Windows Server 上测试 exe 启动返回 `0xc0000139`(STATUS_ENTRYPOINT_NOT_FOUND),运行验收按用户要求推迟,仍需 Windows 客户端检查;不把此运行失败记为通过。
+- [x] 发布后主分支 [CI](https://github.com/huangj17/Lenz/actions/runs/38533802391)(33459fc)双平台通过:前端 typecheck/20 项测试/build、Rust fmt/全目标 Clippy;macOS 执行 Rust 测试,Windows `cargo test --no-run` 编译测试。
+- [ ] Windows Rust 测试运行:先前 Windows Server 上测试 exe 启动返回 `0xc0000139`(STATUS_ENTRYPOINT_NOT_FOUND),根因未确认,需 Windows 客户端检查。当前 CI 仅编译测试,不把先前运行失败记为通过。
 - [ ] Windows 安装/OCR/自启运行验收按用户要求推迟;验收工作流改为手动,默认不运行安装识别。
 - [ ] Developer ID 公证与 Windows 公开可信签名后续补齐;本次发布明确使用测试签名。
 
@@ -48,7 +50,7 @@
 - [ ] Windows 实机 OCR/语言包、UIA 源应用覆盖、Ctrl+, 和托盘按键、自启重启验收。
 - [x] Windows OCR 包身份与分发实现:完整 MSIX、开始菜单和包内 StartupTask;缺身份/缺语言提示独立处理,安装后运行生产 OCR 的合成图片诊断。测试签名与 Windows CI 已编写,实际安装结果见下方未完成项(→ spec 03 §4.2、spec 11 §4.2)。
 - [ ] 双平台 F3 混合 DPI/负坐标屏幕、鼠标穿透、Esc 冲突和性能验收。
-- [ ] Windows GNU 调试完整链接:超出 DLL 导出序号上限;Windows MSVC 原生构建和安装包验收仍待完成。
+- [-] Windows GNU 调试完整链接超出 DLL 导出序号上限;发布使用 MSVC 原生构建,已成功生成 v0.1.0 MSIX。Windows 安装运行验收仍待完成。
 
 ---
 
@@ -58,15 +60,16 @@
 - [x] 完整 MSIX 清单:full-trust 入口、图标、包名/Publisher/四段版本及 `LenzStartup`;包内登录启动保持身份,不绕过用户/策略禁用。Windows 平台配置关闭默认 MSI/NSIS 分发,统一走 MSIX 构建入口。
 - [x] MSVC 无 bundle + 静态 CRT 构建、MakeAppx/SignTool 入口、Publisher/证书匹配、可选 RFC3161 时间戳;PE 架构/运行时依赖检查;已有动态 exe 要求匹配 WebView2Loader。
 - [x] WebView2 ExternalDependency + PowerShell runtime 检查/官方 bootstrapper/Microsoft 签名验证;安装助手验证 MSIX 信任且默认运行实际 OCR 诊断。
-- [x] 测试签名:14 天自签证书、只导出公开 `.cer`、签后清理私钥;本地不自动信任。CI 专用身份与证书信任/包清理限于一次性 GitHub-hosted runner。
+- [x] 测试签名:本地/手动验收默认 14 天、v0.1.0 发布使用 365 天自签证书;只导出公开 `.cer`、签后清理私钥,本地不自动信任。CI 专用身份与证书信任/包清理限于一次性 GitHub-hosted runner。
 - [x] 已安装 AUMID 激活自检:生产识别实现读取合成 `OcrSmoke.png`,核对实际包身份、`LENZ`/`12345`、文本块与失败报告;不读用户配置/密钥、不截图。
-- [x] CI 工作流:Windows MSVC 构建 → Windows 11 ARM 客户端安装 x64 包和真实识别报告;失败不静默跳过。当前仅完成工作流文件,未运行。
+- [x] 手动验收工作流:Windows MSVC 构建,选中 `verify_installed_ocr` 才在 Windows 11 ARM 客户端安装 x64 包并生成真实识别报告;默认只构建。此客户端安装/OCR job 尚未运行。
 - [x] 本地验证:19 项 Node 测试、typecheck/build;61 项 Rust 测试(6 ignored);macOS/Windows GNU 全目标 clippy(`-D warnings`);Windows GNU 优化 exe 链接;6 个 PowerShell 脚本解析和真实 PE 清单暂存检查。
 - [x] 隔离 IPC 浏览器验证:无身份/无语言提示分开、下载按钮打开官方 Release、中英深色与 720×480 布局;PowerShell 本地证书信任 guard、COM 激活桥接编译和工作流 YAML 检查。均不代替 Windows 运行验收。
 - [x] PRD、spec 03/10/11、README、[Windows 分发指南](./windows-distribution.md)同步;bindings 由 Rust 重新生成。
-- [ ] Windows CI 实际 MakeAppx/SignTool/MSVC 构建、MSIX 安装与 `installed-ocr.json` 通过;当前 macOS 无 Windows runtime,不把交叉编译算作识别成功。
+- [x] v0.1.0 标签工作流已完成 Windows CI 实际 MSVC 构建、MakeAppx 打包和 SignTool 测试签名;MSIX 与安装助手 ZIP 已公开。
+- [ ] Windows 客户端 MSIX 安装与 `installed-ocr.json` 识别验收;按用户要求推迟,不把原生构建成功算作识别成功。
 - [ ] Windows 10/x64 原生及 Windows 11/ARM64 包安装、升级、缺 WebView2、无包身份/无语言包、F2/F3 中英识别及自启重登后身份验收。
-- [ ] 正式代码签名证书/Store 签名、固定生产 Publisher、正式 Release;用户确认当前暂无正式证书。
+- [ ] 正式代码签名证书/Store 签名与固定生产 Publisher;用户确认当前暂无正式证书。v0.1.0 已公开为测试签名安装包,尚非正式可信签名。
 
 ---
 
@@ -79,7 +82,7 @@
 - [x] P3:显示结构化错误;复用 HTTP client、目标语言变更不重载引擎;选区按动画帧合并重绘。
 - [x] 附带修复 Google 返回值中的 HTML 实体重复解码。
 - [ ] macOS 实机复核剪贴板富文本/图片、源应用快速复制、全屏和多屏截图、系统快捷键冲突。
-- [ ] Windows 原生编译与实机复核(本次仅单独检查了新增剪贴板模块的 Rust 类型)。
+- [ ] Windows 实机复核剪贴板、系统快捷键及多屏交互;2026-10-14 已补齐原生 MSVC 构建,运行验收仍待做。
 
 ---
 
@@ -88,10 +91,10 @@
 - [ ] **账号与证书**
   - [ ] 注册 Apple Developer Program(macOS 签名/公证前置)(→ spec 11 §4.1)
   - [ ] 申请 Windows 代码签名证书(评估 EV vs 标准,可延后到 M9)(→ spec 11 §4.2)
-  - [ ] 确定 GitHub 仓库路径与默认分支策略
+  - [x] GitHub 仓库 `huangj17/Lenz`,默认分支 `main`;v0.1.0 标签与 Release 已公开。
 - [ ] **基础资产**
   - [ ] 确认产品中英文名(Lenz / Lenz)、slogan 与图标风格
-  - [ ] 准备 app icon(1024 方形 → 多尺寸派生)
+  - [x] 应用 logo 与多尺寸安装包图标已生成(`src/assets/lenz-logo.*`、`src-tauri/icons/`)并用于 v0.1.0。
   - [ ] 准备托盘图标(macOS 模板黑白;Windows 彩色)(→ spec 10 §1.1)
   - [ ] 抢注域名与 Bundle ID(`app.lenz.desktop` / `Lenz`)(→ PRD §8)
 
@@ -122,14 +125,14 @@
 - [x] 损坏 config 的备份与重建逻辑(→ spec 01 §4.1)
 - [x] JSON Merge Patch 的 `set_config` command(线缆用 String 承载,规避 specta)(→ spec 01 §5)
 - [x] `config://changed` 事件 + keypath 标记(→ spec 01 §4.2)
-- [x] 各监听方订阅模板(→ spec 01 §4.3) —— 注:已接 config://changed + 前端主题/语言订阅 + 托盘重建;快捷键热重绑→M7、自启→M8
-- [x] schema 迁移框架:`migrate(old, version)` 占位(→ spec 01 §7)
+- [x] 各监听方订阅 `config://changed`:前端主题/语言、托盘重建、快捷键热重绑、翻译引擎与自启同步已接通(→ spec 01 §4.3)。
+- [x] schema 迁移已实现 v1→v5,含内置引擎、凭据启用修正及 OCR 偏好兼容,并有迁移回归测试(→ spec 01 §7)。
 - [x] 测试(→ spec 01 §9) —— 注:merge patch / 损坏 fallback 已有单测;并发 / 含中文路径 TODO
 
 ### 1.3 托盘与主窗口
 - [x] `TrayIcon` 构建 + 菜单项(打开主窗口、F1/F2/F3、划词监听 toggle、设置、检查更新、关于、退出)(→ spec 10 §1.2)
 - [x] 左键点击托盘 → 显示主窗口(→ spec 10 §1.3)
-- [x] macOS「设置...」增加 `Command+,` 原生菜单快捷键,接入托盘与默认应用菜单(→ spec 10 §1.2)。验证:`cargo fmt -- --check` / `cargo check` / `cargo test` 通过(57 passed,6 ignored),开发应用启动正常;原生 UI 工具读取测试应用超时,托盘显示与实际按键验收待实测。
+- [x] macOS「设置...」增加 `Command+,` 原生菜单快捷键,接入托盘与默认应用菜单(→ spec 10 §1.2)。初次 fmt/check/test 通过(57 passed,6 ignored);2026-10-14 独立 QA 应用已验证实际按键及恢复隐藏窗口,托盘视觉与权限交互仍单独验收。
 - [x] Windows「设置...」增加 `Ctrl+,` 托盘快捷键提示与应用内按键监听,复用主窗口显示、取消最小化和聚焦逻辑;补充平台、键盘布局、修饰键、输入法、长按和已消费事件的回归测试(→ spec 10 §1.2)。验证:`pnpm typecheck` / `pnpm build` / `pnpm test`(11 passed)及 macOS `cargo fmt -- --check` / `cargo check` / `cargo test`(57 passed,6 ignored)通过;当时 Windows 交叉编译缺少 windres;已在 2026-10-14 补齐工具并通过全目标 check/clippy,Windows 实机仍待验收。
 - [x] 配置变更后菜单重建(`rebuild_tray_menu`)(→ spec 10 §1.3)
 - [x] 三项翻译菜单改用原生快捷键提示,与「设置...」统一靠右显示;继续读取当前快捷键配置,清空时隐藏提示(→ spec 10 §1.2)。验证:`cargo fmt -- --check` / `cargo check` / `cargo test` 通过(57 passed,6 ignored);原生菜单视觉验收及 Windows 实测待完成。
@@ -153,7 +156,7 @@
 
 > **进度(2026-06-15)**:抽象层(2.1)、xcap 截图(2.2)、macOS Vision(2.3)已完成;
 > 可行性 **GO** —— headless 单元测试在内存图像上零权限识别文字(`Hello Vision 2026`,conf 1.0,~320ms),无需 Tesseract 兜底(2.6)。
-> 待办:Windows.Media.Ocr(2.4,需 Windows 环境)、真实多屏/Retina 截图的 bbox 端到端校准(2.5)、屏幕录制权限弹窗与端到端验收(2.7)。
+> **更新(2026-10-14)**:Windows.Media.Ocr、MSIX 包身份和安装诊断已实现,MSVC 原生构建与测试签名打包成功;待客户端安装/识别验收。真实多屏/Retina bbox 校准与发布版权限回归仍待做;macOS 开发版 F2 全流程已在 M4 验证。
 
 ### 2.1 抽象层
 - [x] `OcrEngine` trait 定义(→ spec 03 §2)
@@ -176,13 +179,13 @@
 - [x] 用 `tokio::task::spawn_blocking` 包裹调用(隔离非 Send 的 ObjC 对象)(→ spec 03 §7)
 - [-] entitlements 声明 `NSScreenCaptureUsageDescription`(→ spec 11 §4.1) —— N/A:macOS 屏幕录制走 TCC 运行时授权,无标准 Info.plist usage key;非沙盒分发无需特殊 entitlement
 
-### 2.4 Windows.Media.Ocr(交叉编译通过,⏳ 待安装运行验收)
+### 2.4 Windows.Media.Ocr(原生 MSVC 构建与 MSIX 打包通过,待安装运行验收)
 - [x] `windows` crate(0.62)引入 `Graphics.Imaging` + `Media.Ocr` + `Storage.Streams` + `Globalization`(→ spec 03 §4)
 - [x] PNG → `InMemoryRandomAccessStream` → `BitmapDecoder` → `SoftwareBitmap` 流水线(→ spec 03 §4)
 - [x] `TryCreateFromLanguage` 依序尝试 + `TryCreateFromUserProfileLanguages` 回退(→ spec 03 §4)
-- [x] Line bbox = Word.BoundingRect 并集;置信度统一 0.9;`map_pixel_bbox` 回映射(→ spec 03 §4)
+- [x] Line bbox = Word.BoundingRect 并集;Windows 不返回真实置信度,契约填 0.9 但不参与置信度过滤;`map_pixel_bbox` 回映射(→ spec 03 §4)。
 - [x] 无语言包 → emit `ocr://language-missing`;无身份 → `ocr://package-required`,均接入 F2/F3 与设置页(→ spec 03 §4.1、§4.2)。
-- [x] Windows GNU 全目标 check/clippy、优化 exe 链接通过;COM 初始化和 WinRT `join()` 已编译验证。MSIX 分发、包内自启与安装 OCR 诊断已实现;真实系统运行结果仍待 Windows/CI。
+- [x] Windows GNU 全目标 check/clippy、优化 exe 链接及 GitHub 原生 MSVC 构建通过;COM 初始化和 WinRT `join()` 已编译验证。MSIX 分发、包内自启与安装 OCR 诊断已实现;真实系统运行结果仍待 Windows 客户端验收。
 
 ### 2.5 坐标验证(可视化调试工具)
 - [ ] Debug 面板:输入一张 fixture 图,彩色框叠加显示 block bbox,目视对齐(→ spec 03 §8)
@@ -194,9 +197,9 @@
 
 ### 2.7 验收(M2 结束)
 - [x] fixture 图识别,block 数量与人工标注 ±1(→ spec 03 §8) —— 注:macOS Vision headless 单测通过;Windows 待
-- [x] 1920×1080 区域 OCR ≤ 1s(→ spec 11 §1) —— 注:实测小图 ~320ms,远低于阈值;大图实测 TODO
+- [ ] 1920×1080 区域 OCR ≤ 1s(→ spec 11 §1) —— macOS 小图识别实测约 320ms;尚无该分辨率实测,不能据此判定性能目标通过。
 - [ ] bbox 在屏幕叠加与原文字对齐 ≤ 2 逻辑像素(→ spec 03 §8) —— 真实屏端到端校准待
-- [ ] Windows 无语言包 graceful 返回 `OcrUnavailable`,不崩溃(→ spec 03 §8) —— stub 代码层已 graceful;Windows 未运行验证
+- [ ] Windows 无语言包 graceful 返回 `OcrUnavailable`,不崩溃(→ spec 03 §8) —— 生产实现已区分缺语言与缺包身份;Windows 未运行验证。
 
 ---
 
@@ -221,7 +224,7 @@
 
 ### 3.1 抽象与管理
 - [x] `Translator` trait(→ spec 04 §1) —— `core/translator/mod.rs`,含 id/name/kind/supports_batch/translate
-- [x] `EngineKind` 枚举(→ spec 04 §1) —— 复用 `config::schema::EngineKind`(openai/google/deepl/youdao)
+- [x] `EngineKind` 枚举(→ spec 04 §1) —— 复用 `config::schema::EngineKind`(openai/google/deepl/youdao/baidu/microsoft/apple)。
 - [x] `TranslatorManager`(含共享 `reqwest::Client` 与 `default_id`)(→ spec 04 §2) —— 所有引擎共享单 client,id→引擎表
 - [x] `reload(configs, default_id)` 支持热更新(不重启)(→ spec 04 §2)
 - [x] 订阅 `config://changed` 触发 reload(→ spec 01 §4.3) —— `setup.rs` listen,仅 `translator.*`/整体重置触发
@@ -371,17 +374,17 @@
 ### 5.1 监听层
 - [x] `SelectionListener` 抽象(start/stop/restart)(→ spec 05 §2.3) —— `core/selection.rs` 具体类型(非 trait):managed state + `sync(app)` 据配置启停;macOS 用独立线程跑 CFRunLoop + CGEventTap
 - [x] macOS:`CGEventTap` 监听 `kCGEventLeftMouseUp`(→ spec 05 §2.1) —— 同时监听 down 记录起点,判拖拽/双击;listen-only 不吞事件;被系统超时禁用时自动 re-enable
-- [ ] ~~macOS:`NSPasteboard.changeCount` 对比读取选中文本~~(→ spec 05 §2.1) —— ⚠️ 设计调整后不在监听层读剪贴板;改为图标交互时(Increment 2)合成 Cmd+C → 轮询剪贴板(复用 Alt+D 路径)
-- [x] macOS:`AXIsProcessTrusted` 检测 + 首次触发引导 emit `selection://permission-required`(→ spec 05 §2.1) —— `#[link(name="ApplicationServices")]` extern;无权限则不启动监听线程并 emit 引导事件(前端引导 UI 待 Increment 2)
+- [-] 监听层读取剪贴板的旧方案不再使用(→ spec 05 §2.1);改为 AX 直读,仅明确翻译触发时使用剪贴板快照/复制/条件恢复兜底。
+- [x] macOS:`AXIsProcessTrusted` 检测 + emit `selection://permission-required`(→ spec 05 §2.1);无权限不启动监听,设置页已接权限入口与重新检查,系统授权后的监听实测仍待做。
 - [-] macOS entitlements 声明 `com.apple.security.automation.apple-events`(→ spec 11 §4.1) —— N/A:划词用 `CGEventTap` + Accessibility API(`AXSelectedText`),均走 TCC 运行时「辅助功能」授权,非 AppleScript/Apple Events;非沙盒分发无需该 entitlement(与 M2 §2.3 屏幕录制同理)
 - [x] Windows:WH_MOUSE_LL 独立线程监听拖拽/双击,UIA TextPattern 直读选区(→ spec 05 §2.2)
 - [x] Windows:保留 Ctrl+C 和原生多格式剪贴板快照/恢复兜底(→ spec 05 §3)
 
 ### 5.2 触发逻辑
-- [x] 快捷键触发:读剪贴板 → 翻译 → popup(source: "shortcut")(→ spec 05 §3) —— M4 打磨期接通:Alt+D → `tauri-plugin-clipboard-manager` 读选中文本 → 复用 `screenshot://*` 事件渲染;注:改用 Rust 直接编排(未走 `selection://triggered` 事件),光标锚定待本里程碑
-- [x] 选中自动复制:Alt+D 先合成系统复制键(macOS `Cmd+C`/CGEvent、Windows `Ctrl+C`/SendInput,`core/keystroke.rs`)→ 轮询剪贴板变化 → 翻译(→ spec 05 §3) —— 双击/划词选中均覆盖;⚠️ macOS 需「辅助功能」权限,缺失则事件被静默丢弃、自动退化为读当前剪贴板/回显上次结果
-- [x] 无新选区(未选中/无权限)→ 回显上次结果(`LastResult` managed state 缓存 F1/F2 最近结果,重新 emit `screenshot://result`)(→ spec 05 §3) —— ⚠️ 与 spec 05 §10「无选中→toast」不同,按用户需求改为「再次按键复现上次内容」,spec 05 待同步
-- [x] 自动触发:去抖 `popupDelayMs` + 长度过滤(1~5000)+ 去重(→ spec 05 §4) —— 去抖:图标 `show_debounced` 取 `max(220ms, config.selection.popupDelayMs)`,合并双击/三击只用最终选区;长度过滤:`translate_selection` 先 `trim` 空串忽略(≥1)+ 截断 5000;去重:同上次原文 → `reshow_result` 回显缓存不重译
+- [x] 快捷键/图标触发优先 AX(macOS)/UIA(Windows)直读选区,回退剪贴板兜底,由 Rust 编排翻译并在光标处显示同一 popup(→ spec 05 §3)。
+- [x] 剪贴板兜底:等待修饰键释放 → 原生格式快照 → 合成 Cmd/Ctrl+C → 版本号判定变化 → 条件恢复;有新输入/复制时保留用户较新的内容,不写占位哨兵(→ spec 05 §3)。
+- [x] 无新选区时回显 `LastResult`(F1/F2 内存+磁盘);无历史则忽略,不弹空框。spec 05 §3.1/§10 已同步此行为。
+- [x] 自动触发:去抖 `popupDelayMs` + 长度过滤(1~5000)+ 去重(→ spec 05 §4) —— 去抖取 `max(220ms, config.selection.popupDelayMs)`,空串忽略、截断 5000 字;原文/目标语言/引擎均相同时回显缓存不重译。
 - [-] emit `selection://triggered { text, source, cursorPos }`(→ spec 05 §5) —— 未采用:流程改由 Rust 直接编排(手势→图标→`trigger_selection_translate`→复用 F2 的 `screenshot://progress|result|error` 渲染),不再经此中间事件(与 5.3 一致)
 - [x] `toggle_selection_listener` command(→ spec 05 §8) —— 写 `selection.enabled` → `config://changed` 订阅者据 `selection.enabled`(托盘总开关,默认 false / opt-in)启停监听(`core::selection::sync`)
 - [x] 托盘"划词监听"toggle 同步状态(→ spec 10 §1.2) —— 复用同一 `config://changed` 路径,菜单勾选 + 监听器启停一并联动
@@ -398,7 +401,7 @@
 ### 5.5 验收(M5 结束)—— 代码就绪,待授「辅助功能」后 GUI 手测
 - [ ] 选中 → 弹框出现 ≤ 500ms(→ spec 05 §10) —— AX 直读 + 光标处 popup 已实现,待授权实测
 - [ ] 快速连选三段,仅最后一段展示;同段不重复触发(→ spec 05 §11) —— 逻辑已就绪:`show_debounced` 去抖只留最终段 + `translate_selection` 同原文去重,待实测
-- [ ] 无选中文本时按快捷键 → 回显上次结果(原 spec 05 §10 为 toast 提示;按用户需求改为复现上次内容,⚠️ spec 05 §10/§11 待同步) —— 已实现(`LastResult` 内存+磁盘,`reshow_result`),待实测
+- [ ] 无选中文本时按快捷键 → 回显上次结果,含应用重启后回显(→ spec 05 §3.1/§10/§11) —— 已实现 `LastResult` 内存+磁盘与 `reshow_result`,待实测。
 - [ ] 弹框不超屏幕边界(→ spec 05 §10) —— `position_popup_at_cursor` 夹紧所在屏,待实测
 - [ ] macOS 权限未授时弹引导(→ spec 05 §11) —— 已实现:`selection://permission-required` + 启用监听未授权时自动打开辅助功能设置,待实测
 - [ ] Windows 基础路径跑通(若 UIA 稳定性不足可延后自动触发,保留快捷键触发)⚠️ —— 代码与交叉编译就绪,待 Windows 实机
@@ -469,9 +472,10 @@
 - [x] MIT 全文和离线第三方声明,按依赖选择全文;依赖变更刷新生成资源。
 - [x] 中英关键词搜索、键盘选择、导航/滚动/聚焦(→ spec 09 §2.2)。
 
-### 7.7 验收(M7 结束)
+### 7.6 验收(M7 结束)
 - [x] typecheck/build 和设置纯逻辑回归测试。
 - [x] 隔离 IPC 浏览器验证配置编辑和重载、主要控件交互;不修改真实配置。
+- [x] macOS 独立 QA 应用已验证实际 Cmd+,、搜索聚焦、超时保存及重启后主题/OCR 偏好持久化;完整范围见 2026-10-14 设置功能记录。
 - [ ] 完整桌面应用重启后所有偏好保存,自启登录、系统授权和快捷键注册实机验收。
 
 ---
@@ -482,12 +486,12 @@
 
 ### 8.1 国际化
 - [ ] 所有 UI 文字抽到语言包(禁止硬编码)(→ spec 09 §6.4)
-- [ ] `navigator.language` 前缀匹配(→ spec 09 §6.4)
-- [ ] 中文语言包完整;英文语言包完整(→ spec 09 §6.4)
+- [x] `navigator.language` 前缀匹配,zh→zh-CN、en→en-US,其余回退英文(→ spec 09 §6.4)。
+- [x] 当前中英语言包各 179 个键且集合一致;新增设置文案已配对。全 UI 硬编码复核仍保留在上项(→ spec 09 §6.4)。
 
 ### 8.2 主题
-- [ ] CSS 变量统一(`--bg`, `--text`, `--accent`, ...)(→ spec 09 §6.1)
-- [ ] 系统主题变化监听 → emit `config://theme-changed` → 所有窗口响应(→ spec 10 §6)
+- [x] 共享 `theme.css` 定义深浅色语义变量,`.dark` 与 Tailwind dark selector 已统一(→ spec 09 §6.1)。
+- [x] 各窗口通过 `useConfigSync` 同步配置,system 模式由 `matchMedia` 监听系统主题;当前实现不依赖独立 `config://theme-changed` 事件。系统切换实机验收见 §8.6(→ spec 10 §6)。
 - [ ] macOS vibrancy / Windows acrylic(popup)(→ spec 09 §3.2)
 
 ### 8.3 检查更新
@@ -530,9 +534,10 @@
 - [x] v0.1.0 包体:arm64 DMG 7.19MB、Intel DMG 7.43MB、MSIX 6.00MB、Windows ZIP 5.95MB,均 ≤ 15MB(→ spec 11 §7)。
 
 ### 9.3 文档
-- [ ] `README.md`:中文主文档 + English 版本(→ PRD §8)
+- [x] `README.md` 中文主文档已同步 v0.1.0 下载、签名、里程碑、CI 验证范围和开发步骤(→ PRD §8)。
+- [ ] English README(→ PRD §8)。
 - [ ] 截图/GIF 演示 F1/F2/F3(→ PRD §8)
-- [ ] 开发文档:本地跑起来的步骤(→ PRD §8)
+- [x] README 提供依赖与本地开发命令;Windows MSIX 构建/安装/OCR 自检另有分发指南(→ PRD §8)。
 - [ ] Issue / PR 模板(→ PRD §8)
 - [ ] 贡献指南(CONTRIBUTING.md)
 
@@ -549,7 +554,7 @@
 ## 持续执行(贯穿各里程碑)
 
 ### 代码质量
-- [x] `cargo check` / `pnpm tsc --noEmit` 每次都过 —— 注:`cargo clippy` 未常态化,M9 前补
+- [x] 主分支 CI 持续运行前端 typecheck/test/build、Rust fmt/全目标 Clippy;macOS 跑 Rust 测试,Windows 编译测试。发布后 CI 已通过,Windows 运行验收另列。
 - [x] Rust 侧禁止 `unwrap()` / `expect()` 越出 setup(边界处手工 `map_err`)(→ spec 00 §6)
 - [x] 所有 Tauri command 走白名单(capabilities),前端无文件系统直写权限(→ spec 11 §2.2)
 
@@ -558,7 +563,8 @@
 - [ ] 多屏 + HiDPI 在 M2/M4/M6 结束时做回归(→ spec 02 §8, spec 07 §10)
 
 ### 风险观察项 ⚠️
-- [x] Vision / Win OCR 桥接可行性(→ PRD §6.2) —— macOS Vision **GO**(headless 验证通过);Windows 待环境
+- [x] macOS Vision 可行性 **GO**(headless 识别通过)(→ PRD §6.2)。
+- [ ] Windows OCR 实际识别可行性确认;生产实现/原生构建/MSIX 已就绪,仍需客户端安装与识别报告(→ PRD §6.2)。
 - [ ] 划词监听权限 / 稳定性(macOS 辅助功能 / Windows UIA)(→ spec 05 §2)
 - [ ] 原图覆盖 ESC 快捷键与系统/其他应用冲突(→ spec 07 §11)
 - [ ] LLM 批量翻译 JSON 稳定性(多模型回归测试)(→ spec 04 §11)
@@ -587,5 +593,5 @@
 
 ---
 
-**文档版本**:v0.5(2026-10-14,设置控件、F3、Windows 划词及 OCR MSIX 分发实现;原生安装验收单列)
+**文档版本**:v0.6(2026-10-14,同步 v0.1.0 公开安装包、主分支双平台 CI 与当前实现;Windows 运行、正式签名和多屏验收单列)
 **上游**:[PRD.md](./PRD.md) v0.3 / [spec/](./spec/) v0.2

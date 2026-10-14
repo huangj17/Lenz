@@ -4,6 +4,22 @@
 
 基于 **Tauri 2** 的跨平台（macOS + Windows）截图翻译桌面工具：划词翻译、截图翻译、原图覆盖翻译。开源、本地优先、隐私友好，原生支持 LM Studio / Ollama / 任意 OpenAI 兼容接口。
 
+## 📦 下载与安装
+
+首个公开版本 [v0.1.0](https://github.com/huangj17/Lenz/releases/tag/v0.1.0) 已发布：
+
+| 平台 | 安装包 | 最低系统版本 |
+|---|---|---|
+| macOS Apple Silicon | [aarch64 DMG](https://github.com/huangj17/Lenz/releases/download/v0.1.0/Lenz_0.1.0_aarch64.dmg) | macOS 12 |
+| macOS Intel | [x64 DMG](https://github.com/huangj17/Lenz/releases/download/v0.1.0/Lenz_0.1.0_x64.dmg) | macOS 12 |
+| Windows x64 | [MSIX + 安装助手 ZIP](https://github.com/huangj17/Lenz/releases/download/v0.1.0/Lenz_0.1.0_windows_x64_test-signed.zip) | Windows 10 1809 |
+
+macOS 打开 DMG 后将 Lenz 拖入「应用程序」。本版使用 ad-hoc 签名，尚未完成 Developer ID 签名与公证；首次打开可能需要在系统「隐私与安全性」中确认。
+
+Windows ZIP 包含 MSIX、公开测试证书和安装助手。当前使用 365 天自签测试证书，安装前需检查并手动信任公开 `.cer`；安装助手不会自动修改证书信任。系统 OCR 需要 MSIX 包身份及对应 OCR 语言包，安装后从开始菜单启动。具体步骤见 [Windows 分发指南](docs/windows-distribution.md)。Windows 安装、OCR 和自启运行验收按本次发布安排推迟。
+
+四份下载产物均小于 15MB，并已核对 [SHA256SUMS.txt](https://github.com/huangj17/Lenz/releases/download/v0.1.0/SHA256SUMS.txt)。功能和验证范围见 [发布说明](docs/releases/v0.1.0.md)。
+
 ## ✨ 核心功能
 
 | 功能 | 快捷键（默认） | 说明 |
@@ -11,8 +27,9 @@
 | 划词翻译（F1） | `⌥ D` / `Alt+D` | 选中文本 → 快捷键或指示图标触发，光标处弹框显示译文 |
 | 截图翻译（F2） | `⌥ S` / `Alt+S` | 框选区域 → 本地 OCR → 翻译 → 弹框显示原文 + 译文 |
 | 原图覆盖翻译（F3） | `⌥ F` / `Alt+F` | 框选区域 → OCR + 翻译 → 译文按原文位置覆盖在屏幕上（核心差异化） |
+| 设置 | `⌘ ,` / `Ctrl+,` | 打开并聚焦设置窗口，托盘菜单同步展示快捷键 |
 
-配套能力：菜单栏托盘常驻、翻译引擎配置（OpenAI 兼容 API / 本地 LLM）、中英双语界面、深浅色主题。
+配套能力：菜单栏托盘常驻、翻译引擎配置与连接测试、OCR 语言与偏好设置、设置搜索、中英双语界面、深浅色主题、登录启动、GitHub Release 更新检查及离线开源许可证。
 
 ### 为什么做 Lenz
 
@@ -20,35 +37,40 @@ Bob 是 macOS 上广受好评的翻译工具，但仅支持 macOS、订阅制收
 
 - 🖥 **跨平台**：macOS + Windows 统一体验
 - 🔒 **本地优先**：OCR 走系统原生能力（macOS Vision / Windows.Media.Ocr），翻译可全程走本地 LLM，数据不出机器
-- 🪶 **轻量**:Tauri 打包，目标安装包 < 15MB
+- 🪶 **轻量**：Tauri 打包，v0.1.0 安装包约 6～7.5MB
 
 ## 🛠 技术栈
 
-- **壳与后端**：Tauri 2 + Rust（截图 `xcap`、OCR 系统桥接、CGEventTap 划词监听、配置原子写）
+- **壳与后端**：Tauri 2 + Rust（截图 `xcap`、OCR 系统桥接、macOS CGEventTap / Windows 鼠标 hook 与 UIA 划词监听、配置原子写）
 - **前端**：React 19 + TypeScript + Vite 7 + Tailwind CSS v4 + Zustand + i18next
 - **类型契约**：`tauri-specta` 从 Rust 命令导出 `src/lib/bindings.ts`，前后端共享类型
 
 ## 🚧 项目状态
 
-开发中，按里程碑推进（详见 [`docs/TODO.md`](docs/TODO.md)）：
+v0.1.0 已公开，功能实现与平台运行验收分别记录（详见 [`docs/TODO.md`](docs/TODO.md)）：
 
-- ✅ **M1 项目搭建**：窗口/托盘/全局快捷键/配置体系/类型导出链路
-- ✅ **M2 OCR 桥接**（macOS）：Vision 框架零权限识别打通；Windows.Media.Ocr 待 Windows 环境
-- ✅ **M3 翻译引擎**：引擎抽象 + OpenAI 兼容接口
-- ✅ **M4 截图翻译 F2**：选区蒙层 → 截图 → OCR → 翻译 → 弹框（macOS 已跑通）
-- 🔄 **M5 划词翻译 F1**：AX 直读选中文本 + 指示图标已落地，部分交互待实机验收
-- ⏳ **M6 原图覆盖 F3**、**M7 设置页交互**、**M8 完善**、**M9 打包发布**
+| 里程碑 | 当前状态 |
+|---|---|
+| M1 项目搭建 | 窗口、托盘、快捷键、配置与类型导出已实现 |
+| M2 OCR 桥接 | macOS Vision 已识别验证；Windows.Media.Ocr、包身份与安装自检已实现，原生 MSVC 构建通过，安装识别待验收 |
+| M3 翻译引擎 | OpenAI 兼容、本地 LLM 与传统 API 已接入；Apple 翻译桥接已实现，跨语言与语言包验收待做 |
+| M4 截图翻译 F2 | macOS 开发版全流程已跑通；发布版权限回归与 Windows 运行验收待做 |
+| M5 划词翻译 F1 | macOS AX / Windows UIA、剪贴板兜底与指示图标已实现；源应用覆盖与权限验收待做 |
+| M6 原图覆盖 F3 | 流程、颜色采样、字体适应、取消和关闭已实现；多屏与原生窗口交互待验收 |
+| M7 设置页 | 现有设置控件已接通；macOS 设置快捷键与部分偏好重启保存已验证，系统自启和 Windows 运行验收待做 |
+| M8 完善 | 中英界面、主题、自启和更新检查已接通；日志轮转、原生毛玻璃与系统交互验收仍有待办 |
+| M9 打包发布 | 双架构 macOS DMG、Windows x64 MSIX 与安装助手已发布；正式可信签名、公证和运行验收待完成 |
 
-设置页、原图覆盖流程和 Windows 划词监听已接通；Windows 目标交叉编译与静态检查通过，原生权限、多屏和 Windows 实机验收仍在 TODO 单独跟踪。
+截至 2026-10-14，[主分支 CI](https://github.com/huangj17/Lenz/actions/runs/38533802391) 双平台通过：前端类型检查、20 项纯逻辑测试、生产构建和 Rust fmt/Clippy；macOS 执行 Rust 测试，Windows 仅编译测试。Windows 安装、OCR、自启和 GUI 验收仍需 Windows 客户端运行报告。
 
-Windows OCR 的 MSIX 包身份、测试签名、WebView2 安装与安装后识别自检已实现；尚无正式签名证书和 Windows 安装运行报告。构建与验收步骤见 [Windows 分发指南](docs/windows-distribution.md)。`v*` 标签触发双架构 macOS DMG 和 Windows x64 MSIX 构建,成功后上传 [Releases](https://github.com/huangj17/Lenz/releases)。首版使用 macOS ad-hoc / Windows 自签测试签名,Windows 实机验收推迟。
+`v*` 标签触发双架构 macOS DMG 和 Windows x64 MSIX 构建，成功后上传 [Releases](https://github.com/huangj17/Lenz/releases)。Windows 安装/OCR 验收工作流仅手动触发，默认只构建。
 
 ## 🚀 开发
 
 ### 环境要求
 
 - [Rust](https://www.rust-lang.org/tools/install)（stable）
-- [Node.js](https://nodejs.org/) + [pnpm](https://pnpm.io/)
+- [Node.js](https://nodejs.org/) 22 + [pnpm](https://pnpm.io/) 10（与 CI 一致）
 - Tauri 2 的[平台前置依赖](https://tauri.app/start/prerequisites/)
 - macOS 构建需要 Xcode 26+ / Swift 6.2+ SDK，以编译 Apple Translation 桥接；应用仍支持 macOS 12，Apple 翻译仅在 macOS 15+ 可用。
 
@@ -58,14 +80,17 @@ Windows OCR 的 MSIX 包身份、测试签名、WebView2 安装与安装后识�
 pnpm install                                          # 安装依赖
 pnpm tauri dev                                        # 启动开发（托盘 app + 主窗口）
 pnpm typecheck                                        # 前端类型检查
+pnpm test                                             # 前端与打包脚本纯逻辑测试
+pnpm build                                            # 前端生产构建（不生成桌面安装包）
 cargo check --manifest-path src-tauri/Cargo.toml      # Rust 检查
+cargo test --manifest-path src-tauri/Cargo.toml       # 当前平台 Rust 测试
 cargo test export_bindings --manifest-path src-tauri/Cargo.toml   # 重新生成 bindings.ts
 python3 scripts/generate-notices.py                  # 依赖变更后刷新离线许可证
 ```
 
 macOS 首次运行划词监听 / 截图相关功能时,需在系统设置中授予**辅助功能**与**屏幕录制**权限。
 
-Windows 系统 OCR 需使用 MSIX 安装版本及对应系统 OCR 语言包,从开始菜单打开。Windows 开发机可用 `pnpm windows:msix:test` 构建测试签名包;安装助手默认执行真实 OCR 识别验收。
+Windows 开发机可用 `pnpm windows:msix:test` 构建测试签名包；直接运行开发 exe 缺少 MSIX 包身份，不能作为系统 OCR 验收方式。安装助手默认执行真实 OCR 识别自检，构建环境与安装步骤见 [Windows 分发指南](docs/windows-distribution.md)。
 
 ### 目录结构
 
