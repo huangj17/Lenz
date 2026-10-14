@@ -15,7 +15,11 @@
 - [x] 标签发布工作流:版本一致性检查、macOS arm64/x64 DMG、Windows x64 MSIX + 安装助手 ZIP、SHA256 与 GitHub Release 上传。
 - [x] Xcode 26+ SDK 选择、macOS 12 最低版本及 ad-hoc 签名;Windows 365 天自签测试证书,不导出私钥、不自动修改信任。
 - [x] 发布说明写明签名状态和未验收范围;前端 typecheck/build/19 项测试、版本错配拒绝、工作流 YAML 和 PowerShell 解析通过,改动文件凭据扫描无匹配。
-- [ ] 推送 v0.1.0 标签并确认双平台安装包构建、Release 资产上传成功。
+- [x] v0.1.0 标签与发布提交 cc93d55 已推送,触发 [Release installers](https://github.com/huangj17/Lenz/actions/runs/38529429284)。
+- [x] Apple Silicon DMG 与 Windows x64 MSIX 的 GitHub 原生构建成功;Windows MakeAppx/SignTool 链路通过。
+- [ ] Intel DMG 及 Release 资产上传完成。
+- [x] 修复 Rust 1.99 CI 的 async_trait 宏 double_must_use 误报(仅限制到两个 trait)及固定大小切片 lint;本地 macOS/Windows GNU clippy 通过。
+- [ ] 主分支最新 Rust 1.99 双平台 CI 完整通过。
 - [ ] Windows 安装/OCR/自启运行验收按用户要求推迟;验收工作流改为手动,默认不运行安装识别。
 - [ ] Developer ID 公证与 Windows 公开可信签名后续补齐;本次发布明确使用测试签名。
 

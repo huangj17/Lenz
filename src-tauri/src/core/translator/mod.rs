@@ -30,6 +30,8 @@ use crate::types::{TranslateRequest, TranslateResponse};
 
 /// 翻译器抽象(spec 04 §1)。所有引擎统一接收 `TranslateRequest`(单条即
 /// `texts.len()==1`),返回与 `texts` 等长的译文。
+// Limit the exception to async_trait's generated boxed-Future signatures.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait Translator: Send + Sync {
     /// 引擎 id(uuid)。

@@ -66,6 +66,8 @@ pub struct OcrBlock {
 }
 
 /// OCR 引擎抽象(spec 03 §2)。
+// async_trait adds #[must_use] to its generated Future, which Clippy 1.99 flags twice.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait OcrEngine: Send + Sync {
     /// 引擎标识(如 `macos-vision` / `win-media-ocr`)。

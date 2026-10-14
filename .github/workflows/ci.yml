@@ -28,6 +28,10 @@ jobs:
         if: runner.os == 'macOS'
         run: python3 scripts/release/select-xcode.py
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: validate-${{ matrix.os }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
