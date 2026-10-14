@@ -2,7 +2,6 @@
 
 use std::time::Duration;
 
-#[cfg(target_os = "macos")]
 use tauri::Manager;
 use tauri::{AppHandle, State};
 
@@ -11,20 +10,46 @@ use crate::error::LenzError;
 
 /// 显示原图覆盖层。
 ///
-/// M1 占位:M6 落地 overlay 数据结构后,补回入参(译文 block + 坐标 + 颜色)。
-// TODO(M6): 运行时创建透明、鼠标穿透的 overlay 窗口并渲染译文 block。
+/// 运行时创建透明、鼠标穿透窗口;前端就绪后显示。
 #[tauri::command]
 #[specta::specta]
-pub async fn show_overlay() -> Result<(), LenzError> {
-    Err(LenzError::not_implemented())
+pub async fn show_overlay(
+    app: AppHandle,
+    payload: crate::core::overlay::OverlayPayload,
+) -> Result<(), LenzError> {
+    crate::core::overlay::close(&app)?;
+    let mut payload = payload;
+    payload.generation = app
+        .state::<crate::core::overlay::OverlayState>()
+        .session
+        .begin();
+    *app.state::<crate::core::overlay::OverlayState>()
+        .payload
+        .lock()
+        .map_err(|_| LenzError::internal("overlay lock poisoned"))? = Some(payload.clone());
+    crate::core::overlay::display(&app, &payload)
 }
 
 /// 关闭原图覆盖层。
-// TODO(M6): 销毁所有 overlay 窗口并解绑临时 ESC 快捷键。
 #[tauri::command]
 #[specta::specta]
-pub async fn close_overlay() -> Result<(), LenzError> {
-    Err(LenzError::not_implemented())
+pub async fn close_overlay(app: AppHandle) -> Result<(), LenzError> {
+    crate::core::overlay::close(&app)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_overlay_payload(app: AppHandle) -> Option<crate::core::overlay::OverlayPayload> {
+    app.state::<crate::core::overlay::OverlayState>()
+        .payload
+        .lock()
+        .ok()
+        .and_then(|s| s.clone())
+}
+#[tauri::command]
+#[specta::specta]
+pub fn overlay_ready(app: AppHandle, generation: u32) -> Result<(), LenzError> {
+    crate::core::overlay::ready(&app, generation)
 }
 
 /// 启停划词监听,并同步写入 `config.selection.enabled`(spec 05 §8 / spec 10 §1.2)。
@@ -63,6 +88,8 @@ pub async fn trigger_selection_translate(app: AppHandle) -> Result<(), LenzError
     // 先取缓存(hide 不动缓存,但先取更稳妥),再隐藏图标。
     let cached = crate::core::indicator::take_captured();
     crate::core::indicator::hide(&app);
+    #[cfg(target_os = "windows")]
+    crate::core::indicator::restore_foreground();
     if let Some(text) = cached {
         crate::core::screenshot::translate_with_text(&app, text);
         return Ok(());
@@ -115,7 +142,11 @@ pub(crate) fn apply_auto_start(app: &AppHandle, enabled: bool) -> Result<(), Len
     #[cfg(target_os = "macos")]
     return apply_macos_auto_start(app, enabled);
     #[cfg(target_os = "windows")]
-    return apply_windows_auto_start(enabled);
+    return if crate::core::windows_package::full_name()?.is_some() {
+        crate::core::windows_package::set_auto_start(enabled)
+    } else {
+        apply_windows_auto_start(enabled)
+    };
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     Err(LenzError::not_implemented())
 }
@@ -125,6 +156,10 @@ fn auto_start_enabled(app: &AppHandle) -> Result<bool, LenzError> {
     return Ok(macos_launch_agent_path(app)?.exists());
     #[cfg(target_os = "windows")]
     {
+        let _ = app;
+        if crate::core::windows_package::full_name()?.is_some() {
+            return crate::core::windows_package::auto_start_enabled();
+        }
         let status = std::process::Command::new("reg")
             .args([
                 "query",
@@ -134,7 +169,7 @@ fn auto_start_enabled(app: &AppHandle) -> Result<bool, LenzError> {
             ])
             .status()
             .map_err(|e| LenzError::internal(format!("query autostart registry: {e}")))?;
-        return Ok(status.success());
+        Ok(status.success())
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
@@ -242,13 +277,11 @@ fn open_accessibility_pane() {
     }
 }
 
-/// 手动 / 启动后触发检查更新(spec 10 §4)。M1 仅占位。
-// TODO(M8): 接入 tauri-plugin-updater,检查并 emit app://update-available。
+/// 兼容旧命令的手动检查入口;返回详细结果的入口为 check_for_update。
 #[tauri::command]
 #[specta::specta]
 #[allow(unused_variables)]
 pub async fn check_update(app: AppHandle) -> Result<(), LenzError> {
-    // M1 占位:不报错,静默返回,避免阻断启动流程。
-    log::debug!("check_update invoked (not implemented until M8)");
+    crate::core::system::check_update(&app).await?;
     Ok(())
 }

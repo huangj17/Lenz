@@ -34,27 +34,27 @@ create_overlay_window(region, blocks+translations+colors) [Rust]
 前端 overlay 窗口渲染                        [React overlay]
   │  按 bbox 绝对定位,渲染每个译文块
   ▼
-ESC / 点击空白 → 销毁 overlay 窗口
+ESC / 托盘关闭覆盖层 → 销毁 overlay 窗口
 ```
 
 ## 2. OCR 结果聚合
 
 F3 与 F2 的差异在于:F3 需要保留每个 `OcrBlock` 的 **独立 bbox**,不做行合并拼接。
 
-- 过滤:去除 `confidence < min_confidence` 的 block。
+- 过滤:macOS 去除 `confidence < min_confidence` 的 block;Windows 不用合成置信度过滤。
 - 不排序(保留 OCR 返回顺序,通常是阅读顺序)。
 - 每个 block 独立送翻译(`translate_batch`)。
 
 ## 3. 批量翻译
 
 - 调 `translate_batch(texts = blocks.map(|b| b.text))`,见 [Spec 04 §3.2](./04-translator.md)。
-- 若引擎不支持批量(`supports_batch = false`),Manager 层自动串行调用。
+- 若引擎不支持批量(`supports_batch = false`),overlay 编排逐块调用;批量失败也逐块回退。
 - 返回结果与输入按索引对应,长度相同。
 - 若某条翻译失败:对应 slot 填空字符串,不阻断其他 block 展示。
 
 ## 4. 背景颜色采样
 
-文件:`core/capture.rs::sample_block_color(png: &RgbaImage, block_bbox: Rect) -> Rgba`
+文件:`core/overlay.rs::sample_color`
 
 算法(中等方案,对应 PRD §2.2 F3 视觉效果):
 
@@ -66,7 +66,7 @@ F3 与 F2 的差异在于:F3 需要保留每个 `OcrBlock` 的 **独立 bbox**,�
 
 ### 4.1 前景色决策
 
-前端接收 `bgColor` 后自动决定文字颜色:
+Rust 根据采样亮度计算 fgColor,前端直接渲染。计算规则:
 
 ```ts
 function foregroundColor(bg: [r, g, b]): string {
@@ -99,29 +99,24 @@ window.set_ignore_cursor_events(true)?;
 
 ### 5.2 多屏支持
 
-- 窗口通过 `set_position` 使用虚拟屏逻辑坐标放置,跨屏 Tauri 负责换算,无需手动处理。
+- 复用 capture 裁剪区域及来源屏 scaleFactor。macOS 使用逻辑位置/尺寸;Windows 用同一来源屏比例还原物理位置/尺寸,避免已有窗口 DPI 造成错位。block 相对捕获区域定位,保留负坐标屏幕。
 
 ## 6. 前端渲染(overlay 窗口)
 
 ### 6.1 数据注入
 
-Rust 创建窗口后,通过 `emit_to("overlay", "overlay://init", payload)` 传递数据:
+Rust 将 OverlayPayload 保存于 managed state 后创建隐藏窗口;前端挂载调用 `get_overlay_payload`,绘制后一帧调用 `overlay_ready(generation)` 显示,避免首条事件丢失和未渲染闪屏。
 
 ```ts
-interface OverlayBlock {
-  id: number;
-  bbox: { x: number; y: number; w: number; h: number };  // 相对 region 左上角
-  translation: string;
-  bgColor: [number, number, number];
-  fgColor: string;   // 由 Rust 计算好传过来
-}
-
-interface OverlayInitPayload {
-  regionW: number;
-  regionH: number;
-  blocks: OverlayBlock[];
+interface OverlayPayload {
+  generation: number;
+  scaleFactor: number;
+  region: { x: number; y: number; w: number; h: number };
+  blocks: { bbox: { x: number; y: number; w: number; h: number }; translation: string; bgColor: [number, number, number]; fgColor: string }[];
 }
 ```
+
+独立 ScreenshotSession 负责取消和有效性检查,旧结果不能重新显示已关闭的覆盖层。
 
 ### 6.2 布局
 
@@ -168,34 +163,18 @@ function fitFontSize(text: string, boxW: number, boxH: number): number {
 
 ### 6.4 关闭交互
 
-- ESC 键 → 前端 emit `overlay://close-requested` → Rust 销毁 overlay 窗口。
+- 临时全局 ESC → Rust 销毁窗口并取消在途任务。
 - 因为 `focusable: false`,ESC 需要由 **其他窗口**（如 popup 或 main）或 Rust 的全局快捷键捕获转发。
   - 方案:注册临时全局快捷键 `ESC`(仅在 overlay 存在时有效),收到后销毁窗口并解绑快捷键。
-- 点击空白:因为鼠标穿透,无法在 overlay 自身捕获点击。ESC 是关闭的主路径。
+- 点击空白:因为鼠标穿透,无法在 overlay 自身捕获点击。ESC 和托盘菜单是关闭入口。
 
 ## 7. Tauri Commands
 
-```rust
-#[tauri::command]
-async fn show_overlay(
-    region: Rect,
-    blocks: Vec<OverlayBlockData>,
-    app: AppHandle,
-) -> Result<String /* overlay window label */, LenzError>;
+- `show_overlay(app, payload: OverlayPayload) -> Result<(), LenzError>`:创建覆盖层。
+- `close_overlay(app) -> Result<(), LenzError>`:取消流程、销毁窗口,仅解绑自身拥有的 Escape,发 `overlay://closed { id: "overlay" }`。
+- `get_overlay_payload(app) -> Option<OverlayPayload>`、`overlay_ready(app, generation)`:挂载握手。
 
-#[tauri::command]
-async fn close_overlay(label: String, app: AppHandle) -> Result<(), LenzError>;
-
-pub struct OverlayBlockData {
-    pub id: u32,
-    pub bbox: Rect,          // 相对 region 左上角,逻辑坐标
-    pub translation: String,
-    pub bg_color: [u8; 3],
-    pub fg_color: String,
-}
-```
-
-`show_overlay` 由 Rust 内部流程调用,不由前端直接 invoke。
+临时 Escape 注册失败或已被注册时仍保留覆盖层;托盘「关闭覆盖层」是后备入口。截图前也关闭旧覆盖层。
 
 ## 8. 性能目标
 

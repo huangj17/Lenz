@@ -16,6 +16,7 @@ import {
   type UnlistenFn,
 } from "@tauri-apps/api/event";
 import type {
+  SystemInfo, SystemResource, UpdateInfo, OverlayPayload,
   CaptureRegionSelectedPayload,
   CaptureResult,
   Config,
@@ -48,6 +49,7 @@ import type {
 const ERROR_CODES: readonly LenzErrorCode[] = [
   "Config",
   "OcrUnavailable",
+  "OcrIdentityRequired",
   "OcrFailed",
   "TranslateFailed",
   "Network",
@@ -217,8 +219,10 @@ export const ocrApi = {
 
 /** 覆盖层命令(spec 07) */
 export const overlayApi = {
-  show: (payload: unknown) => invoke<void>("show_overlay", { payload }),
-  close: (id: string) => invoke<void>("close_overlay", { id }),
+  show: (payload: OverlayPayload) => invoke<void>("show_overlay", { payload }),
+  close: () => invoke<void>("close_overlay"),
+  payload: () => invoke<OverlayPayload | null>("get_overlay_payload"),
+  ready: (generation: number) => invoke<void>("overlay_ready", { generation }),
 };
 
 /** 划词监听(spec 05) */
@@ -235,7 +239,11 @@ export const selectionApi = {
 /** 系统 / 更新命令(spec 10) */
 export const systemApi = {
   setAutoStart: (enabled: boolean) => invoke<void>("set_auto_start", { enabled }),
-  checkUpdate: () => invoke<unknown>("check_update"),
+  checkUpdate: () => invoke<UpdateInfo>("check_for_update"),
+  info: () => invoke<SystemInfo>("get_system_info"),
+  updateState: () => invoke<UpdateInfo | null>("get_update_state"),
+  open: (resource: SystemResource) => invoke<void>("open_system_resource", { resource }),
+  licenses: () => invoke<string>("get_license_notices"),
 };
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -243,6 +251,7 @@ export const systemApi = {
 // ──────────────────────────────────────────────────────────────────────────
 
 export const Events = {
+  ShortcutOpenMain: "shortcut://open-main",
   ShortcutSelection: "shortcut://selection",
   ShortcutScreenshot: "shortcut://screenshot",
   ShortcutOverlay: "shortcut://overlay",
@@ -262,6 +271,7 @@ export const Events = {
 
 /** 事件名 → 载荷类型映射,供类型化订阅 */
 export interface EventPayloadMap {
+  [Events.ShortcutOpenMain]: void;
   [Events.ShortcutSelection]: void;
   [Events.ShortcutScreenshot]: void;
   [Events.ShortcutOverlay]: void;

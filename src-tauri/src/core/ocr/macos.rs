@@ -24,6 +24,13 @@ use objc2_vision::{
 use super::{map_normalized_bbox, OcrBlock, OcrEngine, OcrInput, OcrOptions, OcrResult};
 use crate::error::LenzError;
 
+pub fn auto_detect_supported() -> bool {
+    objc2_foundation::NSProcessInfo::processInfo()
+        .operatingSystemVersion()
+        .majorVersion
+        >= 13
+}
+
 pub struct VisionOcr;
 
 impl VisionOcr {
@@ -135,6 +142,9 @@ fn run_vision(
     request.setRecognitionLevel(level);
     // 开启语言纠错(spec 要求恒为 true)。
     request.setUsesLanguageCorrection(true);
+    if auto_detect_supported() {
+        request.setAutomaticallyDetectsLanguage(opts.auto_detect_language);
+    }
 
     // 若指定了优先语言,设置识别语言数组(BCP-47/ISO 语言码)。
     if !opts.preferred_languages.is_empty() {
@@ -288,6 +298,7 @@ mod tests {
             preferred_languages: vec!["en-US".into()],
             fast_mode: false,
             min_confidence: 0.0,
+            auto_detect_language: true,
         };
 
         // recognize 是 async;在测试里用一个临时 tokio 运行时跑它。

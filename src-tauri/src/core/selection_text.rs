@@ -88,9 +88,47 @@ pub fn read_selected_text() -> Option<String> {
     }
 }
 
-/// 非 macOS:暂不支持 AX 直读,返回 `None`(调用方回退剪贴板方案)。
-// TODO(M5 Windows): UI Automation `TextPattern.GetSelection` 或回退剪贴板。
-#[cfg(not(target_os = "macos"))]
+/// Windows:UI Automation 直读焦点元素的选区,不支持时回退剪贴板。
+#[cfg(target_os = "windows")]
+pub fn read_selected_text() -> Option<String> {
+    use windows::Win32::{
+        System::Com::{
+            CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
+            COINIT_MULTITHREADED,
+        },
+        UI::Accessibility::{
+            CUIAutomation, IUIAutomation, IUIAutomationTextPattern, UIA_TextPatternId,
+        },
+    };
+    unsafe {
+        CoInitializeEx(None, COINIT_MULTITHREADED).ok().ok()?;
+        struct Apartment;
+        impl Drop for Apartment {
+            fn drop(&mut self) {
+                unsafe {
+                    CoUninitialize();
+                }
+            }
+        }
+        let _apartment = Apartment;
+        let automation: IUIAutomation =
+            CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok()?;
+        let element = automation.GetFocusedElement().ok()?;
+        if element.CurrentIsPassword().ok()?.as_bool() {
+            return None;
+        }
+        let pattern: IUIAutomationTextPattern =
+            element.GetCurrentPatternAs(UIA_TextPatternId).ok()?;
+        let selection = pattern.GetSelection().ok()?;
+        let mut parts = Vec::new();
+        for i in 0..selection.Length().ok()? {
+            parts.push(selection.GetElement(i).ok()?.GetText(-1).ok()?.to_string());
+        }
+        let text = parts.join("\n");
+        (!text.trim().is_empty()).then_some(text)
+    }
+}
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn read_selected_text() -> Option<String> {
     None
 }

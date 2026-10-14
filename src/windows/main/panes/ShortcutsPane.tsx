@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Card } from "../components/primitives";
 import { Icon, Kbd, type IconName } from "@/components/Icon";
 import { acceleratorFromKeyboardState, formatShortcutKeys } from "@/lib/shortcuts";
+import { useSystemStore } from "@/stores/system";
 import { useConfigStore } from "@/stores/config";
 
 type ShortcutKey = "selection" | "screenshot" | "overlay" | "openMain";
@@ -17,6 +18,7 @@ const ITEMS: { key: ShortcutKey; icon: IconName }[] = [
 /** 快捷键 —— 4 项 + 权限提示(对齐设计 ShortcutsPane) */
 export function ShortcutsPane() {
   const { t } = useTranslation();
+  const platform = useSystemStore((s) => s.info?.platform);
   const shortcuts = useConfigStore((s) => s.config.shortcuts);
   const patch = useConfigStore((s) => s.patch);
   const [editing, setEditing] = useState<ShortcutKey | null>(null);
@@ -59,7 +61,7 @@ export function ShortcutsPane() {
   }, [editing, patch, shortcuts, t]);
 
   return (
-    <div>
+    <div id="shortcuts">
       <Card>
         {ITEMS.map((it, i) => (
           <div
@@ -79,7 +81,7 @@ export function ShortcutsPane() {
                 {t(`shortcuts.${it.key}Hint`)}
               </div>
             </div>
-            <Kbd keys={formatShortcutKeys(shortcuts[it.key])} />
+            <Kbd keys={formatShortcutKeys(shortcuts[it.key], platform)} />
             <button
               type="button"
               onClick={() => {
@@ -104,7 +106,7 @@ export function ShortcutsPane() {
 
       <div className="mt-[14px] flex items-start gap-2.5 rounded-lg border-[0.5px] border-dashed border-line p-3 text-xs text-sub">
         <Icon name="info" size={14} className="mt-px shrink-0" />
-        <div>{t("shortcuts.permissionNote")}</div>
+        <div>{t(platform === "windows" ? "shortcuts.permissionWindows" : "shortcuts.permissionNote")}</div>
       </div>
     </div>
   );

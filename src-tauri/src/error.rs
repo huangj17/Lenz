@@ -16,6 +16,9 @@ pub enum LenzError {
     /// OCR 引擎不可用(如缺少系统语言包、无权限)。
     #[error("ocr unavailable: {0}")]
     OcrUnavailable(String),
+    /// Windows OCR 需要安装包身份,不能用语言包错误替代。
+    #[error("ocr package identity required: {0}")]
+    OcrIdentityRequired(String),
     /// OCR 执行失败。
     #[error("ocr failed: {0}")]
     OcrFailed(String),
@@ -49,6 +52,7 @@ impl LenzError {
     }
 
     /// 占位:尚未在当前里程碑实现的功能。
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     pub fn not_implemented() -> Self {
         LenzError::Internal("not_implemented".into())
     }

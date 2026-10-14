@@ -3,19 +3,16 @@
 //! 流程:PNG → `InMemoryRandomAccessStream` → `BitmapDecoder` → `SoftwareBitmap`
 //! → `OcrEngine`(按语言尝试 + 用户配置回退)→ `RecognizeAsync` → 遍历 Lines。
 //!
-//! WinRT 异步操作在 `spawn_blocking` 内用 `.get()` 阻塞等待;所有 COM 对象的
+//! WinRT 异步操作在 `spawn_blocking` 内用 `.join()` 阻塞等待;所有 COM 对象的
 //! 生命周期都局限在闭包内,只返回纯 Rust `Vec<OcrBlock>`。
 //!
-//! ⚠️ 本文件仅在 `target_os = "windows"` 编译,无法在 macOS 开发机本地验证,
-//!    需在 Windows 机 / CI(windows-latest)上 `cargo check`/`cargo test` 校验。
-//!    重点核对项:`TryCreateFromLanguage` 在缺语言包时的返回语义(Err vs null)、
-//!    `IVectorView` 迭代、`IAsyncOperation::get()` 是否需要额外 feature。
+//! 此模块已通过 Windows GNU 目标交叉编译;语言包和 WinRT 服务仍需 Windows 实机验收。
 
 use async_trait::async_trait;
 
 use windows::core::HSTRING;
 use windows::Globalization::Language;
-use windows::Graphics::Imaging::BitmapDecoder;
+use windows::Graphics::Imaging::{BitmapAlphaMode, BitmapDecoder, BitmapPixelFormat};
 use windows::Media::Ocr::OcrEngine as WinOcrEngine;
 use windows::Storage::Streams::{DataWriter, InMemoryRandomAccessStream};
 
@@ -42,6 +39,10 @@ impl OcrEngine for WinMediaOcr {
     }
 
     fn supported_languages(&self) -> Vec<String> {
+        if crate::core::windows_package::require_identity().is_err() {
+            return Vec::new();
+        }
+        let _apartment = initialize_apartment().ok();
         // OcrEngine::AvailableRecognizerLanguages() 返回系统已装识别语言。
         match available_languages() {
             Ok(langs) if !langs.is_empty() => langs,
@@ -79,6 +80,8 @@ fn run_win_ocr(
     pixel_rect: &Rect,
     scale: f32,
 ) -> Result<Vec<OcrBlock>, LenzError> {
+    crate::core::windows_package::require_identity()?;
+    let _apartment = initialize_apartment()?;
     // 1) PNG 字节 → 内存随机访问流。
     let stream = InMemoryRandomAccessStream::new().map_err(|e| win_err("create stream", e))?;
     let writer = DataWriter::CreateDataWriter(&stream).map_err(|e| win_err("create writer", e))?;
@@ -88,12 +91,12 @@ fn run_win_ocr(
     writer
         .StoreAsync()
         .map_err(|e| win_err("store async", e))?
-        .get()
+        .join()
         .map_err(|e| win_err("store", e))?;
     writer
         .FlushAsync()
         .map_err(|e| win_err("flush async", e))?
-        .get()
+        .join()
         .map_err(|e| win_err("flush", e))?;
     // 解除 writer 对 stream 的所有权,避免其析构关闭流;并回到流头部。
     let _ = writer.DetachStream();
@@ -102,12 +105,12 @@ fn run_win_ocr(
     // 2) 解码为 SoftwareBitmap。
     let decoder = BitmapDecoder::CreateAsync(&stream)
         .map_err(|e| win_err("decoder async", e))?
-        .get()
+        .join()
         .map_err(|e| win_err("decoder", e))?;
     let bitmap = decoder
-        .GetSoftwareBitmapAsync()
+        .GetSoftwareBitmapConvertedAsync(BitmapPixelFormat::Bgra8, BitmapAlphaMode::Ignore)
         .map_err(|e| win_err("bitmap async", e))?
-        .get()
+        .join()
         .map_err(|e| win_err("bitmap", e))?;
 
     // 3) 创建 OCR 引擎(按 preferred_languages 依序尝试 → 用户配置回退)。
@@ -117,15 +120,11 @@ fn run_win_ocr(
     let result = engine
         .RecognizeAsync(&bitmap)
         .map_err(|e| win_err("recognize async", e))?
-        .get()
+        .join()
         .map_err(|e| win_err("recognize", e))?;
 
     // 5) 遍历 Lines;bbox = 行内各 Word.BoundingRect 的并集。
     let mut blocks = Vec::new();
-    if WIN_OCR_CONFIDENCE < opts.min_confidence {
-        // 置信度常量低于阈值 → 全部过滤,直接返回空。
-        return Ok(blocks);
-    }
     let lines = result.Lines().map_err(|e| win_err("lines", e))?;
     let line_count = lines.Size().map_err(|e| win_err("lines size", e))?;
     for i in 0..line_count {
@@ -177,8 +176,13 @@ fn create_engine(opts: &OcrOptions) -> Result<WinOcrEngine, LenzError> {
         }
     }
     // 回退:用户配置语言。
+    if !opts.auto_detect_language {
+        return Err(LenzError::OcrUnavailable(
+            "no installed preferred OCR language pack".into(),
+        ));
+    }
     WinOcrEngine::TryCreateFromUserProfileLanguages().map_err(|_| {
-        // TODO(M4/M7): 上层据此 emit `ocr://language-missing` + 系统设置引导。
+        // 上层据此 emit `ocr://language-missing` + 系统设置引导。
         LenzError::OcrUnavailable("no installed OCR language pack".into())
     })
 }
@@ -196,4 +200,95 @@ fn available_languages() -> Result<Vec<String>, LenzError> {
         }
     }
     Ok(out)
+}
+
+struct Apartment(bool);
+impl Drop for Apartment {
+    fn drop(&mut self) {
+        if self.0 {
+            unsafe {
+                windows::Win32::System::Com::CoUninitialize();
+            }
+        }
+    }
+}
+fn initialize_apartment() -> Result<Apartment, LenzError> {
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+    let result = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+    if result.is_ok() {
+        Ok(Apartment(true))
+    } else if result.0 == 0x80010106u32 as i32 {
+        Ok(Apartment(false))
+    }
+    // existing STA
+    else {
+        result
+            .ok()
+            .map(|_| Apartment(false))
+            .map_err(|e| win_err("initialize COM", e))
+    }
+}
+
+/// Runs the production OCR path from the installed package before any GUI/config setup.
+/// The fixed synthetic fixture never captures the user's screen or reads credentials.
+pub fn write_install_diagnostic(output: &std::path::Path) -> Result<bool, LenzError> {
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Report {
+        ok: bool,
+        package_identity: Option<String>,
+        available_languages: Vec<String>,
+        recognized_text: String,
+        blocks: Vec<OcrBlock>,
+        error: Option<String>,
+    }
+    let identity = crate::core::windows_package::full_name().ok().flatten();
+    let engine = WinMediaOcr::new();
+    let languages = engine.supported_languages();
+    let options = OcrOptions {
+        preferred_languages: vec!["en-US".into()],
+        fast_mode: false,
+        auto_detect_language: true,
+        min_confidence: 0.3,
+    };
+    let blocks = run_win_ocr(
+        include_bytes!("../../../resources/OcrSmoke.png"),
+        &options,
+        &Rect {
+            x: 0,
+            y: 0,
+            w: 1024,
+            h: 220,
+        },
+        1.0,
+    );
+    let (blocks, mut error) = match blocks {
+        Ok(blocks) => (blocks, None),
+        Err(error) => (Vec::new(), Some(error.to_string())),
+    };
+    let text = blocks
+        .iter()
+        .map(|b| b.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let ok = identity.is_some()
+        && error.is_none()
+        && text.contains("LENZ")
+        && text.contains("12345")
+        && !blocks.is_empty();
+    if !ok && error.is_none() {
+        error = Some("The installed recognizer did not read the synthetic LENZ 12345 image. Check the OCR language capabilities (English is recommended for this diagnostic).".into());
+    }
+    let report = Report {
+        ok,
+        package_identity: identity,
+        available_languages: languages,
+        recognized_text: text,
+        blocks,
+        error,
+    };
+    let temp = output.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
+    std::fs::write(&temp, serde_json::to_vec_pretty(&report)?)?;
+    std::fs::rename(&temp, output)?;
+    Ok(ok)
 }

@@ -3,6 +3,7 @@
  */
 interface ToggleProps {
   checked: boolean;
+  disabled?: boolean;
   onCheckedChange?: (value: boolean) => void;
   "aria-label"?: string;
 }
@@ -14,7 +15,7 @@ export function Toggle({ checked, onCheckedChange, ...rest }: ToggleProps) {
       role="switch"
       aria-checked={checked}
       onClick={() => onCheckedChange?.(!checked)}
-      className="relative h-[21px] w-9 shrink-0 cursor-pointer rounded-full border-0 transition-colors"
+      className="relative h-[21px] w-9 shrink-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 rounded-full border-0 transition-colors"
       style={{
         background: checked
           ? "var(--lens)"

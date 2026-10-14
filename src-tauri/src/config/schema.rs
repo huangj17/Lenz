@@ -12,7 +12,7 @@ use specta::Type;
 /// 谷歌/微软/ollama/LM Studio 默认关闭)+ `TranslatorEngine.region` 字段。
 /// v3:新增百度翻译预设(`builtin-baidu`,默认关闭)+ 谷歌翻译预设。
 /// v4:移除仓库内置 Google Key;所有需凭据或尚未实现的引擎默认关闭。
-pub const CURRENT_VERSION: u32 = 4;
+pub const CURRENT_VERSION: u32 = 5;
 
 /// 顶层配置。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -93,6 +93,14 @@ pub struct OcrConfig {
     pub preferred_languages: Vec<String>,
     /// 最低置信度过滤阈值,0~1。
     pub min_confidence: f32,
+    #[serde(default)]
+    pub fast_mode: bool,
+    #[serde(default = "default_true")]
+    pub auto_detect_language: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -340,6 +348,8 @@ impl Default for Config {
                 engine: OcrEngineKind::System,
                 preferred_languages: vec!["en-US".into(), "zh-Hans".into()],
                 min_confidence: 0.3,
+                fast_mode: false,
+                auto_detect_language: true,
             },
             translator: TranslatorConfig {
                 // 首次启动不隐式选择第三方服务;用户启用引擎时再设置默认项。

@@ -39,6 +39,7 @@ import type {
   TriggerKind as RustTriggerKind,
   UiConfig as RustUiConfig,
 } from "./bindings";
+export type { SystemInfo, SystemResource, UpdateInfo, OverlayPayload, OverlayBlock } from "./bindings";
 
 // ──────────────────────────────────────────────────────────────────────────
 // 基础几何 / 触发类型
@@ -127,9 +128,7 @@ export type PermissionRequiredPayload = PermissionRequired;
 export type CaptureRegionSelectedPayload = RegionSelectedPayload;
 
 /** `overlay://closed` */
-export interface OverlayClosedPayload {
-  id: string;
-}
+export type OverlayClosedPayload = import("./bindings").OverlayClosed;
 
 // ── 截图翻译 F2 事件载荷(spec 06)──────────────────────────────────────────
 

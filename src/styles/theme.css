@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 /*
  * Lenz 主题 —— 严格对齐设计交接包
  * (docs/design/project/index.html 的 :root + settings.jsx 的语义色)。

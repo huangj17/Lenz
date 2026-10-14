@@ -31,6 +31,8 @@
 
 macOS:`titleBarStyle: "overlay"`(隐藏标题栏,前端用 `data-tauri-drag-region` 实现拖拽)。
 
+主题由 `<html>.dark` 统一控制,Tailwind `dark:` 用相同 class selector,避免手动深色主题下选中控件仍出现白底。
+
 ### 2.2 Tab 结构
 
 | Tab | 路由 | 内容 |
@@ -40,7 +42,9 @@ macOS:`titleBarStyle: "overlay"`(隐藏标题栏,前端用 `data-tauri-drag-regi
 | 服务 | `/settings/services` | 分段控件切换:文本翻译(引擎列表+编辑器)/ OCR(后端、精度、识别语言) |
 | 关于 | `/settings/about` | 版本、开源协议、GitHub 链接 |
 
-> **服务页**用分段控件(Segmented)在「文本翻译」与「OCR」两个子视图间切换,而非两个独立侧边栏 Tab——对齐设计稿(`docs/design`)。侧边栏共四项;底部展示默认引擎连接状态。
+> **服务页**用分段控件(Segmented)在「文本翻译」与「OCR」两个子视图间切换,而非两个独立侧边栏 Tab——对齐设计稿(`docs/design`)。侧边栏共四项;底部展示后端实际可用默认引擎,仅最近一次测试成功后显示绿灯;配置变更清除旧测试状态。
+
+头部搜索支持中英文关键词、上下选择和 Enter 跳转,滚动、聚焦目标设置。通用页显示实际监听状态及 macOS 辅助功能/屏幕录制授权入口。OCR 页按系统能力展示控件,支持语言添加/删除/排序和配置保存。
 
 ### 2.3 服务 · 文本翻译分段
 
@@ -58,8 +62,8 @@ macOS:`titleBarStyle: "overlay"`(隐藏标题栏,前端用 `data-tauri-drag-regi
 
 录制流程:
 1. 点击"录制" → 按钮变为"按下快捷键…"(监听 keydown)。
-2. 捕获组合键后显示预览(如 `⌥ S`)。
-3. 检测冲突:与已有快捷键或系统常用键冲突 → 显示警告,仍允许保存。
+2. 捕获组合键后显示预览(macOS `⌥ S`,Windows 使用 `Alt`/`Ctrl`/`Shift`/`Win` 文字)。
+3. 检测重复/系统冲突;注册失败保留旧配置和绑定,显示错误。
 4. 点击"保存"→ 调 `set_config` 更新 `shortcuts.*`。
 
 ## 3. popup 窗口

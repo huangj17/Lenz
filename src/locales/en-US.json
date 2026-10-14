@@ -9,10 +9,14 @@
     "about": "About"
   },
   "header": {
-    "search": "Search settings"
+    "search": "Search settings",
+    "noResults": "No matching settings"
   },
   "sidebar": {
-    "noEngine": "No service configured"
+    "noEngine": "No service configured",
+    "connected": "Last connection test passed",
+    "failed": "Last connection test failed",
+    "untested": "Connection not tested"
   },
   "theme": {
     "label": "Theme",
@@ -29,15 +33,22 @@
   "general": {
     "startup": "Startup",
     "autoStart": "Launch at login",
-    "autoStartHint": "Start Lenz silently in the menu bar",
+    "autoStartHint": "Start Lenz quietly when you log in",
     "checkUpdate": "Auto-check for updates",
-    "checkUpdateHint": "Poll GitHub Releases once a day",
+    "checkUpdateHint": "Check on launch and every 24 hours using GitHub Releases",
     "openOnLaunch": "Open main window on launch",
     "openOnLaunchHint": "When off, stays in the menu bar only",
     "appearance": "Appearance",
     "selection": "Text selection",
     "selectionIndicator": "Show translate icon on selection",
-    "selectionIndicatorHint": "Float a small icon at the cursor after selecting text; click to translate (needs Accessibility permission)"
+    "selectionIndicatorHint": "Float a small icon at the cursor after selecting text; click to translate (needs Accessibility permission)",
+    "listenerStatus": "Selection listener",
+    "running": "Running",
+    "stopped": "Stopped",
+    "accessibilityRequired": "The selection indicator needs Accessibility access. Refresh after granting it.",
+    "screenRecordingRequired": "Screenshots and overlays need Screen Recording access.",
+    "openPermissions": "Open System Settings",
+    "selectionIndicatorWindowsHint": "Float an icon at the cursor after selecting text; click to translate"
   },
   "shortcuts": {
     "selection": "Word translation",
@@ -53,7 +64,8 @@
     "recordingHint": "Press the new shortcut; Backspace clears it and Esc cancels.",
     "modifierRequired": "Letter and number shortcuts need at least one modifier.",
     "duplicate": "This shortcut is already used by “{{name}}”.",
-    "permissionNote": "Word translation needs macOS Accessibility permission; overlay needs Screen Recording. Both are requested on first use."
+    "permissionNote": "Word translation needs macOS Accessibility permission; overlay needs Screen Recording. Both are requested on first use.",
+    "permissionWindows": "Selection detection uses Windows UI Automation. OCR requires installed system language packs."
   },
   "services": {
     "translate": "Text Translation",
@@ -109,7 +121,10 @@
       "baidu": "Baidu",
       "microsoft": "Microsoft Azure",
       "apple": "Apple system"
-    }
+    },
+    "appleUnavailable": "Apple Translation requires macOS 15 or later. Use OpenAI-compatible or cloud engines on this platform.",
+    "appleReady": "Uses on-device Apple Translation. The first request may show the system language download dialog; increase the timeout while installing languages.",
+    "timeoutHint": "1000–600000 ms. Allow more time when installing Apple translation languages for the first time."
   },
   "ocr": {
     "engine": "Engine",
@@ -121,15 +136,43 @@
     "accurate": "Accurate",
     "autoDetect": "Auto-detect language",
     "languages": "Recognition languages",
-    "languagesDesc": "Vision prioritizes these when auto-detecting. Drag to reorder."
+    "languagesDesc": "Add or remove languages, then drag or use the arrows to change their priority.",
+    "backendWindowsHint": "Windows system OCR requires the matching recognition language packs",
+    "systemAccuracy": "Recognition strategy is managed by Windows OCR",
+    "systemConfidence": "Windows OCR does not provide per-line confidence",
+    "minConfidence": "Minimum recognition confidence",
+    "systemFallback": "Use system languages when preferred languages are unavailable",
+    "invalidLanguage": "Enter a valid language tag, such as en-US, zh-Hans, or ja-JP.",
+    "reorderLanguage": "Drag to reorder {{language}}",
+    "moveUp": "Move {{language}} up",
+    "moveDown": "Move {{language}} down",
+    "removeLanguage": "Remove {{language}}",
+    "languageCode": "Language tag, e.g. ja-JP",
+    "addLanguage": "Add language",
+    "windowsLanguages": "Install recognition language packs in System Settings. Preferred languages are tried in order.",
+    "languageMissing": "No installed OCR language packs were found.",
+    "installLanguages": "Install language packs",
+    "languageRequired": "Choose at least one installed language when system fallback is disabled.",
+    "autoDetectRequires13": "Automatic language detection requires macOS 13 or later. This system uses the preferred recognition languages.",
+    "packageRequired": "Install the Windows MSIX version and open Lenz from the Start menu to use system OCR.",
+    "downloadInstalledVersion": "Download the Windows installer"
   },
   "about": {
     "beta": "Beta",
     "tagline": "Open-source, cross-platform screenshot translator.",
-    "stack": "MIT License · Tauri 2.0 · Apple Vision OCR",
+    "stack": "MIT License · Tauri · System OCR",
     "changelog": "Changelog",
     "checkUpdate": "Check for Updates",
-    "privacy": "Lenz runs entirely on your device. No data upload, no telemetry, no account. Translations via cloud engines (DeepSeek, Google Translate, etc.) are sent only to those providers."
+    "privacy": "OCR and Apple Translation run locally. Cloud translation requests go only to your configured provider. Lenz collects no analytics and requires no account.",
+    "buildDate": "Build date",
+    "checking": "Checking…",
+    "licenses": "Licenses and third-party notices",
+    "licensePackage": "Choose a dependency",
+    "updateAvailable": "Version {{version}} is available",
+    "upToDate": "You are up to date",
+    "noRelease": "No accessible public release is available yet",
+    "openRelease": "Open release page",
+    "viewUpdate": "View update details"
   },
   "capture": {
     "hint": "Drag to select an area",
@@ -161,7 +204,14 @@
       "noText": "No text found. Try selecting again.",
       "translateFailed": "Translation failed: {{msg}}",
       "timeout": "Response timed out",
-      "generic": "Something went wrong"
+      "generic": "Something went wrong",
+      "package_required": "Install the Windows MSIX version and open Lenz from the Start menu to use system OCR."
     }
+  },
+  "common": {
+    "refresh": "Refresh",
+    "close": "Close",
+    "retry": "Retry",
+    "loading": "Loading…"
   }
 }

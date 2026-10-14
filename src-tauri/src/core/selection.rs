@@ -1,7 +1,7 @@
 //! 划词监听(spec 05 §2)。
 //!
 //! `SelectionListener` 作为 Tauri managed state 注入,生命周期由「托盘开关 /
-//! `toggle_selection_listener` 命令 / 启动时 `selection.enabled && autoDetect`」驱动
+//! `toggle_selection_listener` 命令 / 启动时 `selection.enabled`」驱动
 //! (start / stop / restart)。
 //!
 //! macOS 实现:在独立线程上跑一个 `CGEventTap`(listen-only,会话级),监听鼠标
@@ -18,6 +18,9 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 
 use crate::config::ConfigStore;
+#[cfg(target_os = "windows")]
+#[path = "selection_windows.rs"]
+mod windows;
 
 /// `selection://detected` 事件名:监听到一次划词/双击选中手势(候选,待探测确认)。
 pub const EVENT_SELECTION_DETECTED: &str = "selection://detected";
@@ -36,8 +39,10 @@ pub struct SelectionListener {
 struct Inner {
     #[cfg(target_os = "macos")]
     handle: Option<macos::TapHandle>,
-    /// 非 macOS 占位,标记是否「逻辑上开启」(便于 is_running 一致返回)。
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    windows_handle: Option<windows::ListenerHandle>,
+    /// macOS/Windows 以外的平台保留空实现。
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     running: bool,
 }
 
@@ -56,7 +61,13 @@ impl SelectionListener {
             }
             inner.handle = macos::start(app);
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "windows")]
+        {
+            if inner.windows_handle.is_none() {
+                inner.windows_handle = windows::start(app);
+            }
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         {
             let _ = app;
             inner.running = true;
@@ -73,7 +84,13 @@ impl SelectionListener {
                 handle.stop();
             }
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(handle) = inner.windows_handle.take() {
+                handle.stop();
+            }
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         {
             inner.running = false;
         }
@@ -92,7 +109,11 @@ impl SelectionListener {
         {
             inner.handle.is_some()
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "windows")]
+        {
+            inner.windows_handle.is_some()
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         {
             inner.running
         }

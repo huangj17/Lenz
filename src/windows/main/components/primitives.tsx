@@ -75,11 +75,13 @@ export function Section({
 
 /** 列表行:左 label(+hint)/ 右控件,底边分隔线 */
 export function Row({
+  id,
   label,
   hint,
   children,
   last,
 }: {
+  id?: string;
   label: string;
   hint?: string;
   children?: ReactNode;
@@ -87,6 +89,7 @@ export function Row({
 }) {
   return (
     <div
+      id={id}
       className={clsx(
         "flex items-center justify-between px-[14px] py-2.5",
         !last && "border-b-[0.5px] border-line",

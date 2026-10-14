@@ -41,6 +41,8 @@ interface Config {
     engine: "system";               // MVP 仅系统
     preferredLanguages: string[];   // BCP-47
     minConfidence: number;          // 0~1
+    fastMode: boolean;              // 仅 macOS Vision,默认 false
+    autoDetectLanguage: boolean;    // 默认 true;Windows 为系统语言回退
   };
   translator: {
     defaultEngineId: string;
@@ -76,7 +78,7 @@ interface TranslatorEngine {
 
 首次启动生成的默认 config:
 
-- `version = 4`
+- `version = 5`
 - `app.locale = "system"`, `theme = "system"`
 - `shortcuts` 按 PRD §4.1 平台默认值填充
 - `selection.autoDetect = false`(避免误触;用户按需开启)
@@ -159,7 +161,7 @@ export const configApi = {
 
 - API Key 以**明文**保存在 JSON 文件中(MVP)。
 - 设置页 UI 输入框 `type="password"`,需要显式点击"显示"才展示。
-- 在关于/设置页顶部给出提示:"凭据以明文保存在本机;请勿共享 config.json。"
+- API Key 输入下方明确提示凭据以明文保存在本机;请勿共享 config.json。
 - 未来(P2)接入系统 keychain(`keyring` crate)。在此之前,schema 中的字段名不变,以便零迁移切换。
 
 ## 7. 迁移策略
@@ -171,6 +173,8 @@ export const configApi = {
   3. 单元测试:旧 fixture → 迁移后等价性
 
 ## 8. 验收标准
+
+v4 → v5 增加 `ocr.fastMode = false`、`ocr.autoDetectLanguage = true`,保留已有语言顺序、置信度和引擎配置。缺失字段有 serde 默认值,迁移保留用户值有回归测试。
 
 - [ ] 首次启动能生成完整默认 config,所有必填字段非空。
 - [ ] 设置页修改任一配置,进程重启后生效。

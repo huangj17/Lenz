@@ -1,0 +1,8 @@
+{
+  "name": "app.lenz.desktop",
+  "applicationId": "Lenz",
+  "publisher": "CN=Lenz contributors",
+  "publisherDisplayName": "Lenz contributors",
+  "startupTaskId": "LenzStartup",
+  "minWindowsVersion": "10.0.17763.0"
+}

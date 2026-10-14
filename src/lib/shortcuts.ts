@@ -7,6 +7,29 @@ export interface ShortcutKeyboardState {
   shiftKey: boolean;
 }
 
+export interface SettingsShortcutKeyboardState extends ShortcutKeyboardState {
+  key: string;
+  repeat: boolean;
+  isComposing: boolean;
+  defaultPrevented: boolean;
+}
+
+/** Windows 应用内设置快捷键;快捷键录制等已消费的事件不再触发。 */
+export function isWindowsSettingsShortcut(
+  e: SettingsShortcutKeyboardState,
+  userAgent: string,
+): boolean {
+  return /\bWindows\b/i.test(userAgent)
+    && e.key === ","
+    && e.ctrlKey
+    && !e.metaKey
+    && !e.altKey
+    && !e.shiftKey
+    && !e.repeat
+    && !e.isComposing
+    && !e.defaultPrevented;
+}
+
 const MODIFIER_CODES = new Set([
   "AltLeft",
   "AltRight",
@@ -36,7 +59,7 @@ export function acceleratorFromKeyboardState(e: ShortcutKeyboardState): string |
 }
 
 /** 把 accelerator 拆成设置页展示用的符号键帽。 */
-export function formatShortcutKeys(accelerator: string | null): string[] {
+export function formatShortcutKeys(accelerator: string | null, platform: string = "macos"): string[] {
   if (!accelerator) return ["—"];
   const symbols: Record<string, string> = {
     alt: "⌥",
@@ -49,7 +72,12 @@ export function formatShortcutKeys(accelerator: string | null): string[] {
     control: "⌃",
     shift: "⇧",
   };
+  const windowsSymbols: Record<string, string> = {
+    alt: "Alt", option: "Alt", ctrl: "Ctrl", control: "Ctrl", shift: "Shift",
+    super: "Win", meta: "Win", cmd: "Win", command: "Win",
+  };
+  const display = platform === "windows" ? windowsSymbols : symbols;
   return accelerator
     .split("+")
-    .map((part) => symbols[part.toLowerCase().trim()] ?? part.toUpperCase());
+    .map((part) => display[part.toLowerCase().trim()] ?? part.toUpperCase());
 }

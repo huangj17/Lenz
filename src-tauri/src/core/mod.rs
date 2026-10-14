@@ -18,6 +18,9 @@ pub mod selection;
 pub mod selection_text;
 pub mod selection_window;
 pub mod shortcut;
+pub mod system;
 pub mod translator;
+#[cfg(target_os = "windows")]
+pub mod windows_package;
 
 pub mod clipboard_selection;

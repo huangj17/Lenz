@@ -39,7 +39,9 @@ Bob 是 macOS 上广受好评的翻译工具，但仅支持 macOS、订阅制收
 - 🔄 **M5 划词翻译 F1**：AX 直读选中文本 + 指示图标已落地，部分交互待实机验收
 - ⏳ **M6 原图覆盖 F3**、**M7 设置页交互**、**M8 完善**、**M9 打包发布**
 
-当前以 macOS 为主开发平台，Windows 侧适配集中在后续里程碑。
+设置页、原图覆盖流程和 Windows 划词监听已接通；Windows 目标交叉编译与静态检查通过，原生权限、多屏和 Windows 实机验收仍在 TODO 单独跟踪。
+
+Windows OCR 的 MSIX 包身份、测试签名、WebView2 安装与安装后识别自检已实现；尚无正式签名证书和 Windows 安装运行报告。构建与验收步骤见 [Windows 分发指南](docs/windows-distribution.md)。`v*` 标签触发双架构 macOS DMG 和 Windows x64 MSIX 构建,成功后上传 [Releases](https://github.com/huangj17/Lenz/releases)。首版使用 macOS ad-hoc / Windows 自签测试签名,Windows 实机验收推迟。
 
 ## 🚀 开发
 
@@ -48,6 +50,7 @@ Bob 是 macOS 上广受好评的翻译工具，但仅支持 macOS、订阅制收
 - [Rust](https://www.rust-lang.org/tools/install)（stable）
 - [Node.js](https://nodejs.org/) + [pnpm](https://pnpm.io/)
 - Tauri 2 的[平台前置依赖](https://tauri.app/start/prerequisites/)
+- macOS 构建需要 Xcode 26+ / Swift 6.2+ SDK，以编译 Apple Translation 桥接；应用仍支持 macOS 12，Apple 翻译仅在 macOS 15+ 可用。
 
 ### 常用命令
 
@@ -57,9 +60,12 @@ pnpm tauri dev                                        # 启动开发（托盘 ap
 pnpm typecheck                                        # 前端类型检查
 cargo check --manifest-path src-tauri/Cargo.toml      # Rust 检查
 cargo test export_bindings --manifest-path src-tauri/Cargo.toml   # 重新生成 bindings.ts
+python3 scripts/generate-notices.py                  # 依赖变更后刷新离线许可证
 ```
 
 macOS 首次运行划词监听 / 截图相关功能时,需在系统设置中授予**辅助功能**与**屏幕录制**权限。
+
+Windows 系统 OCR 需使用 MSIX 安装版本及对应系统 OCR 语言包,从开始菜单打开。Windows 开发机可用 `pnpm windows:msix:test` 构建测试签名包;安装助手默认执行真实 OCR 识别验收。
 
 ### 目录结构
 
@@ -84,4 +90,4 @@ macOS 首次运行划词监听 / 截图相关功能时,需在系统设置中授�
 
 ## 📄 License
 
-MIT（LICENSE 文件待发布时补充）
+MIT（见 [LICENSE](LICENSE)）

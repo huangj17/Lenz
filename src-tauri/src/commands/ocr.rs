@@ -23,7 +23,8 @@ pub async fn run_ocr(
     let cfg = config.get()?;
     let opts = OcrOptions {
         preferred_languages: cfg.ocr.preferred_languages.clone(),
-        fast_mode: false,
+        fast_mode: cfg.ocr.fast_mode,
+        auto_detect_language: cfg.ocr.auto_detect_language,
         min_confidence: cfg.ocr.min_confidence,
     };
 

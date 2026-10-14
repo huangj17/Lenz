@@ -6,6 +6,7 @@
 //! 支持订阅 `config://changed` 后 `reload` 热更新(不重启进程)。
 
 mod apple;
+pub use apple::available as apple_available;
 mod baidu;
 mod deepl;
 mod google;
@@ -146,7 +147,7 @@ fn map_len(engines: &RwLock<HashMap<String, Arc<dyn Translator>>>) -> usize {
 fn engine_unavailable_reason(cfg: &TranslatorEngine) -> Option<&'static str> {
     let key = cfg.api_key.trim();
     match cfg.kind {
-        EngineKind::Apple => Some("apple translation is not implemented"),
+        EngineKind::Apple if !apple::available() => Some("Apple Translation requires macOS 15+"),
         EngineKind::Google if key.is_empty() => Some("Google API key is required"),
         EngineKind::Deepl if key.is_empty() => Some("DeepL API key is required"),
         EngineKind::Microsoft if key.is_empty() => Some("Microsoft API key is required"),

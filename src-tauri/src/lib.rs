@@ -8,6 +8,11 @@ mod setup;
 mod tray;
 mod types;
 
+#[cfg(target_os = "windows")]
+pub fn diagnose_windows_ocr(output: &std::path::Path) -> Result<bool, String> {
+    core::ocr::write_install_diagnostic(output).map_err(|error| error.to_string())
+}
+
 use tauri_plugin_log::{Target, TargetKind};
 use tauri_specta::{collect_commands, Builder as SpectaBuilder};
 
@@ -42,11 +47,18 @@ fn specta_builder() -> SpectaBuilder<tauri::Wry> {
             // overlay / selection / system
             commands::overlay::show_overlay,
             commands::overlay::close_overlay,
+            commands::overlay::get_overlay_payload,
+            commands::overlay::overlay_ready,
             commands::overlay::toggle_selection_listener,
             commands::overlay::trigger_selection_translate,
             commands::overlay::open_accessibility_settings,
             commands::overlay::set_auto_start,
             commands::overlay::check_update,
+            commands::system::get_system_info,
+            commands::system::open_system_resource,
+            commands::system::check_for_update,
+            commands::system::get_update_state,
+            commands::system::get_license_notices,
         ])
         // 事件载荷不会从 command 签名自动收集,显式导出以免前端手写契约漂移。
         .typ::<types::ConfigChangedPayload>()
@@ -59,6 +71,23 @@ fn specta_builder() -> SpectaBuilder<tauri::Wry> {
         .typ::<types::ScreenshotProgress>()
         .typ::<types::SelectionDetected>()
         .typ::<types::PermissionRequired>()
+        .typ::<core::overlay::OverlayClosed>()
+}
+
+#[cfg(any(debug_assertions, test))]
+fn export_typescript(specta: &SpectaBuilder<tauri::Wry>) -> Result<(), Box<dyn std::error::Error>> {
+    let path = "../src/lib/bindings.ts";
+    specta.export(specta_typescript::Typescript::default(), path)?;
+    // Normalize the generator's trailing spaces on both dev startup and test export.
+    let source = std::fs::read_to_string(path)?;
+    let formatted = source
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    std::fs::write(path, formatted)?;
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -68,8 +97,7 @@ pub fn run() {
     // 仅 debug 构建导出 TS bindings 到前端 src/lib/bindings.ts。
     #[cfg(debug_assertions)]
     {
-        use specta_typescript::Typescript;
-        if let Err(e) = specta.export(Typescript::default(), "../src/lib/bindings.ts") {
+        if let Err(e) = export_typescript(&specta) {
             eprintln!("failed to export specta typescript bindings: {e}");
         }
     }
@@ -106,14 +134,11 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::specta_builder;
-    use specta_typescript::Typescript;
+    use super::{export_typescript, specta_builder};
 
     /// 回归:specta 类型收集 + TS 导出不应爆栈;顺带生成正式 bindings.ts。
     #[test]
     fn export_bindings() {
-        specta_builder()
-            .export(Typescript::default(), "../src/lib/bindings.ts")
-            .expect("specta export should not fail/overflow");
+        export_typescript(&specta_builder()).expect("specta export should not fail/overflow");
     }
 }

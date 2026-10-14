@@ -15,8 +15,12 @@ use crate::types::Rect;
 
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "macos")]
+pub use macos::auto_detect_supported;
 #[cfg(target_os = "windows")]
 mod windows;
+#[cfg(target_os = "windows")]
+pub use windows::write_install_diagnostic;
 // Tesseract 预留实现位(spec 03 §10 / 2.6 兜底):默认不编译、不引入依赖,
 // 通过 `--features ocr-tesseract` 启用。当前 Vision/WinOCR 已满足 MVP。
 #[cfg(feature = "ocr-tesseract")]
@@ -36,9 +40,10 @@ pub struct OcrInput {
 pub struct OcrOptions {
     /// 按优先级排序的识别语言(BCP-47)。
     pub preferred_languages: Vec<String>,
-    /// 速度优先(对应 Vision `.fast` / WinOCR 低精度)。
+    /// 速度优先(对应 Vision `.fast`;Windows 系统 OCR 不支持切换精度)。
     pub fast_mode: bool,
-    /// 过滤低置信度文本块(0..1)。
+    pub auto_detect_language: bool,
+    /// 过滤低置信度文本块(0..1);仅对返回真实置信度的 Vision 生效。
     pub min_confidence: f32,
 }
 

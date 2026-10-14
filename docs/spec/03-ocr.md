@@ -30,7 +30,8 @@ pub struct OcrInput {
 
 pub struct OcrOptions {
     pub preferred_languages: Vec<String>,  // 按优先级排序
-    pub fast_mode: bool,                   // Vision / WinOCR 都有精度/速度开关
+    pub fast_mode: bool,                   // 仅 Vision 支持
+    pub auto_detect_language: bool,       // macOS 13+ 自动检测;Windows 系统语言回退
     pub min_confidence: f32,               // 过滤低置信度文本
 }
 
@@ -72,6 +73,7 @@ pub fn default_engine() -> Arc<dyn OcrEngine> {
      - `setRecognitionLevel: .accurate`(默认);`fast_mode` → `.fast`。
      - `setUsesLanguageCorrection: true`。
      - `setRecognitionLanguages: preferredLanguages`。
+     - macOS 13+ 设置 `automaticallyDetectsLanguage`;macOS 12 不调用该 selector,设置页说明系统版本限制。
   5. 同步执行 `perform:error:`(在 tokio `spawn_blocking` 里)。
   6. 遍历 `VNRecognizedTextObservation`:
      - `topCandidates: 1` 取最高候选。
@@ -91,21 +93,35 @@ pub fn default_engine() -> Arc<dyn OcrEngine> {
 
 - 依赖:`windows` crate(Graphics.Imaging / Media.Ocr / Storage.Streams)。
 - 流程:
-  1. `InMemoryRandomAccessStream` 写入 PNG。
-  2. `BitmapDecoder::CreateAsync` → `SoftwareBitmap`。
+  1. `GetCurrentPackageFullName` 检查包身份,无身份返回 `OcrIdentityRequired`。
+  2. `InMemoryRandomAccessStream` 写入 PNG;`BitmapDecoder::CreateAsync` → BGRA8 / Ignore alpha 的 `SoftwareBitmap`。
   3. `OcrEngine::TryCreateFromLanguage(Language)`:
-     - 按 `preferred_languages` 依序尝试。若全部不可用 → fallback `OcrEngine::TryCreateFromUserProfileLanguages()`。
+     - 按 `preferred_languages` 依序尝试。若全部不可用且 `auto_detect_language = true` → fallback `OcrEngine::TryCreateFromUserProfileLanguages()`;关闭回退则返回 OcrUnavailable。
      - 若仍为 null → 返回 `LenzError::OcrUnavailable("no installed language pack")`。
   4. `engine.RecognizeAsync(bitmap)` → `OcrResult`。
   5. 遍历 `Lines`:
      - `Line.Text`:整行文本。
      - bbox:取 Line 内所有 `Word.BoundingRect` 的并集矩形(像素坐标,已经是绝对像素)。
      - 置信度:Win OCR **不返回置信度**,统一填 `0.9`(常量),并标记 `engine = "win-media-ocr"`。
+     - 不使用合成置信度过滤文本。Windows 页说明系统不支持精度模式与置信度控制;macOS 对应控件真实生效。
 
 ### 4.1 语言包提示
 
-若 `TryCreateFromLanguage` 返回 null,事件 emit:`ocr://language-missing` `{ lang: "ja" }`。
-前端在设置页 OCR tab 显示:"系统未安装日语识别包,[点此前往系统设置]"。
+优先语言和系统回退均不可用时返回 OcrUnavailable;F2/F3 发 `ocr://language-missing` 无载荷事件。主窗口跳到 OCR 页,显示实际安装语言、缺少语言包提示及 `ms-settings:regionlanguage` 入口;刷新重新枚举语言包。
+
+识别语言支持添加、删除和优先顺序调整,全部持久化。Windows 工作线程初始化 COM apartment,异步 WinRT 操作用 windows-future 的 `join()` 完成。
+
+### 4.2 桌面应用包身份与验证边界
+
+[Microsoft 文档](https://learn.microsoft.com/en-us/uwp/api/windows.media.ocr)限定本 API 在桌面应用中的官方支持范围为具有 package identity 的应用。Lenz 使用完整 MSIX 包,清单及构建入口见 [spec 11 §4.2](./11-nfr.md#42-windows)。开始菜单通过包入口启动 `lenz.exe`;登录启动使用包内 `LenzStartup`,保持相同身份。普通 exe/MSI 开发路径不承诺系统 OCR 可用。
+
+识别前检查实际进程身份。缺身份与缺语言包分别返回 `OcrIdentityRequired`、`OcrUnavailable`;F2/F3 分别发 `ocr://package-required`、`ocr://language-missing`,设置页跳到 OCR 并展示对应安装或语言入口。`get_system_info.windowsPackageIdentity` 用于显示实际进程状态;不从配置推断身份。
+
+安装诊断入口:`lenz.exe --diagnose-windows-ocr <report.json>`。诊断在 GUI、用户配置和翻译服务初始化之前运行,使用嵌入的合成图片 `OcrSmoke.png` 调用同一 `run_win_ocr`,输出实际包身份、可用语言、文本块、识别文字及错误。优先英语并允许系统语言回退;要求结果含 `LENZ` 和 `12345`,失败退出码 1。安装脚本从已安装的 AUMID 激活诊断,核对身份等于 `PackageFullName`,不能用解包后直接执行 exe 代替。CI 准备英语 OCR 能力以稳定自检。诊断不截图、不读取用户配置或密钥。
+
+当前已完成打包与诊断代码、交叉编译和本地静态检查;尚无 Windows 安装运行报告。只有 CI/Windows 的实际 `installed-ocr.json` 验收成功后,才能把安装后识别标为通过。
+
+`preferredLanguages` 当前只选择首个可创建的识别器,每张图片执行一次识别。列表并非逐语言全部识别或自动检测图片语言;系统回退也只是选取用户语言列表中可用的识别器。
 
 ## 5. 坐标回映射算法
 
@@ -142,13 +158,13 @@ async fn run_ocr(
 
 > 实现说明:前端传 PNG 字节不现实,故 `run_ocr` 以**屏幕逻辑矩形**为入参,内部
 > `capture_region(rect)` 截图后再调引擎 `recognize`;`OcrOptions` 取自 `config.ocr`。
-> 设置页「测试 OCR」按钮直接调;F2/F3 主链路复用同一路径。`OcrInput`/`OcrOptions`
+> F2/F3 主链路共用相同 OCR 配置;设置页不另设测试 OCR 按钮。`OcrInput`/`OcrOptions`
 > 仍是引擎层(`OcrEngine::recognize`)的入参。
 
 ## 7. 性能
 
 - **目标**(对齐 PRD §5.1):1920×1080 区域 OCR ≤ 1s。
-- 实测基线(开发机,Apple M1):Vision `.accurate` 约 200~500ms,Win OCR 约 300~700ms。
+- 实测基线(开发机,Apple M1):Vision `.accurate` 约 200~500ms;Windows 性能尚未实测。
 - 优化:
   - OCR 调用用 `tokio::task::spawn_blocking`,避免阻塞异步 runtime。
   - 识别前不做无谓 PNG re-encode(capture 已经是 PNG 则直接传)。
@@ -159,6 +175,8 @@ async fn run_ocr(
 - 使用仓库内 fixture 图(中英混排截图)识别,文本块数量与人工标注一致 ±1。
 - bbox 回映射后,在屏幕上叠加彩色方框,能与原文字对齐(误差 ≤ 2 逻辑像素)。
 - 无任何已安装语言包的 Windows,调用应 graceful 返回 `OcrUnavailable`,不崩溃。
+- Windows 从安装包入口运行合成图片自检,包身份与安装记录一致且识别文字含 `LENZ 12345`。
+- 普通无身份 exe 返回 `OcrIdentityRequired`,不误导为缺少语言包。
 - `cargo test --features ocr-test` 跑通(离线 fixture 测试)。
 
 ## 9. 测试点

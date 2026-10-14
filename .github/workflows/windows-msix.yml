@@ -1,0 +1,89 @@
+name: Windows MSIX installation and OCR
+
+on:
+  workflow_dispatch:
+    inputs:
+      verify_installed_ocr:
+        description: Install the package and validate Windows OCR (deferred for v0.1.0)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-msix:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - name: Parse Windows scripts
+        shell: pwsh
+        run: |
+          Get-ChildItem scripts/windows/*.ps1 | ForEach-Object {
+            $errors = $null
+            $tokens = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors)
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }
+      - name: Build and test-sign MSIX
+        shell: powershell
+        run: ./scripts/windows/Build-TestMsix.ps1 -CiIdentity
+      - name: Save test package
+        uses: actions/upload-artifact@v4
+        with:
+          name: lenz-msix-test-only
+          path: |
+            src-tauri/target/msix/test/*.msix
+            src-tauri/target/msix/test/*.cer
+            src-tauri/target/msix/test/*.json
+            src-tauri/target/msix/test/*.txt
+            src-tauri/target/msix/test/*.ps1
+          if-no-files-found: warn
+          retention-days: 7
+
+  install-and-recognize:
+    if: inputs.verify_installed_ocr
+    needs: build-msix
+    # Test Windows.Media.Ocr on a Windows client, rather than the Server build image.
+    # The x64 distribution runs under Windows 11 ARM's x64 emulation here.
+    runs-on: windows-11-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: lenz-msix-test-only
+          path: src-tauri/target/msix/test
+      - name: Ensure English OCR language capability
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $name = 'Language.OCR~~~en-US~0.0.1.0'
+          $capability = Get-WindowsCapability -Online -Name $name
+          if ($capability.State -ne 'Installed') {
+            Add-WindowsCapability -Online -Name $name
+          }
+      - name: Install package and recognize synthetic image
+        shell: powershell
+        run: ./scripts/windows/Test-CiMsix.ps1
+      - name: Save actual installed OCR report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lenz-installed-ocr-report
+          path: src-tauri/target/msix/test/installed-ocr.json
+          if-no-files-found: warn
+          retention-days: 7

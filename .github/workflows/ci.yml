@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: ['**']
   pull_request:
 
 permissions:
@@ -23,6 +24,9 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - name: Select Xcode for native Translation bridge
+        if: runner.os == 'macOS'
+        run: python3 scripts/release/select-xcode.py
       - uses: dtolnay/rust-toolchain@stable
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck

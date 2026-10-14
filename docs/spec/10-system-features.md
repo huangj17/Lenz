@@ -17,13 +17,13 @@
 ```
 打开主窗口
 ───────────
-划词翻译       Alt+D
-截图翻译       Alt+S
-原图覆盖翻译   Alt+F
+划词翻译        ⌥D
+截图翻译        ⌥S
+原图覆盖翻译    ⌥F
 ───────────
 [✓] 划词监听(勾选表示已启用)
 ───────────
-设置...
+设置...        ⌘, (macOS)
 ───────────
 检查更新
 关于 Lenz
@@ -32,7 +32,9 @@
 ```
 
 - "划词监听"是 toggle:点击调 `toggle_selection_listener`,更新 `config.selection.enabled`,菜单项勾选状态同步。设置页「通用 · 划词」也提供同一开关(「划词显示翻译图标」),与本菜单项共用 `config.selection.enabled`,双向同步(见 spec 09 §2.2、spec 05 §1)。
-- 快捷键显示:从 `config.shortcuts` 读取,若为 null 则不显示。
+- 翻译功能快捷键从 `config.shortcuts` 读取,通过原生菜单 accelerator 统一显示在右侧快捷键列,与「设置...」对齐;macOS 使用系统符号(如上例的 `⌥D`、`⌥S`、`⌥F`),Windows 使用对应组合键文字(如 `Alt+D`);若为 null 或空字符串则不显示。配置变更重建菜单后同步更新。
+- macOS「设置...」使用固定的原生菜单快捷键 `Command+,`,托盘菜单显示 `⌘,`;同一菜单项也加入默认应用菜单,在 Lenz 窗口获得焦点时显示、取消最小化并聚焦主设置窗口。此快捷键不注册为全局快捷键,与可自定义的 `config.shortcuts.openMain` 独立。
+- Windows「设置...」使用固定的 `Ctrl+,`,托盘原生菜单在右侧显示 `Ctrl+,`;各 Lenz 窗口通过前端 `keydown` 监听发出已有的 `shortcut://open-main` 事件,复用后端的显示、取消最小化和聚焦逻辑。仅处理精确的 Ctrl+逗号组合,按字符匹配以兼容键盘布局,忽略长按重复、输入法组合及快捷键录制已消费的事件,卸载时清理监听。此快捷键也不注册为全局快捷键。
 
 ### 1.3 实现
 
@@ -93,54 +95,28 @@ fn register_shortcuts(app: &AppHandle, shortcuts: &ShortcutConfig) -> Result<(),
 
 ## 3. 自动启动
 
-使用 `tauri-plugin-autostart`。
+`set_auto_start` 先更新系统注册项,成功后保存 `app.autoStart`;保存失败回滚系统项。启动及配置热更新时校准注册状态。
 
-```rust
-// 读取配置后
-if config.app.auto_start {
-    app.autolaunch().enable()?;
-} else {
-    app.autolaunch().disable()?;
-}
-```
-
-配置变更时(监听 `config://changed` → `app.autoStart`):立即更新注册状态。
-
-- macOS:在 `~/Library/LaunchAgents/` 写入 plist,`LSUIElement = true`。
-- Windows:写注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`。
+- macOS:写用户 `~/Library/LaunchAgents/` plist,指向当前应用路径。
+- Windows MSIX:调用清单内 `LenzStartup` 的 `StartupTask.RequestEnableAsync` / `Disable`,保持登录启动的包身份。用户或组策略禁用时返回明确错误,不绕过系统设置。
+- Windows 无包开发版:保留 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 的 Lenz 值;该路径不提供系统 OCR 分发保证。
+- 无需自启插件;重启系统后自动启动仍单列实机验收。
 
 ## 4. 检查更新
 
-使用 `tauri-plugin-updater`。
-
 ### 4.1 触发时机
 
-- 启动后 3s 延迟(避免阻塞启动流程):若 `config.app.checkUpdate = true`。
-- 用户在设置页或托盘点击"检查更新":手动触发。
+开启 `app.checkUpdate` 时启动后 3s 首次检查,之后每 24h 检查;运行中重新开启立即检查。设置页和托盘支持手动检查。
 
 ### 4.2 流程
 
-```rust
-async fn check_update(app: AppHandle) -> Result<(), LenzError> {
-    let update = app.updater()?.check().await?;
-    if let Some(update) = update {
-        app.emit("app://update-available", UpdateInfo {
-            version: update.version.clone(),
-            notes: update.body.clone(),
-            download_url: update.download_url.to_string(),
-        })?;
-    }
-}
-```
+`check_for_update` 用 reqwest 请求 GitHub Releases API,15s 超时和 Lenz User-Agent;并发检查串行化。semver 比较当前包版本与正式发布 tag,拒绝外部 Release 链接。结果缓存在内存并发 `app://update-checked`;前端通过 `get_update_state` 恢复结果。
 
-前端监听 `app://update-available` → 弹出提示 dialog:
-- 展示新版本号与 changelog。
-- 按钮:"下载更新"(在浏览器打开 GitHub Release 页)、"稍后提醒"。
-- 不内置自动下载安装(避免签名/权限复杂度)。
+新版本显示主窗口和可关闭的提示条,关于页展示版本、更新说明及「打开发布页」。无新版本显示已是最新版;404 表示尚无公开正式版本,不会误报已是最新版。网络错误可再次手动检查。只在浏览器打开已验证的官方 Release URL,不自动下载安装。
 
 ### 4.3 版本源
 
-`tauri.conf.json` 中配置 `updater.endpoints`:指向 GitHub Releases 的 `latest.json`(由 CI 自动生成)。
+`https://api.github.com/repos/huangj17/Lenz/releases/latest`。直接读取正式 GitHub Release,无需 updater 插件、签名端点或 `latest.json`。应用内安装更新属后续范围。
 
 ## 5. 代理设置(已移除)
 
@@ -158,18 +134,22 @@ async fn check_update(app: AppHandle) -> Result<(), LenzError> {
 ## 7. 关于页
 
 - 应用版本:`app.package_info().version`。
-- 构建日期:`env!("BUILD_DATE")`(CI 注入)。
+- 构建日期:`LENZ_BUILD_DATE` 秒级时间戳;build.rs 生成,支持 CI 的 `SOURCE_DATE_EPOCH`。
 - 开源协议:MIT,展示全文链接。
 - GitHub 仓库链接。
-- 第三方许可证:链接到打包目录内的 `LICENSES.html`(由 `cargo-about` 生成)。
+- 实际 Bundle ID 和 OCR 后端由 `get_system_info` 返回。
+- MIT 与第三方许可证在关于页按依赖选择全文。`python3 scripts/generate-notices.py` 从解析后的 Rust/pnpm 依赖离线生成嵌入资源 `src-tauri/resources/LICENSES.txt`;依赖变更后重新生成。
 
 ## 8. 验收标准
 
 - [ ] 托盘图标在 macOS 深/浅色模式下均清晰。
 - [ ] 托盘菜单"划词监听"toggle 与实际监听状态同步。
+- [ ] 三项翻译快捷键与「设置...」统一在右侧显示,修改或清空快捷键后提示同步更新。
+- [ ] macOS 托盘「设置...」显示 `⌘,`,从 Lenz 窗口按 `Command+,` 可打开主设置窗口;配置变更重建托盘菜单后仍可用。
+- [ ] Windows 托盘「设置...」显示 `Ctrl+,`,从 Lenz 窗口按 `Ctrl+,` 可打开或恢复最小化的主设置窗口;录制快捷键时不触发,切换到其它应用后不占用该组合键。
 - [ ] 快捷键修改后立即生效,不需重启。
 - [ ] 自启开关修改后,重启系统验证是否自动运行。
-- [ ] 检查更新:有新版本时弹框;无新版本时 toast "已是最新版"。
+- [ ] 检查更新:新版本提示条和发布页入口;无新版本显示已是最新版;无正式 Release 显示尚未发布。
 
 ## 9. 开放问题
 

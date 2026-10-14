@@ -3,9 +3,9 @@
 > 覆盖 PRD §2.2 F1 与 §3.4(划词监听)。定义选中文本监听、去抖、弹框触发与结果展示。
 
 > ⚠️ **设计变更(2026-06-18,以实现为准)**:自动模式由「选中即译」改为 **划词指示图标**(Bob/Easydict 式)。本文 §1(选中松手即译)、§2.1(`changeCount` 直接取文本)、§4(去抖直接 emit triggered)、§5(`selection://triggered`)、§10(无选中→toast)为旧设计,**实际实现见 `docs/TODO.md` M5 设计调整 + Increment 1/2 说明**:
-> - CGEventTap 监听左键 down/up,判「拖拽位移≥4pt 或双击 clickState≥2」为选中手势 → emit `selection://detected {x,y}`(**不读剪贴板**);
-> - 前端在光标处浮出 Lens 图标,用户 **hover/点击** → `trigger_selection_translate` → 合成 `Cmd+C` → 轮询剪贴板 → 翻译 → 复用 popup 在光标处弹框;
-> - 自动监听总开关 = `selection.enabled`(托盘「划词监听」,默认 false / opt-in);Alt+D 快捷键划词始终可用,不受开关影响。本文待整体回写。
+> - macOS CGEventTap / Windows WH_MOUSE_LL 监听左键 down/up,判「拖拽位移≥4pt 或双击 clickState≥2」为选中手势 → emit `selection://detected {x,y}`(**不读剪贴板**);
+> - 前端在光标处浮出 Lens 图标,用户 **hover/点击** → `trigger_selection_translate` → AX/UIA 预读选区（失败才合成 `Cmd/Ctrl+C`）→ 翻译 → 复用 popup 在光标处弹框;
+> - 自动监听总开关 = `selection.enabled`(托盘「划词监听」,默认 false / opt-in);Alt+D 快捷键划词始终可用,不受开关影响。本文 §2/§3 已同步现行平台实现。
 
 ---
 
@@ -14,7 +14,7 @@
 | 模式 | 触发条件 | 配置项 |
 |---|---|---|
 | 快捷键触发 | 先选中文本,再按 `Alt+D` | `shortcuts.selection` |
-| 自动触发 | 选中文本后 `popupDelayMs` 内松开鼠标,自动弹框 | `selection.autoDetect = true` |
+| 图标触发 | 选中文字后浮出图标,hover/点击后翻译 | `selection.enabled = true` |
 
 两种模式可同时启用。快捷键触发始终可用,自动触发受总开关 `selection.enabled` 控制。
 
@@ -24,26 +24,13 @@
 
 ### 2.1 macOS
 
-文件:`core/selection.rs`(macOS 分支)
-
-- **CGEventTap**:以 `kCGSessionEventTap` 在全局监听 `kCGEventLeftMouseUp` 事件。
-- 收到 mouseUp → 延迟 `popupDelayMs`(默认 200ms)→ 读取 `NSPasteboard.generalPasteboard` 的 `changeCount`。
-  - 若 changeCount 有变化,认为用户做了新的复制/选中操作;取 `stringForType: NSPasteboardTypeString`。
-  - 若无变化,忽略。
-- 权限:需要"辅助功能"权限(`AXIsProcessTrusted()`)。
-  - 首次触发时若无权限 → emit `selection://permission-required`,前端弹引导。
-  - 不阻塞主进程;监听线程等权限授予后自动重试。
-
-> 注:macOS 14+ 对 CGEventTap 限制更严,需在 entitlements 中声明 `com.apple.security.automation.apple-events`。
+`core/selection.rs` 的 CFRunLoop + CGEventTap 独立线程监听左键 down/up,判拖拽或多击选中,只监听不吞事件。需要 Accessibility 授权;缺失发 `selection://permission-required`,设置页显示系统设置入口和重新检查。AXSelectedText 直读无需 Apple Events entitlement。
 
 ### 2.2 Windows
 
-文件:`core/selection.rs`(Windows 分支)
+`core/selection_windows.rs` 用独立消息线程的 `WH_MOUSE_LL` 全局鼠标 hook,拖拽/双击发相同手势事件,停止时 WM_QUIT + Unhook。回调不读文本、不读剪贴板、不吞事件。
 
-- **SetWinEventHook**:`EVENT_OBJECT_TEXTSELECTIONCHANGED` + `EVENT_SYSTEM_FOREGROUND`。
-- 收到事件 → 延迟 `popupDelayMs` → `OpenClipboard` + `GetClipboardData(CF_UNICODETEXT)` 读取当前选中文本。
-- 对比上次读取的文本;若不同则触发。
-- 此方式无需额外权限。
+`core/selection_text.rs` 在工作线程初始化 COM,通过 UI Automation 焦点元素、TextPattern/GetSelection/GetText 读取选区,跳过密码字段。失败复用 Ctrl+C 和剪贴板快照恢复。图标不夺焦,记录/恢复源前台窗口;按来源屏 DPI 使用物理位置显示和命中测试。普通桌面应用无需额外授权;高权限进程和不暴露 TextPattern 的应用可能只能走快捷键/剪贴板兜底。
 
 ### 2.3 监听线程管理
 

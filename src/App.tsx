@@ -5,6 +5,7 @@ import { SelectionWindow } from "@/windows/selection/SelectionWindow";
 import { OverlayWindow } from "@/windows/overlay/OverlayWindow";
 import { IndicatorWindow } from "@/windows/indicator/IndicatorWindow";
 import { useConfigSync } from "@/hooks/useConfigSync";
+import { useSettingsShortcut } from "@/hooks/useSettingsShortcut";
 import { useConfigStore } from "@/stores/config";
 
 export type WindowKind = "main" | "popup" | "selection" | "overlay" | "indicator";
@@ -46,6 +47,7 @@ function renderWindow(kind: WindowKind) {
  */
 export function App({ kind }: { kind: WindowKind }) {
   useConfigSync();
+  useSettingsShortcut();
   const load = useConfigStore((s) => s.load);
   const loaded = useConfigStore((s) => s.loaded);
 

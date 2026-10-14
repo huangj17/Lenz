@@ -49,6 +49,7 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     let config = store.get().unwrap_or_default();
     app.manage(store);
     app.manage(shortcut::ShortcutRegistry::default());
+    app.manage(crate::core::system::UpdateState::default());
 
     // 旧版本仅保存了偏好但未注册系统登录项;启动时以配置为准补齐真实状态。
     if let Err(e) = crate::commands::overlay::apply_auto_start(handle, config.app.auto_start) {
@@ -75,6 +76,25 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         if config_change_affects_selection(payload) {
             selection::sync(&reload_handle);
         }
+        if let Ok(change) = serde_json::from_str::<ConfigChangedPayload>(payload) {
+            if change
+                .keypaths
+                .iter()
+                .any(|k| k == "app.checkUpdate" || k == "app" || k.is_empty())
+                && reload_handle
+                    .state::<ConfigStore>()
+                    .get()
+                    .map(|c| c.app.check_update)
+                    .unwrap_or(false)
+            {
+                let app = reload_handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = crate::core::system::check_update(&app).await {
+                        log::warn!("update check failed: {error}");
+                    }
+                });
+            }
+        }
         if config_change_affects_auto_start(payload) {
             reload_auto_start(&reload_handle);
         }
@@ -82,6 +102,7 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
 
     // F2 截图翻译会话代号(取消机制,spec 06 §7)。
     app.manage(ScreenshotSession::default());
+    app.manage(crate::core::overlay::OverlayState::default());
     // 最近一次翻译结果(划词快捷键「无新选区则回显上次内容」,spec 05 §3)。
     // 从磁盘 hydrate,使应用重启后按 Alt+D(无选区/剪贴板空)仍能回显上次结果。
     let last_result = LastResult::default();
@@ -96,10 +117,7 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
 
     let h_main = handle.clone();
     handle.listen("shortcut://open-main", move |_| {
-        if let Some(window) = h_main.get_webview_window("main") {
-            let _ = window.show();
-            let _ = window.set_focus();
-        }
+        tray::show_main_window(&h_main);
     });
 
     // F2 接线(spec 06):
@@ -107,6 +125,12 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     //  - 框选完成(capture://region-selected)→ 销毁选区 + 跑 截图/OCR/翻译;
     //  - 取消(capture://region-cancelled)→ 销毁选区。
     let h_shot = handle.clone();
+    let h_overlay = handle.clone();
+    handle.listen("shortcut://overlay", move |_| {
+        if let Err(error) = selection_window::open(&h_overlay, TriggerKind::Overlay) {
+            let _ = h_overlay.emit("app://operation-error", error.to_string());
+        }
+    });
     handle.listen("shortcut://screenshot", move |_| {
         if let Err(e) = selection_window::open(&h_shot, TriggerKind::Screenshot) {
             log::warn!("open selection on Alt+S failed: {e}");
@@ -188,17 +212,24 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Step 6:异步触发检查更新(M1 占位,不阻塞)。
-    if config.app.check_update {
-        let handle_for_update = handle.clone();
-        tauri::async_runtime::spawn(async move {
-            // spec 10 §4.1:启动后延迟 3s。
-            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-            // TODO(M8): 调用 tauri-plugin-updater 检查更新。
-            log::debug!("startup check_update tick (impl: M8)");
-            let _ = &handle_for_update;
-        });
-    }
+    // Step 6:延迟首次检查并每 24h 重查,每次读取当前偏好。
+    let handle_for_update = handle.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        loop {
+            let enabled = handle_for_update
+                .state::<ConfigStore>()
+                .get()
+                .map(|c| c.app.check_update)
+                .unwrap_or(false);
+            if enabled {
+                if let Err(e) = crate::core::system::check_update(&handle_for_update).await {
+                    log::warn!("automatic update check failed: {e}");
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(24 * 60 * 60)).await;
+        }
+    });
 
     log::info!("Lenz setup complete");
     Ok(())

@@ -8,7 +8,7 @@ export const commands = {
 	getConfig: () => typedError<Config_Serialize, LenzError>(__TAURI_INVOKE("get_config")),
 	/**
 	 *  应用 RFC 7396 JSON Merge Patch 并持久化(spec 01 §5)。
-	 * 
+	 *
 	 *  变更涉及快捷键 / 划词开关时,顺带重建托盘菜单(spec 10 §1.3)。
 	 */
 	setConfig: (patch: string) => typedError<Config_Serialize, LenzError>(__TAURI_INVOKE("set_config", { patch })),
@@ -25,13 +25,13 @@ export const commands = {
 	translateBatch: (req: TranslateRequest) => typedError<TranslateResponse, LenzError>(__TAURI_INVOKE("translate_batch", { req })),
 	/**
 	 *  测试引擎连通性:对传入(可能尚未保存的)引擎翻译 "Hello",返回延迟 / 结果。
-	 * 
+	 *
 	 *  失败时 `ok=false` 并带错误说明(spec 04 §8)。
 	 */
 	testEngine: (engine: TranslatorEngine_Deserialize) => typedError<TestEngineResult, LenzError>(__TAURI_INVOKE("test_engine", { engine })),
 	/**
 	 *  对屏幕区域执行 OCR:截图 → 识别。
-	 * 
+	 *
 	 *  供设置页「测试 OCR」与 F2/F3 链路使用;识别选项取自 `config.ocr`。
 	 */
 	runOcr: (rect: Rect) => typedError<OcrResult, LenzError>(__TAURI_INVOKE("run_ocr", { rect })),
@@ -45,45 +45,52 @@ export const commands = {
 	cancelScreenshot: () => typedError<null, LenzError>(__TAURI_INVOKE("cancel_screenshot")),
 	/**
 	 *  打开系统「屏幕录制」隐私设置,引导用户授权(spec 06 §4)。
-	 * 
+	 *
 	 *  macOS 走 `x-apple.systempreferences` 深链;其余平台暂为 no-op。
 	 */
 	openScreenSettings: () => typedError<null, LenzError>(__TAURI_INVOKE("open_screen_settings")),
 	/**
 	 *  内容渲染后,按实际高度调整 popup 窗口(宽度保持当前值,spec 06 §2.6 / spec 09 §3.1)。
-	 * 
+	 *
 	 *  调整高度后把窗口夹回所在显示器内,避免长译文撑高后底部溢出屏幕、内容被截断。
 	 *  宽度沿用窗口当前宽度(尊重用户拖拽调节后的宽度,`ui.popup.width`),不再写死常量。
-	 * 
+	 *
 	 *  macOS:透明窗口在缩放后会残留旧尺寸的窗口阴影(表现为弹框旁边的灰块),
 	 *  故每次 resize 后强制 `invalidateShadow` 让窗口阴影重算,消除残影。
 	 */
 	resizePopup: (height: number | null) => typedError<null, LenzError>(__TAURI_INVOKE("resize_popup", { height })),
 	/**
 	 *  用户拖拽 popup 右缘调节宽度:夹紧到 [MIN, MAX],保持当前高度,重新夹回显示器内。
-	 * 
+	 *
 	 *  仅实时调整窗口尺寸;宽度的**持久化**由前端在拖拽结束时 `patch(ui.popup.width)` 完成
 	 *  (下次打开 popup 时后端按 `ui.popup.width` 摆放,见 `core::screenshot::popup_width`)。
 	 */
 	resizePopupWidth: (width: number | null) => typedError<null, LenzError>(__TAURI_INVOKE("resize_popup_width", { width })),
 	/**
 	 *  显示原图覆盖层。
-	 * 
-	 *  M1 占位:M6 落地 overlay 数据结构后,补回入参(译文 block + 坐标 + 颜色)。
+	 *
+	 *  运行时创建透明、鼠标穿透窗口;前端就绪后显示。
 	 */
-	showOverlay: () => typedError<null, LenzError>(__TAURI_INVOKE("show_overlay")),
+	showOverlay: (payload: OverlayPayload) => typedError<null, LenzError>(__TAURI_INVOKE("show_overlay", { payload })),
 	/**  关闭原图覆盖层。 */
 	closeOverlay: () => typedError<null, LenzError>(__TAURI_INVOKE("close_overlay")),
+	getOverlayPayload: () => __TAURI_INVOKE<{
+	generation: number,
+	scaleFactor: number | null,
+	region: Rect,
+	blocks: OverlayBlock[],
+} | null>("get_overlay_payload"),
+	overlayReady: (generation: number) => typedError<null, LenzError>(__TAURI_INVOKE("overlay_ready", { generation })),
 	/**
 	 *  启停划词监听,并同步写入 `config.selection.enabled`(spec 05 §8 / spec 10 §1.2)。
-	 * 
+	 *
 	 *  写配置 → emit `config://changed` → setup 订阅者据 `enabled && autoDetect` 启停
 	 *  `SelectionListener`(见 `core::selection::sync`);此处只负责配置与托盘勾选同步。
 	 */
 	toggleSelectionListener: (enabled: boolean) => typedError<null, LenzError>(__TAURI_INVOKE("toggle_selection_listener", { enabled })),
 	/**
 	 *  划词指示图标被 hover/点击时触发翻译(spec 05 §6)。
-	 * 
+	 *
 	 *  优先取用图标浮出瞬间(源应用仍在前台)AX 预读的选中文本缓存,直接翻译——规避「点击
 	 *  图标夺焦后再读系统级焦点元素会读到错内容」。缓存缺失(AX 不支持,如部分 Chrome/
 	 *  Electron)时才退回实时兜底:隐藏图标 → 等焦点回切 → 合成 Cmd+C → 轮询剪贴板 → 翻译。
@@ -96,8 +103,20 @@ export const commands = {
 	 *  避免 UI 偏好与真实系统状态分叉。
 	 */
 	setAutoStart: (enabled: boolean) => typedError<null, LenzError>(__TAURI_INVOKE("set_auto_start", { enabled })),
-	/**  手动 / 启动后触发检查更新(spec 10 §4)。M1 仅占位。 */
+	/**  兼容旧命令的手动检查入口;返回详细结果的入口为 check_for_update。 */
 	checkUpdate: () => typedError<null, LenzError>(__TAURI_INVOKE("check_update")),
+	getSystemInfo: () => __TAURI_INVOKE<SystemInfo>("get_system_info"),
+	openSystemResource: (resource: SystemResource) => typedError<null, LenzError>(__TAURI_INVOKE("open_system_resource", { resource })),
+	checkForUpdate: () => typedError<UpdateInfo, LenzError>(__TAURI_INVOKE("check_for_update")),
+	getUpdateState: () => __TAURI_INVOKE<{
+	currentVersion: string,
+	latestVersion: string | null,
+	available: boolean,
+	releaseUrl: string,
+	notes: string,
+	published: boolean,
+} | null>("get_update_state"),
+	getLicenseNotices: () => __TAURI_INVOKE<string>("get_license_notices"),
 };
 
 /* Types */
@@ -151,36 +170,38 @@ export type Config_Serialize = {
 	ui: UiConfig,
 };
 
-export type EngineKind = 
+export type EngineKind =
 /**  OpenAI 兼容(LM Studio / Ollama / 智谱 / 硅基流动 / DeepSeek …)。 */
-"openai" | 
+"openai" |
 /**  Google Cloud Translation v2(官方,需 Key)。 */
-"google" | 
+"google" |
 /**  DeepL Free / Pro。 */
-"deepl" | 
+"deepl" |
 /**  有道智云(signType=v3)。 */
-"youdao" | 
+"youdao" |
 /**  百度翻译开放平台(通用翻译 API,MD5 签名;需 appid + 密钥)。 */
-"baidu" | 
+"baidu" |
 /**  微软 Azure Translator(需 Key + region)。 */
-"microsoft" | 
+"microsoft" |
 /**  苹果系统翻译(macOS 原生框架;当前为占位,见 spec 04 §11)。 */
 "apple";
 
 /**  Lenz 全局错误类型。所有 Tauri command 统一返回 `Result<T, LenzError>`。 */
-export type LenzError = 
+export type LenzError =
 /**  配置读写 / 解析错误。 */
-{ code: "Config"; message: string } | 
+{ code: "Config"; message: string } |
 /**  OCR 引擎不可用(如缺少系统语言包、无权限)。 */
-{ code: "OcrUnavailable"; message: string } | 
+{ code: "OcrUnavailable"; message: string } |
+/**  Windows OCR 需要安装包身份,不能用语言包错误替代。 */
+{ code: "OcrIdentityRequired"; message: string } |
 /**  OCR 执行失败。 */
-{ code: "OcrFailed"; message: string } | 
+{ code: "OcrFailed"; message: string } |
 /**  翻译失败(鉴权、解析、服务端错误等)。 */
-{ code: "TranslateFailed"; message: string } | { code: "Cancelled"; message: string } | { code: "Timeout"; message: string } | 
+{ code: "TranslateFailed"; message: string } | { code: "Cancelled"; message: string } | { code: "Timeout"; message: string } |
 /**  网络错误(连接失败等)。 */
-{ code: "Network"; message: string } | 
+{ code: "Network"; message: string } |
 /**  权限缺失(如 macOS 屏幕录制 / 辅助功能未授权)。 */
-{ code: "Permission"; message: string } | 
+{ code: "Permission"; message: string } |
 /**  其他内部错误。 */
 { code: "Internal"; message: string };
 
@@ -200,6 +221,8 @@ export type OcrConfig = {
 	preferredLanguages: string[],
 	/**  最低置信度过滤阈值,0~1。 */
 	minConfidence: number | null,
+	fastMode?: boolean,
+	autoDetectLanguage?: boolean,
 };
 
 export type OcrEngineKind = "system";
@@ -209,6 +232,24 @@ export type OcrResult = {
 	blocks: OcrBlock[],
 	detectedLanguage: string | null,
 	costMs: number,
+};
+
+export type OverlayBlock = {
+	bbox: Rect,
+	translation: string,
+	bgColor: [number, number, number],
+	fgColor: string,
+};
+
+export type OverlayClosed = {
+	id: string,
+};
+
+export type OverlayPayload = {
+	generation: number,
+	scaleFactor: number | null,
+	region: Rect,
+	blocks: OverlayBlock[],
 };
 
 /**
@@ -365,6 +406,28 @@ export type StartupWarning = {
 	message: string,
 };
 
+export type SystemInfo = {
+	platform: string,
+	version: string,
+	identifier: string,
+	buildDate: string,
+	repositoryUrl: string,
+	releasesUrl: string,
+	ocrBackend: string,
+	ocrLanguages: string[],
+	windowsPackageIdentity: string | null,
+	ocrFastModeSupported: boolean,
+	ocrConfidenceSupported: boolean,
+	ocrAutoDetectSupported: boolean,
+	accessibilityGranted: boolean,
+	screenRecordingGranted: boolean,
+	selectionRunning: boolean,
+	appleTranslationAvailable: boolean,
+	activeEngineId: string | null,
+};
+
+export type SystemResource = "repository" | "releases" | "accessibility" | "screenRecording" | "ocrLanguages" | "latestRelease";
+
 /**  `test_engine` 命令的返回结果(spec 01 §5)。 */
 export type TestEngineResult = {
 	ok: boolean,
@@ -477,20 +540,29 @@ export type TranslatorEngine_Serialize = {
 
 /**
  *  触发翻译的来源种类。
- * 
+ *
  *  序列化为 "selection" / "screenshot" / "overlay"。
  */
-export type TriggerKind = 
+export type TriggerKind =
 /**  划词翻译(F1)。 */
-"selection" | 
+"selection" |
 /**  截图翻译(F2)。 */
-"screenshot" | 
+"screenshot" |
 /**  原图覆盖翻译(F3)。 */
 "overlay";
 
 /**  UI 偏好。 */
 export type UiConfig = {
 	popup: PopupUiConfig,
+};
+
+export type UpdateInfo = {
+	currentVersion: string,
+	latestVersion: string | null,
+	available: boolean,
+	releaseUrl: string,
+	notes: string,
+	published: boolean,
 };
 
 /* Tauri Specta runtime */

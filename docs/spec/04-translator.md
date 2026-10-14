@@ -25,7 +25,7 @@ pub enum EngineKind {
     DeepL,
     Youdao,
     Microsoft,      // 微软 Azure Translator(需 Key + region)
-    Apple,          // 苹果系统翻译(macOS 原生,当前占位,见 §11)
+    Apple,          // macOS 15+ 原生 Translation,见 §6.2
 }
 
 pub struct TranslateRequest {
@@ -175,12 +175,16 @@ OpenAI 引擎不做客户端语言检测;在 system prompt 里写 "auto-detect s
 - 批量:支持,body 为 `[{"Text":"..."}, ...]`;响应 `[{translations:[{text}], detectedLanguage:{language}}]`。
 - 语言代码:`zh-CN`→`zh-Hans`、`zh-Hant`→`zh-Hant`,其余取主子标签。
 
-## 6.2 苹果系统翻译实现(占位)
+## 6.2 苹果系统翻译实现
 
 文件:`core/translator/apple.rs`
 
-- macOS `Translation` 框架无干净的无界面公开 API(`TranslationSession` 仅能经 SwiftUI 获取),当前为**占位**:可被配置 / 选中,`translate` 返回 `TranslateFailed("apple_not_implemented")`。
-- 后续接原生桥接(隐藏 SwiftUI 宿主 + 按需下载语言包),见 §11。
+- macOS 15+ 使用公开 Translation 框架。macOS 26+ 已安装语言包时使用 `TranslationSession(installedSource:target:)`;较早系统或缺失语言包时用 SwiftUI `translationTask`,显示 Apple 原生下载授权界面。
+- `native/AppleTranslate.swift` 在构建时编译对应 CPU 架构 helper,嵌入 Rust 二进制。用户专属临时目录中 0700 helper 用 stdin/stdout JSON 桥接,不通过命令行传文本;取消/超时终止子进程。
+- 批量结果按输入顺序返回;未知源语言用 NaturalLanguage 检测;同语言直接返回原文。
+- Windows 和 macOS 15 以下不创建此运行态引擎,设置页说明限制并禁用启用/设默认;其他翻译引擎正常可用。
+- 首次语言包下载可能超过默认超时,可在设置增加 `timeoutMs`(1000~600000ms)。支持语言和下载由系统决定。
+- API 依据:[Apple TranslationSession](https://developer.apple.com/documentation/translation/translationsession)。跨语言翻译和下载授权仍单列原生系统验收。
 
 ## 7. HTTP Client(应用内代理已移除)
 

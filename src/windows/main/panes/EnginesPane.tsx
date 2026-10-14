@@ -6,6 +6,7 @@ import { InputField, PromptField, SelectField } from "../components/primitives";
 import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import { Icon } from "@/components/Icon";
+import { useSystemStore } from "@/stores/system";
 import { useConfigStore } from "@/stores/config";
 import { engineApi } from "@/lib/ipc";
 import type {
@@ -69,6 +70,9 @@ type EnginePatch = { engines: TranslatorEngine[]; defaultEngineId?: string };
 export function EnginesPane() {
   const { t } = useTranslation();
   const engines = useConfigStore((s) => s.config.translator.engines);
+  const info = useSystemStore((s) => s.info);
+  const recordConnection = useSystemStore((s) => s.recordConnection);
+  const clearConnection = useSystemStore((s) => s.clearConnection);
   const defaultId = useConfigStore((s) => s.config.translator.defaultEngineId);
   const patch = useConfigStore((s) => s.patch);
 
@@ -77,6 +81,7 @@ export function EnginesPane() {
 
   const [draft, setDraft] = useState<TranslatorEngine | null>(null);
   const [maxTokensText, setMaxTokensText] = useState("");
+  const [timeoutText, setTimeoutText] = useState("");
   const [tempText, setTempText] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -99,6 +104,7 @@ export function EnginesPane() {
     testGeneration.current += 1;
     setDraft(selected ? { ...selected } : null);
     setMaxTokensText(selected?.maxTokens != null ? String(selected.maxTokens) : "");
+    setTimeoutText(String(selected?.timeoutMs ?? 30000));
     setTempText(selected?.temperature != null ? String(selected.temperature) : "");
     setShowKey(false);
     setTesting(false);
@@ -119,6 +125,7 @@ export function EnginesPane() {
   // 任意编辑都让上一次测试结果失效(避免「改了配置却还显示 ✓」)。
   const invalidateTest = () => {
     testGeneration.current += 1;
+    if (draft) clearConnection(draft.id);
     setTesting(false);
     setTestResult(null);
   };
@@ -317,7 +324,7 @@ export function EnginesPane() {
     setTestResult(null);
     try {
       const result = await engineApi.test(draft);
-      if (generation === testGeneration.current) setTestResult(result);
+      if (generation === testGeneration.current) { setTestResult(result); recordConnection(draft.id, result); }
     } catch (err) {
       if (generation !== testGeneration.current) return;
       setTestResult({
@@ -332,9 +339,10 @@ export function EnginesPane() {
   };
 
   const issues = draft ? validate(draft) : [];
+  const appleUnavailable = draft?.kind === "apple" && !info?.appleTranslationAvailable;
 
   return (
-    <div className="flex h-full flex-col">
+    <div id="engines" className="flex h-full flex-col">
       <div className="mb-[14px] flex items-end justify-between">
         <div className="max-w-[440px] text-xs text-sub">{t("engines.desc")}</div>
         <Button variant="primary" onClick={addEngine}>
@@ -449,13 +457,14 @@ export function EnginesPane() {
                     {t("engines.default")}
                   </span>
                 ) : (
-                  <Button variant="secondary" onClick={setAsDefault} className="shrink-0">
+                  <Button variant="secondary" onClick={setAsDefault} disabled={appleUnavailable || issues.length > 0} className="shrink-0">
                     <Icon name="star" size={12} />
                     {t("engines.setDefault")}
                   </Button>
                 )}
                 <Toggle
                   checked={draft.enabled}
+                  disabled={appleUnavailable && !draft.enabled}
                   onCheckedChange={setEnabled}
                   aria-label={draft.name || t("engines.newName")}
                 />
@@ -475,7 +484,7 @@ export function EnginesPane() {
                   label={t("engines.type")}
                   value={draft.kind}
                   onChange={(v) => commitNow({ kind: v as TranslatorEngineKind })}
-                  options={KINDS.map((k) => ({
+                  options={KINDS.filter((k) => k !== "apple" || info?.appleTranslationAvailable).map((k) => ({
                     value: k,
                     label: t(`engines.kinds.${k}`),
                   }))}
@@ -484,7 +493,7 @@ export function EnginesPane() {
 
               {draft.kind === "apple" ? (
                 <div className="rounded-md border-[0.5px] border-line bg-field px-3 py-2.5 text-xs text-sub">
-                  {t("engines.appleNote")}
+                  {t(appleUnavailable ? "engines.appleUnavailable" : "engines.appleReady")}
                 </div>
               ) : (
                 <>
@@ -593,6 +602,15 @@ export function EnginesPane() {
                 </>
               )}
 
+              <div id="engine-timeout">
+                <InputField label={t("engines.timeout")} mono type="number" value={timeoutText}
+                  onChange={(value) => { invalidateTest(); setTimeoutText(value); }}
+                  onBlur={() => {
+                    const timeoutMs = Math.min(600000, Math.max(1000, Number(timeoutText) || draft.timeoutMs));
+                    setTimeoutText(String(timeoutMs)); commitNow({ timeoutMs });
+                  }} hint={t("engines.timeoutHint")} />
+              </div>
+
               {issues.length > 0 && (
                 <div className="mt-1 flex flex-col gap-1 rounded-md border-[0.5px] border-line bg-field px-3 py-2">
                   {issues.map((k) => (
@@ -609,7 +627,7 @@ export function EnginesPane() {
               )}
 
               <div className="mt-4 flex items-center gap-2">
-                {draft.kind !== "apple" && (
+                {!appleUnavailable && (
                   <Button
                     variant="secondary"
                     onClick={runTest}

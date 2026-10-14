@@ -10,6 +10,59 @@
 
 ---
 
+## 2026-10-14 · v0.1.0 安装包发布
+
+- [x] 标签发布工作流:版本一致性检查、macOS arm64/x64 DMG、Windows x64 MSIX + 安装助手 ZIP、SHA256 与 GitHub Release 上传。
+- [x] Xcode 26+ SDK 选择、macOS 12 最低版本及 ad-hoc 签名;Windows 365 天自签测试证书,不导出私钥、不自动修改信任。
+- [x] 发布说明写明签名状态和未验收范围;前端 typecheck/build/19 项测试、版本错配拒绝、工作流 YAML 和 PowerShell 解析通过,改动文件凭据扫描无匹配。
+- [ ] 推送 v0.1.0 标签并确认双平台安装包构建、Release 资产上传成功。
+- [ ] Windows 安装/OCR/自启运行验收按用户要求推迟;验收工作流改为手动,默认不运行安装识别。
+- [ ] Developer ID 公证与 Windows 公开可信签名后续补齐;本次发布明确使用测试签名。
+
+---
+
+## 2026-10-14 · 设置功能补齐与双平台适配
+
+- [x] 更新检查:启动延迟/24h 轮询/重新开启/手动检查,semver 比较、结果提示和官方 Release 入口;无正式发布不误报最新。
+- [x] OCR:快速/精准、自动检测、置信度真实绑定,语言添加/删除/拖动/箭头排序,配置 v5 迁移;Windows 按系统能力展示,提供语言包安装与刷新。
+- [x] 引擎超时输入,真实测试状态;Apple Translation 原生桥接(macOS 15+),Windows/低版本禁用此系统专属引擎。
+- [x] F3:独立取消会话、截图/OCR/批量及逐块回退翻译、颜色采样、字体适应、鼠标穿透、Esc/托盘关闭及显示握手。
+- [x] Windows 划词:鼠标 hook + UIA TextPattern,保留剪贴板兜底,源窗口焦点及 DPI 定位;macOS 设置授权引导和实际运行状态。
+- [x] 设置搜索和聚焦跳转,真实版本/构建日期/Bundle ID,GitHub/更新日志/许可证入口;托盘跟随界面语言,平台快捷键提示。
+- [x] IPC 类型重新生成;PRD、spec 01/03/04/05/07/09/10、开发依赖说明同步。
+- [x] 自动化:前端 typecheck/build、15 项测试;macOS fmt/check/clippy(`-D warnings`)、61 项 Rust 测试(6 项依赖原生服务/本地模型而忽略);Windows GNU 全目标 check/clippy(`-D warnings`)。
+- [x] Playwright 生产预览验证搜索、配置提交/重载、OCR 编辑、引擎超时/测试、更新/外链/许可证及 Windows Ctrl+,。使用隔离 IPC fixture,不代替原生系统验收。
+- [x] Apple helper 同语言 JSON stdin/stdout 协议测试,不需要下载语言包。
+- [x] Windows GNU 优化构建完整链接成功,生成 PE32+ x86-64 GUI `lenz.exe`;全目标 check/clippy 通过。
+- [x] macOS/Windows 页面分支的中英深浅与 720×480 最小窗口布局检查;覆盖层文本和 ready 握手检查（隔离 IPC fixture）。
+- [x] 修复 Tailwind dark 样式与手动主题类不同步,深色分段选中背景使用相同 `.dark` selector。
+- [x] macOS 独立 QA 应用原生验证:实际版本/权限/OCR 语言、许可证资源、更新结果、Cmd+, 恢复隐藏窗口、搜索聚焦和超时保存;应用重启后深色主题/OCR 模式/自动检测/语言顺序保留。未授予系统权限,未修改生产配置。
+- [ ] macOS 原生辅助功能/屏幕录制、Apple 跨语言翻译和语言包下载授权验收;Hello → 中文探测 20s 未返回,已取消,不能记为通过。
+- [ ] Windows 实机 OCR/语言包、UIA 源应用覆盖、Ctrl+, 和托盘按键、自启重启验收。
+- [x] Windows OCR 包身份与分发实现:完整 MSIX、开始菜单和包内 StartupTask;缺身份/缺语言提示独立处理,安装后运行生产 OCR 的合成图片诊断。测试签名与 Windows CI 已编写,实际安装结果见下方未完成项(→ spec 03 §4.2、spec 11 §4.2)。
+- [ ] 双平台 F3 混合 DPI/负坐标屏幕、鼠标穿透、Esc 冲突和性能验收。
+- [ ] Windows GNU 调试完整链接:超出 DLL 导出序号上限;Windows MSVC 原生构建和安装包验收仍待完成。
+
+---
+
+## 2026-10-14 · Windows OCR 包身份与分发
+
+- [x] `GetCurrentPackageFullName` 实际进程身份检测;`OcrIdentityRequired` / `ocr://package-required` 与缺语言包错误分开,设置页和截图弹窗中英文引导同步。
+- [x] 完整 MSIX 清单:full-trust 入口、图标、包名/Publisher/四段版本及 `LenzStartup`;包内登录启动保持身份,不绕过用户/策略禁用。Windows 平台配置关闭默认 MSI/NSIS 分发,统一走 MSIX 构建入口。
+- [x] MSVC 无 bundle + 静态 CRT 构建、MakeAppx/SignTool 入口、Publisher/证书匹配、可选 RFC3161 时间戳;PE 架构/运行时依赖检查;已有动态 exe 要求匹配 WebView2Loader。
+- [x] WebView2 ExternalDependency + PowerShell runtime 检查/官方 bootstrapper/Microsoft 签名验证;安装助手验证 MSIX 信任且默认运行实际 OCR 诊断。
+- [x] 测试签名:14 天自签证书、只导出公开 `.cer`、签后清理私钥;本地不自动信任。CI 专用身份与证书信任/包清理限于一次性 GitHub-hosted runner。
+- [x] 已安装 AUMID 激活自检:生产识别实现读取合成 `OcrSmoke.png`,核对实际包身份、`LENZ`/`12345`、文本块与失败报告;不读用户配置/密钥、不截图。
+- [x] CI 工作流:Windows MSVC 构建 → Windows 11 ARM 客户端安装 x64 包和真实识别报告;失败不静默跳过。当前仅完成工作流文件,未运行。
+- [x] 本地验证:19 项 Node 测试、typecheck/build;61 项 Rust 测试(6 ignored);macOS/Windows GNU 全目标 clippy(`-D warnings`);Windows GNU 优化 exe 链接;6 个 PowerShell 脚本解析和真实 PE 清单暂存检查。
+- [x] 隔离 IPC 浏览器验证:无身份/无语言提示分开、下载按钮打开官方 Release、中英深色与 720×480 布局;PowerShell 本地证书信任 guard、COM 激活桥接编译和工作流 YAML 检查。均不代替 Windows 运行验收。
+- [x] PRD、spec 03/10/11、README、[Windows 分发指南](./windows-distribution.md)同步;bindings 由 Rust 重新生成。
+- [ ] Windows CI 实际 MakeAppx/SignTool/MSVC 构建、MSIX 安装与 `installed-ocr.json` 通过;当前 macOS 无 Windows runtime,不把交叉编译算作识别成功。
+- [ ] Windows 10/x64 原生及 Windows 11/ARM64 包安装、升级、缺 WebView2、无包身份/无语言包、F2/F3 中英识别及自启重登后身份验收。
+- [ ] 正式代码签名证书/Store 签名、固定生产 Publisher、正式 Release;用户确认当前暂无正式证书。
+
+---
+
 ## 2026-09-22 · 全项目审查修复
 
 按审查清单 P1 → P2 → P3 完成 16 项代码修复,详细变更和验证边界见 [修复记录](./reviews/2026-09-22-fixes.md)。以下为代码与自动化验证状态;原生权限、多屏与 Windows 实机检查仍单独验收。
@@ -69,7 +122,10 @@
 ### 1.3 托盘与主窗口
 - [x] `TrayIcon` 构建 + 菜单项(打开主窗口、F1/F2/F3、划词监听 toggle、设置、检查更新、关于、退出)(→ spec 10 §1.2)
 - [x] 左键点击托盘 → 显示主窗口(→ spec 10 §1.3)
+- [x] macOS「设置...」增加 `Command+,` 原生菜单快捷键,接入托盘与默认应用菜单(→ spec 10 §1.2)。验证:`cargo fmt -- --check` / `cargo check` / `cargo test` 通过(57 passed,6 ignored),开发应用启动正常;原生 UI 工具读取测试应用超时,托盘显示与实际按键验收待实测。
+- [x] Windows「设置...」增加 `Ctrl+,` 托盘快捷键提示与应用内按键监听,复用主窗口显示、取消最小化和聚焦逻辑;补充平台、键盘布局、修饰键、输入法、长按和已消费事件的回归测试(→ spec 10 §1.2)。验证:`pnpm typecheck` / `pnpm build` / `pnpm test`(11 passed)及 macOS `cargo fmt -- --check` / `cargo check` / `cargo test`(57 passed,6 ignored)通过;当时 Windows 交叉编译缺少 windres;已在 2026-10-14 补齐工具并通过全目标 check/clippy,Windows 实机仍待验收。
 - [x] 配置变更后菜单重建(`rebuild_tray_menu`)(→ spec 10 §1.3)
+- [x] 三项翻译菜单改用原生快捷键提示,与「设置...」统一靠右显示;继续读取当前快捷键配置,清空时隐藏提示(→ spec 10 §1.2)。验证:`cargo fmt -- --check` / `cargo check` / `cargo test` 通过(57 passed,6 ignored);原生菜单视觉验收及 Windows 实测待完成。
 - [x] 主窗口 Tab 导航(→ spec 09 §2.2) —— 注:实际为 通用/快捷键/服务/关于(服务页分段)
 - [x] macOS 不在 Dock 显示(`ActivationPolicy::Accessory`)(→ spec 11 §4.1)
 
@@ -113,13 +169,13 @@
 - [x] 用 `tokio::task::spawn_blocking` 包裹调用(隔离非 Send 的 ObjC 对象)(→ spec 03 §7)
 - [-] entitlements 声明 `NSScreenCaptureUsageDescription`(→ spec 11 §4.1) —— N/A:macOS 屏幕录制走 TCC 运行时授权,无标准 Info.plist usage key;非沙盒分发无需特殊 entitlement
 
-### 2.4 Windows.Media.Ocr(实现已写,⏳ 待 Windows/CI 验证编译)
+### 2.4 Windows.Media.Ocr(交叉编译通过,⏳ 待安装运行验收)
 - [x] `windows` crate(0.62)引入 `Graphics.Imaging` + `Media.Ocr` + `Storage.Streams` + `Globalization`(→ spec 03 §4)
 - [x] PNG → `InMemoryRandomAccessStream` → `BitmapDecoder` → `SoftwareBitmap` 流水线(→ spec 03 §4)
 - [x] `TryCreateFromLanguage` 依序尝试 + `TryCreateFromUserProfileLanguages` 回退(→ spec 03 §4)
 - [x] Line bbox = Word.BoundingRect 并集;置信度统一 0.9;`map_pixel_bbox` 回映射(→ spec 03 §4)
-- [ ] 无语言包 → emit `ocr://language-missing`(→ spec 03 §4.1) —— 注:引擎层返回 `OcrUnavailable`;事件 emit 需 AppHandle,留 M4/M7 上层接线
-- ⚠️ `core/ocr/windows.rs` 完整实现已写,但本机 macOS 的 `tauri-build` 阻止交叉 `cargo check --target *-windows`,故**未本地验证编译**;需 Windows / CI(windows-latest)校验(重点:`TryCreateFromLanguage` 缺包返回语义、`IAsyncOperation::get()`)。
+- [x] 无语言包 → emit `ocr://language-missing`;无身份 → `ocr://package-required`,均接入 F2/F3 与设置页(→ spec 03 §4.1、§4.2)。
+- [x] Windows GNU 全目标 check/clippy、优化 exe 链接通过;COM 初始化和 WinRT `join()` 已编译验证。MSIX 分发、包内自启与安装 OCR 诊断已实现;真实系统运行结果仍待 Windows/CI。
 
 ### 2.5 坐标验证(可视化调试工具)
 - [ ] Debug 面板:输入一张 fixture 图,彩色框叠加显示 block bbox,目视对齐(→ spec 03 §8)
@@ -147,7 +203,7 @@
 > `pnpm typecheck` 全过。`reqwest`(native-tls + socks)+ `sha2` 已入依赖。
 > 另:新增 `EngineKind::{Microsoft, Apple}` 与 `region` 字段,内置 8 个默认引擎预设
 > (有道/苹果/智谱/硅基流动 默认开,谷歌/微软/ollama/LM Studio 默认关;schema v1→v2 迁移注入);
-> **苹果翻译为占位**(返回 `apple_not_implemented`),原生桥接待后续。
+> **苹果翻译更新(2026-10-14)**:已接入 macOS 15+ Translation 原生桥接,系统语言包和跨语言原生验收待做(见本文最新记录)。
 > **3.7 验收已通过**(2026-06-16):对真实 Ollama(`qwen2.5:1.5b`)/ LM Studio 端点新增
 > 7 项 `#[ignore]` 门控验收测试(`mod acceptance`)全绿——端到端 / 批量 10 条 /
 > test_engine 57ms / 引擎热更新路由 / 代理强制 + 本地转发拦截(无 mitmproxy 时的等价证明)。
@@ -174,8 +230,8 @@
 - [x] DeepL(Free/Pro URL 切换 + 语言代码映射 `zh-CN` → `ZH`)(→ spec 04 §5) —— key 尾 `:fx` 判 Free
 - [x] 有道智云(`appKey:appSecret` 拆分)(→ spec 04 §6) —— 注:实际为 signType=v3 的 **SHA256** 摘要(非 HMAC);`supports_batch=false`,引擎内逐条
 - [x] 微软 Azure Translator(批量 JSON + Key + region)(→ spec 04 §6.1) —— `TranslatorEngine` 新增 `region` 字段
-- [-] 苹果系统翻译(→ spec 04 §6.2/§11) —— **占位**:可配置/选中,`translate` 返回 `apple_not_implemented`;原生桥接列为后续
-- [x] 内置默认引擎预设(有道/苹果/智谱/硅基流动 开,谷歌/微软/ollama/LM Studio 关)(→ spec 04 §12) —— `default_engines()` + schema v1→v2 迁移注入 + 前端 `default-config.ts` 镜像
+- [x] 苹果系统翻译(→ spec 04 §6.2) —— 原生 helper/Translation 桥接,Windows 和 macOS 15 以下明确禁用;语言包实机验收待做
+- [x] 内置默认引擎预设(全部默认关闭,用户配置后启用)(→ spec 04 §12) —— `default_engines()` + schema v1→v2 迁移注入 + 前端 `default-config.ts` 镜像
 
 ### 3.4 代理(已移除)
 - [-] 应用内代理功能已移除(2026-07-07)(→ spec 04 §7) —— 原 `build_http_client(proxy)` / `useProxy` / 双 client 全部删除,改为共享单 client(reqwest 默认,尊重系统环境变量代理);如需代理由用户在系统层配置
@@ -279,7 +335,7 @@
 
 ## M5 · 划词翻译 F1(W7)
 
-目标:F1 功能,macOS 优先,Windows 后补。
+目标:F1 功能,macOS 和 Windows 的监听代码已就绪,原生验收独立跟踪。
 
 > **设计调整(2026-06-18)·自动模式改「划词指示图标」**:spec 05 §1(选中松手即译)与 §2.1(剪贴板 changeCount)互相矛盾,经用户拍板,自动模式不做「选中即译」,改为 **Bob/Easydict 式划词图标**:监听到划词/双击选中手势后,在光标处浮出 Lenz 小图标,用户 **hover/点击图标** 才合成复制+翻译并弹框。更克制(不主动改剪贴板)。Alt+D 快捷键仍是显式划词主路径。**spec 05 §1/§2.1/§5/§10 待据此同步**。
 >
@@ -303,7 +359,7 @@
 > `IndicatorSession`(WAITING)/`ScreenshotSession` 代号(TRANSLATING)/popup 显隐(SHOWING)
 > 分散承载,不再单列事件/枚举(见下方 [-] 项);② `apple-events` entitlement 不适用(用
 > CGEventTap + AX,走 TCC「辅助功能」运行时授权,非 Apple Events;非沙盒分发无需)。**仍缺**:
-> Windows 监听(5.1,后补)、§10/§11 实机验收(需辅助功能授权后 GUI 手测)。
+> Windows 监听已在 2026-10-14 落地；§10/§11 实机验收(需辅助功能授权后 GUI 手测)。
 
 ### 5.1 监听层
 - [x] `SelectionListener` 抽象(start/stop/restart)(→ spec 05 §2.3) —— `core/selection.rs` 具体类型(非 trait):managed state + `sync(app)` 据配置启停;macOS 用独立线程跑 CFRunLoop + CGEventTap
@@ -311,8 +367,8 @@
 - [ ] ~~macOS:`NSPasteboard.changeCount` 对比读取选中文本~~(→ spec 05 §2.1) —— ⚠️ 设计调整后不在监听层读剪贴板;改为图标交互时(Increment 2)合成 Cmd+C → 轮询剪贴板(复用 Alt+D 路径)
 - [x] macOS:`AXIsProcessTrusted` 检测 + 首次触发引导 emit `selection://permission-required`(→ spec 05 §2.1) —— `#[link(name="ApplicationServices")]` extern;无权限则不启动监听线程并 emit 引导事件(前端引导 UI 待 Increment 2)
 - [-] macOS entitlements 声明 `com.apple.security.automation.apple-events`(→ spec 11 §4.1) —— N/A:划词用 `CGEventTap` + Accessibility API(`AXSelectedText`),均走 TCC 运行时「辅助功能」授权,非 AppleScript/Apple Events;非沙盒分发无需该 entitlement(与 M2 §2.3 屏幕录制同理)
-- [ ] Windows:`SetWinEventHook` 监听 `EVENT_OBJECT_TEXTSELECTIONCHANGED` + `EVENT_SYSTEM_FOREGROUND`(→ spec 05 §2.2)
-- [ ] Windows:`OpenClipboard` + `GetClipboardData(CF_UNICODETEXT)`(→ spec 05 §2.2)
+- [x] Windows:WH_MOUSE_LL 独立线程监听拖拽/双击,UIA TextPattern 直读选区(→ spec 05 §2.2)
+- [x] Windows:保留 Ctrl+C 和原生多格式剪贴板快照/恢复兜底(→ spec 05 §3)
 
 ### 5.2 触发逻辑
 - [x] 快捷键触发:读剪贴板 → 翻译 → popup(source: "shortcut")(→ spec 05 §3) —— M4 打磨期接通:Alt+D → `tauri-plugin-clipboard-manager` 读选中文本 → 复用 `screenshot://*` 事件渲染;注:改用 Rust 直接编排(未走 `selection://triggered` 事件),光标锚定待本里程碑
@@ -338,97 +394,78 @@
 - [ ] 无选中文本时按快捷键 → 回显上次结果(原 spec 05 §10 为 toast 提示;按用户需求改为复现上次内容,⚠️ spec 05 §10/§11 待同步) —— 已实现(`LastResult` 内存+磁盘,`reshow_result`),待实测
 - [ ] 弹框不超屏幕边界(→ spec 05 §10) —— `position_popup_at_cursor` 夹紧所在屏,待实测
 - [ ] macOS 权限未授时弹引导(→ spec 05 §11) —— 已实现:`selection://permission-required` + 启用监听未授权时自动打开辅助功能设置,待实测
-- [ ] Windows 基础路径跑通(若 UIA 稳定性不足可延后自动触发,保留快捷键触发)⚠️ —— 未开始(Windows 后补)
+- [ ] Windows 基础路径跑通(若 UIA 稳定性不足可延后自动触发,保留快捷键触发)⚠️ —— 代码与交叉编译就绪,待 Windows 实机
 
 ---
 
-## M6 · 原图覆盖 F3(W8-9)⚠️ 核心差异化
+## M6 · 原图覆盖 F3(W8-9)
 
-目标:F3 完整实现,跨屏/HiDPI 正确。
+目标:F3 完整实现,跨屏/HiDPI 正确。**代码已接通;原生系统与多屏验收独立保留。**
 
 ### 6.1 流程编排
-- [ ] 全局快捷键 `Alt+F` → `start_selection(Overlay)`(→ spec 07 §1)
-- [ ] 接收 `capture://region-selected { trigger: "overlay" }` → capture + OCR(→ spec 07 §1)
-- [ ] 按 `min_confidence` 过滤 block,保留 OCR 顺序(不做行合并)(→ spec 07 §2)
-- [ ] `translate_batch` 批量翻译;失败 slot 填空字符串(→ spec 07 §3)
+- [x] Alt+F → `start_selection(Overlay)`;选区事件 → capture/OCR/翻译(→ spec 07 §1)。
+- [x] 保留独立 OCR block 和顺序;macOS 置信度过滤,Windows 不使用合成置信度(→ spec 07 §2)。
+- [x] 支持批量与逐块回退,部分失败不覆盖原文,全失败显示错误;独立取消和会话有效性检查(→ spec 07 §3)。
 
 ### 6.2 颜色采样
-- [ ] `sample_block_color`:bbox 四边内缩 2px 采样 → R/G/B 中位数(→ spec 07 §4)
-- [ ] Rust 侧计算前景色(luminance > 0.5 选黑,否则选白)(→ spec 07 §4.1)
-- [ ] 批量采样:翻译完成后一次遍历(→ spec 07 §4)
+- [x] 四边内缩 2 物理像素,R/G/B 中位数、黑白前景色和批量采样(→ spec 07 §4)。
 
 ### 6.3 overlay 窗口
-- [ ] 运行时 `WebviewWindowBuilder` 创建(transparent/decorations:false/alwaysOnTop/skipTaskbar/focusable:false)(→ spec 07 §5.1)
-- [ ] `set_ignore_cursor_events(true)` 实现鼠标穿透(→ spec 07 §5.1)
-- [ ] 窗口坐标/尺寸 = region(逻辑坐标)(→ spec 07 §5.1)
-- [ ] 多触发:先销毁旧 overlay 再建新(→ spec 07 §5.1)
-- [ ] `show_overlay` / `close_overlay` commands(→ spec 07 §7)
+- [x] 运行时透明/无边框/置顶/不夺焦/不占任务栏/鼠标穿透(→ spec 07 §5)。
+- [x] 捕获裁剪区域、负坐标和来源屏比例定位;新触发关闭旧层(→ spec 07 §5.2)。
+- [x] show/close/payload/ready 命令及类型契约(→ spec 07 §7)。
 
 ### 6.4 前端渲染
-- [ ] 监听 `overlay://init` 接收数据(→ spec 07 §6.1)
-- [ ] 绝对定位每个 block(相对 region 左上)(→ spec 07 §6.2)
-- [ ] 字号自适应:从 `min(boxH*0.8, 32)` 起步,canvas measureText 二分/线性探测到 ≥ 8px(→ spec 07 §6.3)
-- [ ] 超过最小字号仍溢出 → `overflow:hidden` + ellipsis(→ spec 07 §6.3)
+- [x] managed payload + ready 握手取代首条 init 事件,避免首帧竞态(→ spec 07 §6.1)。
+- [x] bbox 相对定位、canvas 8~32px 字号适配、溢出裁剪省略(→ spec 07 §6.2~6.3)。
 
-### 6.5 关闭交互 ⚠️
-- [ ] 注册临时全局快捷键 ESC(仅 overlay 存在时有效),触发后销毁 + 解绑(→ spec 07 §6.4)
-- [ ] emit `overlay://closed`(→ spec 00 §4.3)
-- [ ] 评估 ESC 冲突风险:若不可接受,退化为托盘菜单"关闭覆盖"后备(→ spec 07 §11)
+### 6.5 关闭交互
+- [x] 临时 Esc,关闭后仅解绑本流程拥有的注册;冲突时托盘「关闭覆盖层」兜底(→ spec 07 §6.4)。
+- [x] `overlay://closed { id: "overlay" }`,新截图前也关闭旧覆盖层。
 
 ### 6.6 验收(M6 结束)
-- [ ] 框选 → 覆盖层显示 ≤ 4s(→ spec 07 §9)
-- [ ] 译文不超出 bbox(→ spec 07 §9)
-- [ ] 覆盖层不拦截鼠标事件(→ spec 07 §9)
-- [ ] ESC 关闭覆盖层,下层交互恢复(→ spec 07 §9)
-- [ ] 多屏 + DPR 对齐 ≤ 2 逻辑像素(→ spec 07 §9)
-- [ ] 深/浅底文字都可读(自动前景色)(→ spec 07 §9)
+- [ ] 框选到显示 ≤4s、颜色采样/文本布局性能。
+- [ ] macOS/Windows 真窗口鼠标穿透、不夺焦、Esc 关闭。
+- [ ] 多屏混合 DPI/负坐标屏幕对齐 ≤2 逻辑像素。
+- [ ] 深浅底文字可读;部分翻译失败与快速重复触发。
 
 ---
 
 ## M7 · 设置页(W10)
 
-目标:主窗口 UI + 所有配置项完整。
-
-> **状态:部分完成**。设置页**视觉/布局**已在设计还原阶段提前严格实现(commit 7d780ae,对齐 `docs/design`);本里程碑剩余 = **编辑/交互功能 + 真实数据绑定**(录制、引擎增删改、滑块、test_engine 接线、外链等)。代理表单随代理功能移除(2026-07-07)。
+目标:主窗口 UI + 所有配置项完整。**现有设置控件已接通;原生启动/权限/重启验收待做。**
 
 ### 7.1 通用 Tab
-- [x] 语言选择(system / zh-CN / en-US)(→ spec 09 §2.2)
-- [x] 主题选择(system / light / dark)+ 实时预览(→ spec 09 §6.1)
-- [ ] 自启 toggle → `tauri-plugin-autostart`(→ spec 10 §3) —— 注:UI toggle 已接 config;autostart 插件→M8
-- [x] 启动时打开主窗口 toggle(→ spec 01 §3)
-- [x] 检查更新 toggle(→ spec 10 §4)
-- [-] ~~代理区块~~（代理功能已移除，2026-07-07；通用页不再有网络/代理区块）
+- [x] 系统/中/英语言,系统/深/浅主题及实时更新(→ spec 09 §2.2)。
+- [x] 自启 toggle → LaunchAgent/Windows MSIX StartupTask(无包开发版保留 Run),保存失败回滚(→ spec 10 §3)。
+- [x] 启动打开主窗口与真实自动更新检查(→ spec 01 §3、spec 10 §4)。
+- [x] 实际监听状态、macOS 权限入口/重新检查;Windows 平台文案。
+- [-] 应用内代理已移除(2026-07-07)。
 
 ### 7.2 快捷键 Tab
-- [ ] 每功能一行:显示 + 录制按钮 + 清空(→ spec 09 §2.4) —— 注:行展示 + Kbd + "修改"按钮 UI 已有;录制/清空功能待
-- [ ] 录制:捕获组合键 + 预览 + 冲突警告(→ spec 09 §2.4)
-- [ ] 保存后立即重绑(订阅 `shortcuts.*` 变更)(→ spec 10 §2.4)
+- [x] 显示/录制/预览/清空/冲突反馈和即时重绑;失败保留旧绑定(→ spec 09 §2.4、spec 10 §2)。
+- [x] macOS 符号与 Windows Ctrl/Alt/Shift/Win 提示,固定应用内 Cmd/Ctrl+,。
 
-### 7.3 翻译引擎 Tab(设计中并入「服务 · 文本翻译」分段)
-- [x] 左列:引擎列表(拖拽排序、enabled toggle、删除按钮)(→ spec 09 §2.3) —— HTML5 原生拖拽重排(整体回写 `translator.engines`)、enabled toggle、删除按钮均已接线
-- [x] 右列:详情表单(名称/类型/URL/Key/Model/System Prompt/Timeout)(→ spec 09 §2.3) —— 可编辑:文本失焦提交、开关/下拉即时提交;Model/SystemPrompt 仅 openai 显示,Region 仅 microsoft 显示,apple 显示占位说明(UseProxy 随代理功能移除)
-- [x] 设为默认引擎按钮 → 更新 `translator.defaultEngineId`(→ spec 01 §2) —— 非默认引擎显示「设为默认」按钮
-- [x] "测试连接"按钮 → `test_engine`(→ spec 04 §8) —— 已接线:测当前草稿值,内联显示延迟/译文样例或失败原因
-- [x] 添加引擎按钮 → 空表单 + 必填校验(→ spec 09 §2.3) —— 新增 openai 草稿引擎并选中;按类型做必填校验(名称/模型/Key/region/有道格式),缺项内联非阻断提示
-- [x] API Key 输入默认 `type="password"` + 显示 toggle(→ spec 01 §6)
-- [ ] 敏感字段明文保存的警示条(→ spec 01 §6) —— 注:字段下方已有「明文保存于本地配置」提示文案;独立警示条待
+### 7.3 服务 · 文本翻译
+- [x] 引擎拖拽排序/启停/增删/设默认,名称/类型/URL/Key/Model/Prompt/Timeout/温度/Token 表单(→ spec 09 §2.3)。
+- [x] 测试当前草稿,丢弃过期结果;侧栏仅真实最近测试成功显示绿灯。
+- [x] API Key 默认隐藏、可切换显示,已有字段下方明文存储提示满足 MVP 警示(→ spec 01 §6)。
+- [x] Apple 翻译桥接;系统版本/平台限制明确显示(→ spec 04 §6.2)。
 
-### 7.4 OCR Tab(设计中并入「服务 · OCR」分段)
-- [x] 引擎选择(MVP 只有 system,展示 Apple Vision)(→ spec 09 §2.2)
-- [ ] `preferredLanguages` 多选(BCP-47)(→ spec 01 §2) —— 注:语言 chips 展示已有;可编辑多选/排序待
-- [ ] `minConfidence` 滑块(0~1)(→ spec 01 §2) —— 注:设计用「快速/精准」分段(UI 占位);minConfidence 绑定待
-- [ ] 监听 `ocr://language-missing` → 显示系统设置跳转引导(→ spec 03 §4.1)
+### 7.4 服务 · OCR
+- [x] 按系统显示后端与真实能力;macOS 快速/精准、置信度、13+ 自动检测持久化(→ spec 03)。
+- [x] BCP-47 添加/删除/拖动/箭头排序和优先顺序保存(→ spec 01 §2)。
+- [x] Windows 系统语言回退、安装语言枚举和系统安装入口;缺语言包跳转 OCR 页(→ spec 03 §4.1)。
 
-### 7.5 关于 Tab
-- [x] 版本号(→ spec 10 §7) —— 注:构建日期 `env!("BUILD_DATE")` 待
-- [ ] MIT License 链接(→ spec 10 §7) —— 注:按钮 UI 已有;外链(plugin-opener)待
-- [ ] GitHub 仓库链接 + Bundle ID(→ spec 10 §7) —— 注:按钮 UI 已有;外链待
-- [ ] 第三方许可证页面(`LICENSES.html`,`cargo-about` 生成)(→ spec 10 §7)
+### 7.5 关于 / 搜索
+- [x] 实际版本/构建日期/Bundle ID/OCR 后端,GitHub/Release/更新检查入口(→ spec 10 §7)。
+- [x] MIT 全文和离线第三方声明,按依赖选择全文;依赖变更刷新生成资源。
+- [x] 中英关键词搜索、键盘选择、导航/滚动/聚焦(→ spec 09 §2.2)。
 
 ### 7.7 验收(M7 结束)
-- [x] 所有 Tab 无白屏(→ spec 09 §7) —— 注:`tsc` / `vite build` 通过
-- [ ] 改任意配置 → 重启后生效 + 不需要重启的热更新项(快捷键/引擎/主题)即时生效(→ spec 01 §8) —— 注:主题/语言即时;其余待
-- [ ] 深/浅 + 中/英四象限 UI 无硬编码穿帮(→ spec 09 §7) —— 注:i18n 已全量化;运行时四象限肉眼验收待
+- [x] typecheck/build 和设置纯逻辑回归测试。
+- [x] 隔离 IPC 浏览器验证配置编辑和重载、主要控件交互;不修改真实配置。
+- [ ] 完整桌面应用重启后所有偏好保存,自启登录、系统授权和快捷键注册实机验收。
 
 ---
 
@@ -447,11 +484,10 @@
 - [ ] macOS vibrancy / Windows acrylic(popup)(→ spec 09 §3.2)
 
 ### 8.3 检查更新
-- [ ] `tauri-plugin-updater` 接入(→ spec 10 §4)
-- [ ] 启动 3s 延迟自动检查(若开启)(→ spec 10 §4.1)
-- [ ] 手动触发(托盘 / 设置页)(→ spec 10 §4.1)
-- [ ] 弹框展示版本 + changelog + 浏览器打开 Release 页(不自动下载)(→ spec 10 §4.2)
-- [ ] `tauri.conf.json` 配置 `updater.endpoints` 指向 `latest.json`(→ spec 10 §4.3)
+- [x] GitHub Releases API + semver,不依赖未发布的 updater 签名端点(→ spec 10 §4)。
+- [x] 启动 3s/24h/重新开启检查,托盘和关于页手动检查。
+- [x] 版本与 changelog/浏览器 Release 入口,明确无发布与网络错误反馈。
+- [-] updater 插件与 latest.json:当前只在浏览器打开正式 Release,无需此链路。
 
 ### 8.4 代理联动(已移除)
 - [-] 应用内代理功能已移除(2026-07-07),本节取消(→ spec 04 §7)
@@ -473,18 +509,18 @@
 目标:双平台构建 + GitHub Release + 文档。
 
 ### 9.1 CI
-- [ ] `.github/workflows/release.yml`:macos-latest + windows-latest 矩阵(→ spec 11 §4.3)
-- [ ] macOS:universal binary(`--target universal-apple-darwin`)(→ spec 11 §4.3)
+- [x] `.github/workflows/release.yml`:标签版本校验、双架构 macOS DMG + Windows x64 MSIX,成功后发布 GitHub Release 与 SHA256;分支手动运行可仅构建(→ spec 11 §4.3)。
+- [-] macOS universal 单包暂用 Apple Silicon / Intel 两份独立 DMG,覆盖两种架构(→ spec 11 §4.3)。
 - [ ] macOS:codesign + notarize + staple(→ spec 11 §4.1)
-- [ ] Windows:SignTool(若证书就绪)(→ spec 11 §4.2)
-- [ ] 产物:`.dmg`(mac)、`.msi`(win)(→ spec 11 §3.1)
-- [ ] 自动生成 `latest.json`(updater 端点)(→ spec 11 §4.3)
-- [ ] Release notes 由 git log 自动生成(或手动)
+- [x] Windows:MSIX MakeAppx/SignTool 测试签名构建及安装助手已实现;正式证书和 Windows 实际安装报告待完成(→ spec 11 §4.2)。
+- [ ] 正式产物:`.dmg`(mac)、`.msix`(win);测试产物流程已编写,尚未公开发布(→ spec 11 §3.1)。
+- [-] `latest.json` 无需生成:当前使用正式 GitHub Release tag 检查版本(→ spec 10 §4.3)
+- [x] v0.1.0 Release notes 手动整理,写明平台、签名和未验收范围(→ docs/releases/v0.1.0.md)。
 
 ### 9.2 包体
-- [ ] Rust release:`opt-level = "s"`(→ spec 11 §1.2)
+- [x] Rust release:`opt-level = "s"`、去掉调试信息(→ spec 11 §1.2)。
 - [ ] 前端生产构建 minify + treeshake + shadcn/ui 按需加载(→ spec 11 §1.2)
-- [ ] `.dmg` / `.msi` ≤ 15MB(→ spec 11 §7)
+- [ ] `.dmg` / `.msix` ≤ 15MB(→ spec 11 §7)
 
 ### 9.3 文档
 - [ ] `README.md`:中文主文档 + English 版本(→ PRD §8)
@@ -495,7 +531,7 @@
 
 ### 9.4 验收(M9 结束)
 - [ ] macOS 通过 Gatekeeper(公证成功,首次双击打开无警告)(→ spec 11 §7)
-- [ ] Windows SmartScreen 可绕过(有证书后改进)(→ spec 11 §7)
+- [ ] Windows MSIX 签名可信、安装后 OCR 诊断通过;正式证书/签名尚未准备(→ spec 11 §7)。
 - [ ] 首个 GitHub Release 发布;updater 验证可识别到新版本(→ spec 10 §4)
 - [ ] 抓包确认只有翻译 API + GitHub 更新请求,无其他外联(→ spec 11 §7)
 - [ ] 冷启动 ≤ 2s;空闲内存 ≤ 150MB(M1/i7 均测)(→ spec 11 §7)
@@ -543,5 +579,5 @@
 
 ---
 
-**文档版本**:v0.3(2026-06-16,同步进度:M1 完成 / M2 macOS 完成、Windows 待 / M7 设置页视觉完成)
+**文档版本**:v0.5(2026-10-14,设置控件、F3、Windows 划词及 OCR MSIX 分发实现;原生安装验收单列)
 **上游**:[PRD.md](./PRD.md) v0.3 / [spec/](./spec/) v0.2

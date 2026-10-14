@@ -1,16 +1,16 @@
 //! 系统托盘图标与菜单(spec 10 §1)。
 //!
-//! 菜单结构:
+//! 菜单结构(macOS 默认快捷键示例):
 //! ```text
 //! 打开主窗口
 //! ───────────
-//! 划词翻译       Alt+D
-//! 截图翻译       Alt+S
-//! 原图覆盖翻译   Alt+F
+//! 划词翻译        ⌥D
+//! 截图翻译        ⌥S
+//! 原图覆盖翻译    ⌥F
 //! ───────────
 //! [✓] 划词监听
 //! ───────────
-//! 设置...
+//! 设置...        ⌘, (macOS)
 //! ───────────
 //! 检查更新
 //! 关于 Lenz
@@ -35,6 +35,7 @@ const ID_SELECTION: &str = "trigger_selection";
 const ID_SCREENSHOT: &str = "trigger_screenshot";
 const ID_OVERLAY: &str = "trigger_overlay";
 const ID_TOGGLE_LISTEN: &str = "toggle_listen";
+const ID_CLOSE_OVERLAY: &str = "close_overlay";
 const ID_SETTINGS: &str = "settings";
 const ID_CHECK_UPDATE: &str = "check_update";
 const ID_ABOUT: &str = "about";
@@ -45,29 +46,54 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Menu<R>, LenzError> {
     let store = app.state::<ConfigStore>();
     let config = store.get()?;
     let sc = &config.shortcuts;
+    let zh = crate::core::system::is_chinese(app);
+    let label = |zh_text, en_text| if zh { zh_text } else { en_text };
 
-    // 快捷键提示文案:有值则附加,无值则仅显示功能名。
-    let label_with_acc = |name: &str, acc: &Option<String>| match acc {
-        Some(a) if !a.trim().is_empty() => format!("{name}    {a}"),
-        _ => name.to_string(),
+    // 原生 accelerator 由系统绘制在右侧快捷键列,无配置则不显示。
+    let item_with_acc = |id: &str, name: &str, acc: &Option<String>| {
+        let mut item = MenuItemBuilder::with_id(id, name);
+        if let Some(acc) = acc.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            item = item.accelerator(acc);
+        }
+        item.build(app)
     };
 
-    let open_main = MenuItemBuilder::with_id(ID_OPEN_MAIN, "打开主窗口").build(app)?;
-    let selection =
-        MenuItemBuilder::with_id(ID_SELECTION, label_with_acc("划词翻译", &sc.selection))
-            .build(app)?;
-    let screenshot =
-        MenuItemBuilder::with_id(ID_SCREENSHOT, label_with_acc("截图翻译", &sc.screenshot))
-            .build(app)?;
-    let overlay = MenuItemBuilder::with_id(ID_OVERLAY, label_with_acc("原图覆盖翻译", &sc.overlay))
+    let open_main = MenuItemBuilder::with_id(ID_OPEN_MAIN, label("打开主窗口", "Open Main Window"))
         .build(app)?;
-    let listen = CheckMenuItemBuilder::with_id(ID_TOGGLE_LISTEN, "划词监听")
-        .checked(config.selection.enabled)
-        .build(app)?;
-    let settings = MenuItemBuilder::with_id(ID_SETTINGS, "设置...").build(app)?;
-    let check_update = MenuItemBuilder::with_id(ID_CHECK_UPDATE, "检查更新").build(app)?;
-    let about = MenuItemBuilder::with_id(ID_ABOUT, "关于 Lenz").build(app)?;
-    let quit = MenuItemBuilder::with_id(ID_QUIT, "退出").build(app)?;
+    let selection = item_with_acc(
+        ID_SELECTION,
+        label("划词翻译", "Selection Translation"),
+        &sc.selection,
+    )?;
+    let screenshot = item_with_acc(
+        ID_SCREENSHOT,
+        label("截图翻译", "Screenshot Translation"),
+        &sc.screenshot,
+    )?;
+    let overlay = item_with_acc(
+        ID_OVERLAY,
+        label("原图覆盖翻译", "Overlay Translation"),
+        &sc.overlay,
+    )?;
+    let close_overlay =
+        MenuItemBuilder::with_id(ID_CLOSE_OVERLAY, label("关闭覆盖层", "Close Overlay"))
+            .enabled(app.get_webview_window("overlay").is_some())
+            .build(app)?;
+    let listen =
+        CheckMenuItemBuilder::with_id(ID_TOGGLE_LISTEN, label("划词监听", "Selection Listener"))
+            .checked(config.selection.enabled)
+            .build(app)?;
+    let settings = MenuItemBuilder::with_id(ID_SETTINGS, label("设置...", "Settings..."));
+    #[cfg(target_os = "macos")]
+    let settings = settings.accelerator("Cmd+,");
+    #[cfg(target_os = "windows")]
+    let settings = settings.accelerator("Ctrl+,");
+    let settings = settings.build(app)?;
+    let check_update =
+        MenuItemBuilder::with_id(ID_CHECK_UPDATE, label("检查更新", "Check for Updates"))
+            .build(app)?;
+    let about = MenuItemBuilder::with_id(ID_ABOUT, label("关于 Lenz", "About Lenz")).build(app)?;
+    let quit = MenuItemBuilder::with_id(ID_QUIT, label("退出", "Quit")).build(app)?;
 
     let menu = MenuBuilder::new(app)
         .item(&open_main)
@@ -75,6 +101,7 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Menu<R>, LenzError> {
         .item(&selection)
         .item(&screenshot)
         .item(&overlay)
+        .item(&close_overlay)
         .separator()
         .item(&listen)
         .separator()
@@ -92,6 +119,25 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Menu<R>, LenzError> {
 /// 在启动阶段创建托盘图标(spec 10 §1.3)。
 pub fn build_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), LenzError> {
     let menu = build_menu(app)?;
+    // macOS 仅给托盘菜单绑定 accelerator,菜单关闭时无法从应用窗口触发。
+    // 同一个设置项也插入默认应用菜单的「关于 / 分隔线」之后,保留原生编辑菜单。
+    #[cfg(target_os = "macos")]
+    {
+        let app_menu = app
+            .menu()
+            .ok_or_else(|| LenzError::internal("default app menu not found"))?;
+        let app_submenu = app_menu
+            .items()?
+            .into_iter()
+            .next()
+            .and_then(|item| item.as_submenu().cloned())
+            .ok_or_else(|| LenzError::internal("default app submenu not found"))?;
+        let settings = menu
+            .get(ID_SETTINGS)
+            .ok_or_else(|| LenzError::internal("settings menu item not found"))?;
+        app_submenu.insert(&settings, 2)?;
+        app_submenu.insert(&tauri::menu::PredefinedMenuItem::separator(app)?, 3)?;
+    }
     // 专用单色模板图标(icons/tray.svg → icons/tray.png,见 scripts/gen-icons.mjs),
     // 编译期内嵌;不再复用应用窗口图标。
     let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))
@@ -126,17 +172,30 @@ pub fn rebuild_tray_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), LenzError
         return Ok(());
     };
     let menu = build_menu(app)?;
+    #[cfg(target_os = "macos")]
+    if let Some(item) = app.menu().and_then(|menu| menu.get(ID_SETTINGS)) {
+        if let Some(item) = item.as_menuitem() {
+            item.set_text(if crate::core::system::is_chinese(app) {
+                "设置..."
+            } else {
+                "Settings..."
+            })?;
+        }
+    }
     tray.set_menu(Some(menu))?;
     Ok(())
 }
 
-/// 处理托盘菜单点击。
+/// 处理托盘与应用菜单事件(包括 macOS 的 Cmd+,)。
 fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: tauri::menu::MenuEvent) {
     match event.id().as_ref() {
         ID_OPEN_MAIN | ID_SETTINGS => show_main_window(app),
         ID_SELECTION => emit_shortcut(app, "shortcut://selection"),
         ID_SCREENSHOT => emit_shortcut(app, "shortcut://screenshot"),
         ID_OVERLAY => emit_shortcut(app, "shortcut://overlay"),
+        ID_CLOSE_OVERLAY => {
+            let _ = crate::core::overlay::close(app);
+        }
         ID_TOGGLE_LISTEN => toggle_listen(app),
         ID_CHECK_UPDATE => emit_shortcut(app, "tray://check-update"),
         ID_ABOUT => show_about(app),
@@ -180,7 +239,7 @@ fn toggle_listen<R: Runtime>(app: &AppHandle<R>) {
     if let Err(e) = rebuild_tray_menu(app) {
         log::warn!("toggle_listen rebuild menu failed: {e}");
     }
-    // TODO(M5): 据 enabled 启停 SelectionListener。
+    // config://changed 订阅者据 enabled 启停 SelectionListener。
 }
 
 /// emit 一个无载荷事件(用于将托盘点击复用为快捷键触发路径)。

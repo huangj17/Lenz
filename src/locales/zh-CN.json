@@ -9,10 +9,14 @@
     "about": "关于"
   },
   "header": {
-    "search": "搜索设置"
+    "search": "搜索设置",
+    "noResults": "没有匹配的设置"
   },
   "sidebar": {
-    "noEngine": "未配置服务"
+    "noEngine": "未配置服务",
+    "connected": "最近测试通过",
+    "failed": "最近测试失败",
+    "untested": "尚未测试连接"
   },
   "theme": {
     "label": "主题",
@@ -29,15 +33,22 @@
   "general": {
     "startup": "启动",
     "autoStart": "登录时启动",
-    "autoStartHint": "在菜单栏静默启动 Lenz",
+    "autoStartHint": "登录后静默启动 Lenz",
     "checkUpdate": "自动检查更新",
-    "checkUpdateHint": "每天轮询一次 GitHub Releases",
+    "checkUpdateHint": "启动时检查，并每 24 小时检查一次 GitHub Releases",
     "openOnLaunch": "启动时打开主窗口",
     "openOnLaunchHint": "关闭后仅驻留菜单栏",
     "appearance": "外观",
     "selection": "划词",
     "selectionIndicator": "划词显示翻译图标",
-    "selectionIndicatorHint": "选中文本后在光标处浮出小图标,点击即翻译(需辅助功能权限)"
+    "selectionIndicatorHint": "选中文本后在光标处浮出小图标,点击即翻译(需辅助功能权限)",
+    "listenerStatus": "划词监听状态",
+    "running": "运行中",
+    "stopped": "未运行",
+    "accessibilityRequired": "划词图标需要辅助功能权限。授权后重新检查。",
+    "screenRecordingRequired": "截图与覆盖翻译需要屏幕录制权限。",
+    "openPermissions": "打开系统设置",
+    "selectionIndicatorWindowsHint": "选中文本后在光标处浮出小图标，点击即翻译"
   },
   "shortcuts": {
     "selection": "划词翻译",
@@ -53,7 +64,8 @@
     "recordingHint": "按下新快捷键；退格键清除，Esc 取消。",
     "modifierRequired": "字母和数字快捷键至少需要一个修饰键。",
     "duplicate": "该快捷键已用于「{{name}}」。",
-    "permissionNote": "划词翻译需要 macOS 的辅助功能权限;原图覆盖需要屏幕录制权限。两者都在首次使用时请求。"
+    "permissionNote": "划词翻译需要 macOS 的辅助功能权限;原图覆盖需要屏幕录制权限。两者都在首次使用时请求。",
+    "permissionWindows": "划词监听使用 Windows UI Automation；OCR 需要安装对应的系统语言包。"
   },
   "services": {
     "translate": "文本翻译",
@@ -109,7 +121,10 @@
       "baidu": "百度翻译",
       "microsoft": "微软 Azure",
       "apple": "苹果系统"
-    }
+    },
+    "appleUnavailable": "苹果系统翻译仅支持 macOS 15 或更新版本；此平台可使用 OpenAI 兼容或云端引擎。",
+    "appleReady": "使用设备上的 Apple Translation。首次使用可能显示系统语言包下载窗口；可增大超时时间等待安装。",
+    "timeoutHint": "1000–600000 毫秒；首次安装苹果翻译语言包时可增大等待时间。"
   },
   "ocr": {
     "engine": "引擎",
@@ -121,15 +136,43 @@
     "accurate": "精准",
     "autoDetect": "自动检测语言",
     "languages": "识别语言",
-    "languagesDesc": "Vision 自动检测时优先考虑这些语言。拖动可排序。"
+    "languagesDesc": "点击添加或移除语言，使用拖动或箭头调整优先顺序。",
+    "backendWindowsHint": "Windows 系统 OCR，需要对应的识别语言包",
+    "systemAccuracy": "识别策略由 Windows 系统 OCR 管理",
+    "systemConfidence": "Windows OCR 不提供逐行置信度",
+    "minConfidence": "最低识别置信度",
+    "systemFallback": "缺少优先语言时使用系统语言",
+    "invalidLanguage": "请输入有效的语言代码，如 en-US、zh-Hans、ja-JP。",
+    "reorderLanguage": "拖动排序 {{language}}",
+    "moveUp": "上移 {{language}}",
+    "moveDown": "下移 {{language}}",
+    "removeLanguage": "移除 {{language}}",
+    "languageCode": "语言代码，如 ja-JP",
+    "addLanguage": "添加语言",
+    "windowsLanguages": "请在系统设置中安装识别语言包。优先语言会按列表顺序尝试。",
+    "languageMissing": "未检测到可用的 OCR 语言包。",
+    "installLanguages": "安装语言包",
+    "languageRequired": "关闭系统语言回退时，请至少选择一种已安装的识别语言。",
+    "autoDetectRequires13": "自动语言检测需要 macOS 13 或更新版本；当前系统使用优先识别语言。",
+    "packageRequired": "请安装 Windows MSIX 版本，并从开始菜单打开 Lenz，才能使用系统 OCR。",
+    "downloadInstalledVersion": "下载 Windows 安装版本"
   },
   "about": {
     "beta": "测试版",
     "tagline": "开源、跨平台的截图翻译工具。",
-    "stack": "MIT 许可证 · Tauri 2.0 · Apple Vision OCR",
+    "stack": "MIT 许可证 · Tauri · 系统 OCR",
     "changelog": "更新日志",
     "checkUpdate": "检查更新",
-    "privacy": "Lenz 完全运行在你的设备上。不上传任何数据、不采集埋点、无需账号。经由云端引擎(DeepSeek、Google 翻译等)的翻译仅发送给对应服务商。"
+    "privacy": "OCR 和苹果系统翻译在本机处理。云端翻译请求仅发送给你配置的服务商。Lenz 不采集埋点，无需账号。",
+    "buildDate": "构建日期",
+    "checking": "正在检查…",
+    "licenses": "许可证与第三方声明",
+    "licensePackage": "选择依赖包",
+    "updateAvailable": "发现新版本 {{version}}",
+    "upToDate": "当前已是最新版",
+    "noRelease": "暂无可访问的公开发布版本",
+    "openRelease": "打开发布页面",
+    "viewUpdate": "查看更新详情"
   },
   "capture": {
     "hint": "拖动以框选区域",
@@ -161,7 +204,14 @@
       "noText": "未识别到文字,请重新框选。",
       "translateFailed": "翻译失败:{{msg}}",
       "timeout": "响应超时",
-      "generic": "发生错误"
+      "generic": "发生错误",
+      "package_required": "请安装 Windows MSIX 版本，并从开始菜单打开 Lenz，才能使用系统 OCR。"
     }
+  },
+  "common": {
+    "refresh": "重新检查",
+    "close": "关闭",
+    "retry": "重试",
+    "loading": "加载中…"
   }
 }

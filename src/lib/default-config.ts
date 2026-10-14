@@ -67,7 +67,7 @@ function builtinEngines(): TranslatorEngine[] {
 
 export function createDefaultConfig(): Config {
   return {
-    version: 4,
+    version: 5,
     app: {
       locale: "system",
       theme: "system",
@@ -90,6 +90,8 @@ export function createDefaultConfig(): Config {
       engine: "system",
       preferredLanguages: [],
       minConfidence: 0.3,
+      fastMode: false,
+      autoDetectLanguage: true,
     },
     translator: {
       defaultEngineId: "",

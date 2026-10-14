@@ -36,7 +36,13 @@ src-tauri/WixTools/
 .env
 .env.*
 !.env.example
+*.pfx
+*.p12
 
 # Build artifacts
 *.log
 *.tmp
+
+# Local browser verification artifacts
+.playwright-cli/
+output/playwright/

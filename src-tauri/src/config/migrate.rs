@@ -34,6 +34,12 @@ pub fn migrate(mut raw: Value, from_version: u32) -> Value {
     if version < 4 {
         raw = migrate_v3_to_v4(raw);
     }
+    if from_version < 5 {
+        if let Some(ocr) = raw.get_mut("ocr").and_then(Value::as_object_mut) {
+            ocr.entry("fastMode").or_insert(Value::Bool(false));
+            ocr.entry("autoDetectLanguage").or_insert(Value::Bool(true));
+        }
+    }
 
     // 兜底:确保 version 字段为当前版本。
     if let Value::Object(ref mut map) = raw {
@@ -183,6 +189,33 @@ fn migrate_v3_to_v4(mut raw: Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn v4_adds_ocr_preferences_without_resetting_user_values() {
+        let raw = serde_json::json!({
+            "version": 4,
+            "ocr": { "engine": "system", "preferredLanguages": ["ja", "en-US"], "minConfidence": 0.7 },
+            "translator": { "defaultEngineId": "local", "engines": [{ "id": "local", "enabled": true }] }
+        });
+        let out = migrate(raw, 4);
+        assert_eq!(out["version"], CURRENT_VERSION);
+        assert_eq!(out["ocr"]["fastMode"], false);
+        assert_eq!(out["ocr"]["autoDetectLanguage"], true);
+        assert_eq!(
+            out["ocr"]["preferredLanguages"],
+            serde_json::json!(["ja", "en-US"])
+        );
+        assert_eq!(out["ocr"]["minConfidence"], 0.7);
+        assert_eq!(out["translator"]["engines"][0]["enabled"], true);
+    }
+
+    #[test]
+    fn migration_preserves_explicit_ocr_preferences() {
+        let raw = serde_json::json!({ "version": 4, "ocr": { "fastMode": true, "autoDetectLanguage": false } });
+        let out = migrate(raw, 4);
+        assert_eq!(out["ocr"]["fastMode"], true);
+        assert_eq!(out["ocr"]["autoDetectLanguage"], false);
+    }
 
     #[test]
     fn v1_seeds_builtin_engines() {

@@ -222,14 +222,15 @@ pub fn on_region_selected(app: &AppHandle, payload: &str) {
 
     match parsed.trigger {
         TriggerKind::Screenshot => start_f2(app.clone(), region),
-        // 原图覆盖在 M6 接续;此处仅关窗。
-        TriggerKind::Overlay => log::debug!("overlay region selected (pipeline: M6)"),
+        // 原图覆盖采用独立会话,保留各 OCR block 的位置。
+        TriggerKind::Overlay => super::overlay::start(app.clone(), region),
         TriggerKind::Selection => {}
     }
 }
 
 /// 在进入选区或抓屏前隐藏所有翻译浮层。
 pub fn hide_for_capture(app: &AppHandle) {
+    let _ = super::overlay::close(app);
     app.state::<ScreenshotSession>().cancel();
     crate::core::indicator::hide(app);
     if let Some(popup) = app.get_webview_window(POPUP_LABEL) {
@@ -280,7 +281,13 @@ async fn run_pipeline(app: &AppHandle, region: Rect, gen: u32) {
     if !is_current(app, gen) {
         return;
     }
-    position_and_show_popup(app, &region);
+    let scale = cap
+        .as_ref()
+        .ok()
+        .and_then(|c| c.as_ref().ok())
+        .and_then(|c| c.as_ref().ok())
+        .map(|c| c.scale_factor as f64);
+    position_and_show_popup(app, &region, scale);
     wait_popup_ready(app).await;
     if !is_current(app, gen) {
         return;
@@ -305,7 +312,8 @@ async fn run_pipeline(app: &AppHandle, region: Rect, gen: u32) {
     let engine = app.state::<Arc<dyn OcrEngine>>().inner().clone();
     let opts = OcrOptions {
         preferred_languages: cfg.ocr.preferred_languages.clone(),
-        fast_mode: false,
+        fast_mode: cfg.ocr.fast_mode,
+        auto_detect_language: cfg.ocr.auto_detect_language,
         min_confidence: cfg.ocr.min_confidence,
     };
     let input = OcrInput {
@@ -329,6 +337,14 @@ async fn run_pipeline(app: &AppHandle, region: Rect, gen: u32) {
         Ok(r) => r,
         Err(LenzError::Permission(m)) => {
             return emit_error(app, gen, "ocr", "permission", &m, None)
+        }
+        Err(LenzError::OcrUnavailable(message)) => {
+            let _ = app.emit("ocr://language-missing", ());
+            return emit_error(app, gen, "ocr", "language_missing", &message, None);
+        }
+        Err(LenzError::OcrIdentityRequired(message)) => {
+            let _ = app.emit("ocr://package-required", ());
+            return emit_error(app, gen, "ocr", "package_required", &message, None);
         }
         Err(e) => return emit_error(app, gen, "ocr", "failed", &e.to_string(), None),
     };
@@ -463,6 +479,8 @@ fn join_blocks(blocks: &[OcrBlock]) -> String {
 /// 隐藏它,免得被 app 激活拽回;主窗口正聚焦(用户在设置页操作,如从主界面按 Alt+S)则
 /// 不动它。popup 自身是 `alwaysOnTop` 浮层,隐藏主窗口不影响其置顶显示。
 fn show_and_focus_popup(app: &AppHandle, popup: &tauri::WebviewWindow) {
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
     #[cfg(target_os = "macos")]
     if let Some(main) = app.get_webview_window("main") {
         if main.is_visible().unwrap_or(false) && !main.is_focused().unwrap_or(false) {
@@ -474,34 +492,56 @@ fn show_and_focus_popup(app: &AppHandle, popup: &tauri::WebviewWindow) {
 }
 
 /// 把 popup 定位到选区正下方(水平居中),夹紧到所在显示器,然后显示并聚焦。
-fn position_and_show_popup(app: &AppHandle, region: &Rect) {
-    let Some(popup) = app.get_webview_window(POPUP_LABEL) else {
-        log::warn!("popup window not found; cannot show F2 result");
-        return;
-    };
+fn position_and_show_popup(app: &AppHandle, region: &Rect, scale: Option<f64>) {
+    #[cfg(target_os = "windows")]
+    {
+        let scale = scale
+            .or_else(|| {
+                crate::core::cursor::current_physical().map(crate::core::cursor::point_scale)
+            })
+            .unwrap_or(1.0);
+        let cx = (region.x as f64 + region.w as f64 / 2.0) * scale;
+        let cy = (region.y as f64 + region.h as f64 / 2.0) * scale;
+        position_windows_popup(
+            app,
+            cx - popup_width(app) * scale / 2.0,
+            (region.y as f64 + region.h as f64 + POPUP_GAP) * scale,
+            cx,
+            cy,
+            scale,
+        );
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = scale;
+        let Some(popup) = app.get_webview_window(POPUP_LABEL) else {
+            log::warn!("popup window not found; cannot show F2 result");
+            return;
+        };
 
-    let w = popup_width(app);
-    let mut x = region.x as f64 + region.w as f64 / 2.0 - w / 2.0;
-    let mut y = region.y as f64 + region.h as f64 + POPUP_GAP;
+        let w = popup_width(app);
+        let mut x = region.x as f64 + region.w as f64 / 2.0 - w / 2.0;
+        let mut y = region.y as f64 + region.h as f64 + POPUP_GAP;
 
-    // 夹紧到包含选区中心的显示器工作区;放不下则改置选区上方。
-    if let Ok(bounds) = selection_window::logical_monitor_bounds(app) {
-        let cx = region.x as f64 + region.w as f64 / 2.0;
-        let cy = region.y as f64 + region.h as f64 / 2.0;
-        if let Some((lx, ly, lw, lh)) = bounds
-            .into_iter()
-            .find(|(mx, my, mw, mh)| cx >= *mx && cx < mx + mw && cy >= *my && cy < my + mh)
-        {
-            x = x.clamp(lx, (lx + lw - w).max(lx));
-            if y + POPUP_INIT_HEIGHT > ly + lh {
-                y = (region.y as f64 - POPUP_INIT_HEIGHT - POPUP_GAP).max(ly);
+        // 夹紧到包含选区中心的显示器工作区;放不下则改置选区上方。
+        if let Ok(bounds) = selection_window::logical_monitor_bounds(app) {
+            let cx = region.x as f64 + region.w as f64 / 2.0;
+            let cy = region.y as f64 + region.h as f64 / 2.0;
+            if let Some((lx, ly, lw, lh)) = bounds
+                .into_iter()
+                .find(|(mx, my, mw, mh)| cx >= *mx && cx < mx + mw && cy >= *my && cy < my + mh)
+            {
+                x = x.clamp(lx, (lx + lw - w).max(lx));
+                if y + POPUP_INIT_HEIGHT > ly + lh {
+                    y = (region.y as f64 - POPUP_INIT_HEIGHT - POPUP_GAP).max(ly);
+                }
             }
         }
-    }
 
-    let _ = popup.set_position(LogicalPosition::new(x, y));
-    let _ = popup.set_size(LogicalSize::new(w, POPUP_INIT_HEIGHT));
-    show_and_focus_popup(app, &popup);
+        let _ = popup.set_position(LogicalPosition::new(x, y));
+        let _ = popup.set_size(LogicalSize::new(w, POPUP_INIT_HEIGHT));
+        show_and_focus_popup(app, &popup);
+    }
 }
 
 /// 内容渲染后 `resize_popup` 调用:按新高度把 popup 重新夹紧到所在显示器内。
@@ -810,6 +850,18 @@ async fn run_text_pipeline(app: &AppHandle, original: String, gen: u32) {
 /// 划词弹框定位:锚定到当前光标右下方(+16,+16),按 popup 估算尺寸夹紧到所在
 /// 显示器工作区(spec 05 §7)。取不到光标位置(非 macOS / 失败)时回退居中。
 fn position_popup_at_cursor(app: &AppHandle) {
+    #[cfg(target_os = "windows")]
+    if let Some(point) = crate::core::cursor::current_physical() {
+        let scale = crate::core::cursor::point_scale(point);
+        return position_windows_popup(
+            app,
+            point.x as f64 + 16.0 * scale,
+            point.y as f64 + 16.0 * scale,
+            point.x as f64,
+            point.y as f64,
+            scale,
+        );
+    }
     let Some((cx, cy)) = crate::core::cursor::current_logical() else {
         return position_popup_centered(app);
     };
@@ -929,6 +981,49 @@ fn emit_error(
             original,
         },
     );
+}
+
+#[cfg(target_os = "windows")]
+fn position_windows_popup(
+    app: &AppHandle,
+    mut x: f64,
+    mut y: f64,
+    anchor_x: f64,
+    anchor_y: f64,
+    scale: f64,
+) {
+    let Some(popup) = app.get_webview_window(POPUP_LABEL) else {
+        return;
+    };
+    let width = popup_width(app) * scale;
+    let height = POPUP_INIT_HEIGHT * scale;
+    if let Ok(monitors) = popup.available_monitors() {
+        if let Some(m) = monitors.iter().find(|m| {
+            anchor_x >= m.position().x as f64
+                && anchor_y >= m.position().y as f64
+                && anchor_x < m.position().x as f64 + m.size().width as f64
+                && anchor_y < m.position().y as f64 + m.size().height as f64
+        }) {
+            x = x.clamp(
+                m.position().x as f64,
+                (m.position().x as f64 + m.size().width as f64 - width).max(m.position().x as f64),
+            );
+            y = y.clamp(
+                m.position().y as f64,
+                (m.position().y as f64 + m.size().height as f64 - height)
+                    .max(m.position().y as f64),
+            );
+        }
+    }
+    let _ = popup.set_position(tauri::PhysicalPosition::new(
+        x.round() as i32,
+        y.round() as i32,
+    ));
+    let _ = popup.set_size(tauri::PhysicalSize::new(
+        width.round() as u32,
+        height.round() as u32,
+    ));
+    show_and_focus_popup(app, &popup);
 }
 
 #[cfg(test)]

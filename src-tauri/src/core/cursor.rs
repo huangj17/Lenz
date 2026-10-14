@@ -18,7 +18,47 @@ pub fn current_logical() -> Option<(f64, f64)> {
 
 /// 非 macOS:暂不支持,返回 `None`(调用方回退居中)。
 // TODO(M5 Windows): GetCursorPos + 按所在显示器 DPI 折算为逻辑坐标。
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+pub fn current_logical() -> Option<(f64, f64)> {
+    let mut point = windows::Win32::Foundation::POINT::default();
+    unsafe {
+        windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut point).ok()?;
+    }
+    Some(physical_to_logical(point))
+}
+#[cfg(target_os = "windows")]
+pub fn physical_to_logical(point: windows::Win32::Foundation::POINT) -> (f64, f64) {
+    let scale = point_scale(point);
+    (point.x as f64 / scale, point.y as f64 / scale)
+}
+#[cfg(target_os = "windows")]
+pub fn point_scale(point: windows::Win32::Foundation::POINT) -> f64 {
+    use windows::Win32::{
+        Graphics::Gdi::{MonitorFromPoint, MONITOR_DEFAULTTONEAREST},
+        UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI},
+    };
+    let mut x = 96;
+    let mut y = 96;
+    unsafe {
+        let _ = GetDpiForMonitor(
+            MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST),
+            MDT_EFFECTIVE_DPI,
+            &mut x,
+            &mut y,
+        );
+    }
+    x.max(1) as f64 / 96.0
+}
+#[cfg(target_os = "windows")]
+pub fn current_physical() -> Option<windows::Win32::Foundation::POINT> {
+    let mut point = windows::Win32::Foundation::POINT::default();
+    unsafe {
+        windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut point).ok()?;
+    }
+    Some(point)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn current_logical() -> Option<(f64, f64)> {
     None
 }

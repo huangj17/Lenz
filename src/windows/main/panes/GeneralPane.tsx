@@ -4,7 +4,8 @@ import { Toggle } from "@/components/ui/toggle";
 import { Segmented } from "@/components/ui/segmented";
 import { Icon } from "@/components/Icon";
 import { useConfigStore } from "@/stores/config";
-import { systemApi } from "@/lib/ipc";
+import { useSystemStore } from "@/stores/system";
+import { systemApi, selectionApi } from "@/lib/ipc";
 import type { LocaleSetting, ThemeSetting } from "@/lib/types";
 
 /** 通用 —— 启动 / 外观(对齐设计 GeneralPane) */
@@ -14,18 +15,25 @@ export function GeneralPane() {
   const setError = useConfigStore((s) => s.setError);
   const patch = useConfigStore((s) => s.patch);
   const { app, selection } = config;
+  const info = useSystemStore((s) => s.info);
+  const reload = useSystemStore((s) => s.load);
+  const retryListener = async () => {
+    await selectionApi.toggleListener(selection.enabled);
+    await reload();
+  };
 
   return (
     <div>
       <Section title={t("general.startup")}>
         <Card>
-          <Row label={t("general.autoStart")} hint={t("general.autoStartHint")}>
+          <Row id="general-auto-start" label={t("general.autoStart")} hint={t("general.autoStartHint")}>
             <Toggle
               checked={app.autoStart}
               onCheckedChange={(v) => void systemApi.setAutoStart(v).catch(setError)}
             />
           </Row>
           <Row
+            id="general-update"
             label={t("general.checkUpdate")}
             hint={t("general.checkUpdateHint")}
           >
@@ -36,6 +44,7 @@ export function GeneralPane() {
           </Row>
           <Row
             last
+            id="general-open-on-launch"
             label={t("general.openOnLaunch")}
             hint={t("general.openOnLaunchHint")}
           >
@@ -51,20 +60,34 @@ export function GeneralPane() {
         <Card>
           <Row
             last
+            id="selection-indicator"
             label={t("general.selectionIndicator")}
-            hint={t("general.selectionIndicatorHint")}
+            hint={t(info?.platform === "windows" ? "general.selectionIndicatorWindowsHint" : "general.selectionIndicatorHint")}
           >
             <Toggle
               checked={selection.enabled}
-              onCheckedChange={(v) => void patch({ selection: { enabled: v } })}
+              onCheckedChange={(v) => void selectionApi.toggleListener(v).then(() => reload()).catch(setError)}
             />
           </Row>
         </Card>
       </Section>
 
+      {info && <div className="mb-5 rounded-md border border-line bg-card p-3 text-xs">
+        <div className="flex items-center justify-between">
+          <span>{t("general.listenerStatus")}: {t(info.selectionRunning ? "general.running" : "general.stopped")}</span>
+          <button type="button" className="text-accent-ink" onClick={() => void retryListener().catch(setError)}>{t("common.refresh")}</button>
+        </div>
+        {info.platform === "macos" && <div className="mt-2 flex flex-col gap-2">
+          {!info.accessibilityGranted && <div><span>{t("general.accessibilityRequired")}</span>
+            <button type="button" className="ml-2 text-accent-ink" onClick={() => void systemApi.open("accessibility").catch(setError)}>{t("general.openPermissions")}</button></div>}
+          {!info.screenRecordingGranted && <div><span>{t("general.screenRecordingRequired")}</span>
+            <button type="button" className="ml-2 text-accent-ink" onClick={() => void systemApi.open("screenRecording").catch(setError)}>{t("general.openPermissions")}</button></div>}
+        </div>}
+      </div>}
+
       <Section title={t("general.appearance")}>
         <Card>
-          <Row label={t("theme.label")}>
+          <Row id="theme" label={t("theme.label")}>
             <Segmented<ThemeSetting>
               size="sm"
               value={app.theme}
@@ -76,7 +99,7 @@ export function GeneralPane() {
               ]}
             />
           </Row>
-          <Row last label={t("locale.label")}>
+          <Row id="locale" last label={t("locale.label")}>
             <LangSelect
               value={app.locale}
               onChange={(v) => void patch({ app: { locale: v } })}

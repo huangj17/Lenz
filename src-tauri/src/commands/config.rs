@@ -29,7 +29,9 @@ pub async fn set_config(
     // 故前端 JSON.stringify、后端在此 parse。
     let patch: Value = serde_json::from_str(&patch)
         .map_err(|e| LenzError::Config(format!("invalid merge patch json: {e}")))?;
-    let affects_tray = patch.get("shortcuts").is_some() || patch.get("selection").is_some();
+    let affects_tray = patch.get("shortcuts").is_some()
+        || patch.get("selection").is_some()
+        || patch.get("app").is_some();
     let config = state.set(&app, patch)?;
     // 配置可能影响托盘显示(快捷键 / 划词勾选),重建菜单。
     if affects_tray {

@@ -580,13 +580,15 @@ export function PopupWindow() {
               <span>
                 {view.code === "permission"
                   ? t("popup.error.permission")
-                  : view.code === "no_text"
-                    ? t("popup.error.noText")
-                    : view.code === "timeout"
-                      ? t("popup.error.timeout")
-                      : view.stage === "translate"
-                        ? t("popup.error.translateFailed", { msg: view.message })
-                        : t("popup.error.generic")}
+                  : view.code === "package_required"
+                    ? t("popup.error.package_required")
+                    : view.code === "no_text"
+                      ? t("popup.error.noText")
+                      : view.code === "timeout"
+                        ? t("popup.error.timeout")
+                        : view.stage === "translate"
+                          ? t("popup.error.translateFailed", { msg: view.message })
+                          : t("popup.error.generic")}
               </span>
             </div>
 

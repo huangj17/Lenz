@@ -13,8 +13,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager};
+use tauri::{AppHandle, Manager};
+#[cfg(not(target_os = "windows"))]
+use tauri::{LogicalPosition, LogicalSize};
 
+#[cfg(not(target_os = "windows"))]
 use crate::core::selection_window;
 
 const LABEL: &str = "indicator";
@@ -145,25 +148,77 @@ pub fn show_at(app: &AppHandle, x: f64, y: f64) -> u64 {
         log::warn!("indicator window not found");
         return 0;
     };
-
-    let mut px = x + OFFSET_X;
-    let mut py = y + OFFSET_Y;
-    // 夹紧到光标所在显示器工作区内,避免图标越出屏幕。
-    if let Ok(bounds) = selection_window::logical_monitor_bounds(app) {
-        if let Some((lx, ly, lw, lh)) = bounds
-            .into_iter()
-            .find(|(mx, my, mw, mh)| x >= *mx && x < mx + mw && y >= *my && y < my + mh)
-        {
-            px = px.clamp(lx, (lx + lw - SIZE).max(lx));
-            py = py.clamp(ly, (ly + lh - SIZE).max(ly));
-        }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = (x, y);
+        let _ = win.set_focusable(false);
     }
 
-    let _ = win.set_size(LogicalSize::new(SIZE, SIZE));
-    let _ = win.set_position(LogicalPosition::new(px, py));
-    let _ = win.show();
-    // 注意:不调用 set_focus —— 保持用户原应用为前台,不打断用户。
-    *RECT.lock().unwrap() = (px, py, SIZE, SIZE);
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut px = x + OFFSET_X;
+        let mut py = y + OFFSET_Y;
+        // 夹紧到光标所在显示器工作区内,避免图标越出屏幕。
+        if let Ok(bounds) = selection_window::logical_monitor_bounds(app) {
+            if let Some((lx, ly, lw, lh)) = bounds
+                .into_iter()
+                .find(|(mx, my, mw, mh)| x >= *mx && x < mx + mw && y >= *my && y < my + mh)
+            {
+                px = px.clamp(lx, (lx + lw - SIZE).max(lx));
+                py = py.clamp(ly, (ly + lh - SIZE).max(ly));
+            }
+        }
+
+        let _ = win.set_size(LogicalSize::new(SIZE, SIZE));
+        let _ = win.set_position(LogicalPosition::new(px, py));
+        let _ = win.show();
+        // 注意:不调用 set_focus —— 保持用户原应用为前台,不打断用户。
+        *RECT.lock().unwrap() = (px, py, SIZE, SIZE);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let point = PHYSICAL_ANCHOR
+            .lock()
+            .unwrap()
+            .take()
+            .or_else(crate::core::cursor::current_physical);
+        if let Some(point) = point {
+            let scale = crate::core::cursor::point_scale(point);
+            let size = SIZE * scale;
+            let mut px = point.x as f64 + OFFSET_X * scale;
+            let mut py = point.y as f64 + OFFSET_Y * scale;
+            if let Ok(monitors) = win.available_monitors() {
+                if let Some(monitor) = monitors.iter().find(|m| {
+                    point.x >= m.position().x
+                        && point.y >= m.position().y
+                        && point.x < m.position().x + m.size().width as i32
+                        && point.y < m.position().y + m.size().height as i32
+                }) {
+                    px = px.clamp(
+                        monitor.position().x as f64,
+                        (monitor.position().x as f64 + monitor.size().width as f64 - size)
+                            .max(monitor.position().x as f64),
+                    );
+                    py = py.clamp(
+                        monitor.position().y as f64,
+                        (monitor.position().y as f64 + monitor.size().height as f64 - size)
+                            .max(monitor.position().y as f64),
+                    );
+                }
+            }
+            let _ = win.set_size(tauri::PhysicalSize::new(
+                size.round() as u32,
+                size.round() as u32,
+            ));
+            let _ = win.set_position(tauri::PhysicalPosition::new(
+                px.round() as i32,
+                py.round() as i32,
+            ));
+            *RECT.lock().unwrap() = (px, py, size, size);
+        }
+        capture_foreground();
+        let _ = win.show();
+    }
     VISIBLE.store(true, Ordering::SeqCst);
 
     // 自动隐藏(带会话代号:重定位/触发/主动隐藏会令此任务失效)。
@@ -191,4 +246,35 @@ pub fn hide(app: &AppHandle) {
     if let Some(win) = app.get_webview_window(LABEL) {
         let _ = win.hide();
     }
+}
+
+#[cfg(target_os = "windows")]
+static SOURCE_WINDOW: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+#[cfg(target_os = "windows")]
+fn capture_foreground() {
+    let hwnd = unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() };
+    SOURCE_WINDOW.store(hwnd.0 as isize, Ordering::SeqCst);
+}
+#[cfg(target_os = "windows")]
+pub fn restore_foreground() {
+    use windows::Win32::{
+        Foundation::HWND,
+        UI::WindowsAndMessaging::{IsWindow, SetForegroundWindow},
+    };
+    let raw = SOURCE_WINDOW.swap(0, Ordering::SeqCst);
+    if raw != 0 {
+        let hwnd = HWND(raw as *mut std::ffi::c_void);
+        unsafe {
+            if IsWindow(Some(hwnd)).as_bool() {
+                let _ = SetForegroundWindow(hwnd);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+static PHYSICAL_ANCHOR: Mutex<Option<windows::Win32::Foundation::POINT>> = Mutex::new(None);
+#[cfg(target_os = "windows")]
+pub fn set_physical_anchor(x: i32, y: i32) {
+    *PHYSICAL_ANCHOR.lock().unwrap() = Some(windows::Win32::Foundation::POINT { x, y });
 }
