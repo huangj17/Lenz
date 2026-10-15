@@ -102,9 +102,9 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
 
     // F2 截图翻译会话代号(取消机制,spec 06 §7)。
     app.manage(ScreenshotSession::default());
+    app.manage(screenshot::SelectionPopupPosition::default());
     app.manage(crate::core::overlay::OverlayState::default());
-    // 最近一次翻译结果(划词快捷键「无新选区则回显上次内容」,spec 05 §3)。
-    // 从磁盘 hydrate,使应用重启后按 Alt+D(无选区/剪贴板空)仍能回显上次结果。
+    // 最近一次成功结果,只在当前选区原文/目标/引擎一致时复用。
     let last_result = LastResult::default();
     last_result.hydrate(handle);
     app.manage(last_result);

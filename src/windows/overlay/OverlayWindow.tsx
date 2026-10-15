@@ -5,6 +5,7 @@ import { overlayApi } from "@/lib/ipc";
 import type { OverlayPayload } from "@/lib/types";
 import { fitOverlayFont, overlayLayout } from "@/lib/overlayLayout";
 import { observeOverlayProgress } from "@/lib/overlayProgress";
+import { tencentOcrErrorKey } from "@/lib/ocr-errors";
 
 export function OverlayWindow() {
   const { t } = useTranslation();
@@ -52,10 +53,11 @@ export function OverlayWindow() {
   const phase = payload?.progress.phase;
   const loading = phase === "ocr" || phase === "translate";
   const error = payload?.progress.error;
+  const serviceErrorKey = error ? tencentOcrErrorKey(error.message) : null;
   const errorText = error?.code === "Timeout" ? t(error.message.includes("ocr") ? "popup.error.ocrTimeout" : "popup.error.timeout")
     : error?.code === "OcrFailed" && error.message === "no text recognized" ? t("popup.error.noText")
       : error?.code === "OcrIdentityRequired" ? t("popup.error.package_required")
-        : t("overlay.failed");
+        : serviceErrorKey ? t(serviceErrorKey) : t("overlay.failed");
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="overlay-title"
       className="relative h-screen w-screen overflow-hidden bg-black/45 text-fg">

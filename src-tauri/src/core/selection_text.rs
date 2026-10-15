@@ -1,96 +1,154 @@
-//! 直读「当前选中文本」(spec 05 §3/§6,2026-06-18 方案重做)。
-//!
-//! 划词 / 双击选中 + Alt+D(或点划词图标)时,优先用 macOS **Accessibility API**
-//! 直接读取系统级焦点元素的 `AXSelectedText`,而非合成 `Cmd+C` + 比对剪贴板。后者有
-//! 多个固有失败模式:① 触发键(Alt+D 的 Option)仍按住会把合成的 Cmd+C 污染成 ⌘⌥C;
-//! ② 重复选中同一段文字时剪贴板内容不变,被误判为「无新选区」;③ 依赖焦点回切时序;
-//! ④ 会改写用户剪贴板。AX 直读把这些一并规避。
-//!
-//! AX 取不到(部分 Chrome/Electron 不暴露 `AXSelectedText`)时返回 `None`,调用方
-//! 回退到剪贴板合成方案兜底。
-//!
-//! ⚠️ 需「辅助功能」权限(与划词监听同权限);未授时 AX 调用返回错误码 → `None`。
+//! Read the current selection before Lenz takes focus. Never accept our own UI as a source.
+use crate::core::popup_position::ScreenRect;
 
-/// 读取前台应用中**当前选中文本**;无选中 / 不支持 / 无权限时返回 `None`。
-///
-/// 可能对无响应的目标应用产生同步 IPC 阻塞,调用方应放到 `spawn_blocking` 等非 async
-/// 工作线程上执行(见 `core/screenshot.rs`)。
+#[derive(Clone, Debug)]
+pub struct SelectedText {
+    pub text: String,
+    pub bounds: Option<ScreenRect>,
+}
+
+/// Identity of the foreground source, used to reject focus changes during a copy probe.
 #[cfg(target_os = "macos")]
-pub fn read_selected_text() -> Option<String> {
+pub fn foreground_id() -> Option<u64> {
+    let app = objc2_app_kit::NSWorkspace::sharedWorkspace().frontmostApplication()?;
+    let pid = app.processIdentifier() as u32;
+    (pid != std::process::id()).then_some(pid as u64)
+}
+
+#[cfg(target_os = "windows")]
+pub fn foreground_id() -> Option<u64> {
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+    unsafe {
+        let window = GetForegroundWindow();
+        let mut pid = 0;
+        GetWindowThreadProcessId(window, Some(&mut pid));
+        (pid != 0 && pid != std::process::id()).then_some(window.0 as usize as u64)
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+pub fn foreground_id() -> Option<u64> {
+    None
+}
+
+/// AX can block on another process; call on a blocking worker.
+#[cfg(target_os = "macos")]
+pub fn read_selected_text() -> Option<SelectedText> {
+    macos::read()
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use super::*;
+    use objc2_core_foundation::{CFString, CGRect};
     use std::ffi::c_void;
-    use std::ptr::{self, NonNull};
+    use std::ptr;
 
-    use objc2_core_foundation::{CFRetained, CFString};
-
-    // AXUIElementRef = CFTypeRef(不透明);属性名传 CFStringRef。
     #[link(name = "ApplicationServices", kind = "framework")]
     extern "C" {
-        fn AXUIElementCreateSystemWide() -> *const c_void;
+        fn AXUIElementCreateApplication(pid: i32) -> *const c_void;
         fn AXUIElementCopyAttributeValue(
             element: *const c_void,
             attribute: *const CFString,
             value: *mut *const c_void,
-        ) -> i32; // AXError,0 = kAXErrorSuccess
+        ) -> i32;
+        fn AXUIElementCopyParameterizedAttributeValue(
+            element: *const c_void,
+            attribute: *const CFString,
+            parameter: *const c_void,
+            value: *mut *const c_void,
+        ) -> i32;
+        fn AXUIElementSetMessagingTimeout(element: *const c_void, timeout: f32) -> i32;
+        fn AXValueGetTypeID() -> usize;
+        fn AXValueGetValue(value: *const c_void, kind: u32, output: *mut c_void) -> bool;
     }
     #[link(name = "CoreFoundation", kind = "framework")]
     extern "C" {
         fn CFRelease(cf: *const c_void);
-        fn CFGetTypeID(cf: *const c_void) -> usize; // CFTypeID
+        fn CFGetTypeID(cf: *const c_void) -> usize;
         fn CFStringGetTypeID() -> usize;
     }
 
-    // kAX*Attribute 常量本质就是这两个字符串,直接构造避免依赖 extern 静态符号。
-    let focused_attr = CFString::from_str("AXFocusedUIElement");
-    let selected_attr = CFString::from_str("AXSelectedText");
-
-    unsafe {
-        let system_wide = AXUIElementCreateSystemWide();
-        if system_wide.is_null() {
-            return None;
+    struct Owned(*const c_void);
+    impl Drop for Owned {
+        fn drop(&mut self) {
+            unsafe {
+                CFRelease(self.0);
+            }
         }
-
-        // systemWide → 焦点元素。
-        let mut focused: *const c_void = ptr::null();
-        let err = AXUIElementCopyAttributeValue(
-            system_wide,
-            &*focused_attr as *const CFString,
-            &mut focused,
-        );
-        CFRelease(system_wide);
-        if err != 0 || focused.is_null() {
-            return None;
-        }
-
-        // 焦点元素 → 选中文本(CFStringRef,+1 引用)。
-        let mut value: *const c_void = ptr::null();
-        let err =
-            AXUIElementCopyAttributeValue(focused, &*selected_attr as *const CFString, &mut value);
-        CFRelease(focused);
-        if err != 0 || value.is_null() {
-            return None;
-        }
-
-        // 防御:确认返回的确是 CFString,否则按 CFType 释放后放弃(避免按字符串误读)。
-        if CFGetTypeID(value) != CFStringGetTypeID() {
-            CFRelease(value);
-            return None;
-        }
-
-        // 接管 +1 引用(CFRetained 析构时 CFRelease),转 Rust String。
-        let cf = CFRetained::from_raw(NonNull::new_unchecked(value as *mut CFString));
-        let text = cf.to_string();
-        let trimmed = text.trim();
-        if trimmed.is_empty() {
-            None
+    }
+    unsafe fn attribute(element: &Owned, name: &str) -> Option<Owned> {
+        let key = name;
+        let name = CFString::from_str(name);
+        let mut value = ptr::null();
+        let error = AXUIElementCopyAttributeValue(element.0, &*name, &mut value);
+        let value = (!value.is_null()).then(|| Owned(value));
+        if error == 0 {
+            value
         } else {
-            Some(trimmed.to_string())
+            log::debug!("AX attribute {key} unavailable: {error}");
+            None
+        }
+    }
+
+    unsafe fn bounds(element: &Owned) -> Option<ScreenRect> {
+        let range = attribute(element, "AXSelectedTextRange")?;
+        if CFGetTypeID(range.0) != AXValueGetTypeID() {
+            return None;
+        }
+        let name = CFString::from_str("AXBoundsForRange");
+        let mut value = ptr::null();
+        let error =
+            AXUIElementCopyParameterizedAttributeValue(element.0, &*name, range.0, &mut value);
+        let owned = (!value.is_null()).then(|| Owned(value))?;
+        if error != 0 || CFGetTypeID(owned.0) != AXValueGetTypeID() {
+            return None;
+        }
+        let mut rect = CGRect::default();
+        // kAXValueCGRectType = 3. AX geometry has a top-left origin in screen points.
+        if !AXValueGetValue(owned.0, 3, (&mut rect as *mut CGRect).cast()) {
+            return None;
+        }
+        ScreenRect::new(
+            rect.origin.x,
+            rect.origin.y,
+            rect.size.width,
+            rect.size.height,
+        )
+    }
+
+    pub fn read() -> Option<SelectedText> {
+        let source = foreground_id()?;
+        unsafe {
+            // Query the actual foreground application, rather than a stale system-wide focus.
+            let raw = AXUIElementCreateApplication(source as i32);
+            if raw.is_null() {
+                return None;
+            }
+            let app = Owned(raw);
+            AXUIElementSetMessagingTimeout(app.0, 0.3);
+            let focused = attribute(&app, "AXFocusedUIElement")?;
+            AXUIElementSetMessagingTimeout(focused.0, 0.3);
+            let value = attribute(&focused, "AXSelectedText")?;
+            if CFGetTypeID(value.0) != CFStringGetTypeID() {
+                return None;
+            }
+            let text = (&*(value.0 as *const CFString))
+                .to_string()
+                .trim()
+                .to_string();
+            let bounds = bounds(&focused);
+            if text.is_empty() || foreground_id() != Some(source) {
+                return None;
+            }
+            Some(SelectedText { text, bounds })
         }
     }
 }
 
 /// Windows:UI Automation 直读焦点元素的选区,不支持时回退剪贴板。
 #[cfg(target_os = "windows")]
-pub fn read_selected_text() -> Option<String> {
+pub fn read_selected_text() -> Option<SelectedText> {
     use windows::Win32::{
         System::Com::{
             CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
@@ -125,10 +183,41 @@ pub fn read_selected_text() -> Option<String> {
             parts.push(selection.GetElement(i).ok()?.GetText(-1).ok()?.to_string());
         }
         let text = parts.join("\n");
-        (!text.trim().is_empty()).then_some(text)
+        (!text.trim().is_empty()).then_some(SelectedText { text, bounds: None })
     }
 }
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-pub fn read_selected_text() -> Option<String> {
+pub fn read_selected_text() -> Option<SelectedText> {
     None
+}
+
+#[cfg(all(test, target_os = "macos"))]
+pub(crate) mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires the tests/fixtures/selection.txt opened in TextEdit in the foreground and Accessibility permission"]
+    fn native_fixture_selection_includes_text_and_screen_bounds() {
+        let selected = fixture_selection();
+        let bounds = selected
+            .bounds
+            .expect("text fixture must expose selected range bounds");
+        assert!(bounds.w > 0.0 && bounds.h > 0.0);
+    }
+
+    pub(crate) fn fixture_selection() -> SelectedText {
+        let source = objc2_app_kit::NSWorkspace::sharedWorkspace().frontmostApplication();
+        assert!(
+            source
+                .and_then(|app| app.bundleIdentifier())
+                .is_some_and(|id| id.to_string() == "com.apple.TextEdit"),
+            "activate TextEdit with tests/fixtures/selection.txt selected before running this test"
+        );
+        let selected = read_selected_text().expect("fixture selection must be readable");
+        assert!(
+            selected.text == include_str!("../../../tests/fixtures/selection.txt"),
+            "select only the controlled fixture text"
+        );
+        selected
+    }
 }

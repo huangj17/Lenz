@@ -59,6 +59,21 @@ pub fn migrate(mut raw: Value, from_version: u32) -> Value {
         }
     }
 
+    if from_version < 8 {
+        if let Some(services) = raw
+            .pointer_mut("/ocr/services")
+            .and_then(Value::as_array_mut)
+        {
+            for service in services {
+                if let Some(service) = service.as_object_mut() {
+                    service
+                        .entry("tencentConfigId")
+                        .or_insert(Value::from("OCR"));
+                }
+            }
+        }
+    }
+
     // 兜底:确保 version 字段为当前版本。
     if let Value::Object(ref mut map) = raw {
         map.insert("version".into(), Value::from(CURRENT_VERSION));
@@ -207,6 +222,42 @@ fn migrate_v3_to_v4(mut raw: Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn v7_adds_tencent_scene_without_changing_services_credentials_or_default() {
+        use crate::config::schema::{OcrServiceKind, TencentOcrConfigId};
+        let mut config = crate::config::Config::default();
+        let mut baidu = config.ocr.services[0].clone();
+        baidu.id = "existing-baidu".into();
+        baidu.kind = OcrServiceKind::Baidu;
+        baidu.api_key = "fixture-only".into();
+        baidu.secret_key = "fixture-secret".into();
+        config.ocr.default_service_id = baidu.id.clone();
+        config.ocr.services.push(baidu);
+        let expected = config.clone();
+        let mut raw = serde_json::to_value(config).unwrap();
+        raw["version"] = Value::from(7);
+        for service in raw["ocr"]["services"].as_array_mut().unwrap() {
+            service.as_object_mut().unwrap().remove("tencentConfigId");
+        }
+        let migrated = migrate(raw.clone(), 7);
+        assert_eq!(migrated, serde_json::to_value(expected).unwrap());
+        // serde 默认值也保护没有走迁移的服务草稿。
+        let restored: crate::config::Config = serde_json::from_value(raw.clone()).unwrap();
+        assert_eq!(
+            restored.ocr.services[1].tencent_config_id,
+            TencentOcrConfigId::Ocr
+        );
+        raw["ocr"]["services"][1]["tencentConfigId"] = Value::from("MulOCR");
+        let preserved: crate::config::Config = serde_json::from_value(migrate(raw, 7)).unwrap();
+        assert_eq!(
+            preserved.ocr.services[1].tencent_config_id,
+            TencentOcrConfigId::MulOcr
+        );
+        let mut invalid = serde_json::to_value(preserved).unwrap();
+        invalid["ocr"]["services"][1]["tencentConfigId"] = Value::from("invalid");
+        assert!(serde_json::from_value::<crate::config::Config>(invalid).is_err());
+    }
 
     #[test]
     fn v6_adds_empty_popup_policies_without_resetting_existing_settings() {

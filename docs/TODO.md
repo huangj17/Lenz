@@ -11,6 +11,27 @@
 
 ---
 
+## 2026-10-15 · macOS 权限名称说明修正
+
+- [x] 核对本机系统资源 `SecurityPrivacyExtension.appex/Contents/Resources/Localizable.loctable`: `ACCESSIBILITY` 的中英文显示名为“设备控制和数据访问” / “Device Control and Data Access”。保留已有 `Privacy_Accessibility` 深链,设置与弹窗文案同时说明新旧名称。
+- [x] 已开启仍检测不到授权时提示退出并重新添加当前安装的 Lenz;不修改系统权限或绕过 `AXIsProcessTrusted` 检查。签名/安装副本导致旧授权不匹配属于待确认原因,不凭设置截图断言。
+- [x] `pnpm typecheck`、`pnpm build` 与 `git diff --check` 通过;本轮仅改提示与相关说明,未重新打包,当前已安装测试包不会随源码文案更新。
+
+## 2026-10-15 · 应用图标底色
+
+- [x] 桌面图标改为冰蓝至浅蓝紫渐变圆角底板,保留 L 与「文 / A」双气泡;生成脚本复用透明 SVG,窗口内品牌标记与托盘模板保持各自用途(→ PRD §4.4、spec 09 §2.1)。
+- [x] 重新生成 1024px 源 PNG 与 17 份桌面 PNG/ICNS/ICO/MSIX 图标;检查 256px 预览、ICNS 多尺寸解包和 ICO 格式。`pnpm typecheck`、`pnpm build` 通过(沿用单次 `pnpm_config_verify_deps_before_run=false`,避免 pnpm 自动重装现有依赖)。
+- [ ] 本轮仅更新图标资产,未重新打包或替换已安装应用;macOS Finder/Dock 与 Windows 安装后外观待验收。
+
+## 2026-10-15 · macOS v0.1.1 快捷键取词与选区定位修复
+
+- [x] 修正 macOS 剪贴板兜底要求版本恰好 +1 导致多格式复制被误判失败的问题,等待版本稳定后校验输入/前台来源;修饰键未松开时停止合成复制。
+- [x] AX 读取绑定实际前台应用并取得选区边界;取词失败显示原因及辅助功能设置入口,不再回显无关旧结果。同原文/目标/引擎缓存仍可复用。
+- [x] 弹窗默认置于选区下方,空间不足放上方;内容 resize 沿用锚点及来源屏幕工作区,手动拖动后尊重用户位置。无 AX 边界回退触发瞬间鼠标位置,图标缓存携带边界。
+- [x] 前端 typecheck/build、37 项测试、Rust fmt/check、87 项测试通过(10 项环境测试默认忽略);bindings 由导出测试重新生成。新增 3 项定位回归,覆盖增长/缩回、手动拖动、负坐标/缩放和非法 AX 边界;剪贴板回归覆盖多次版本写入。
+- [x] 已构建本机 Apple Silicon 修复测试包 `src-tauri/target/release/bundle/dmg/Lenz_0.1.1_selection-fix_aarch64.dmg`;应用重新做本地 ad-hoc 签名并通过严格校验,未覆盖已安装应用或发布 Release。
+- [ ] 2 项 TextEdit 原生选区/剪贴板恢复测试已补充并尝试执行,但自动化过程中系统前台切换,固定文稿前置条件未满足,不能计作通过。浏览器本地验证页被工具 URL 策略拦截,未绕过;真实浏览器取词、原生弹窗、多屏缩放与安装后验收仍待完成。
+
 ## 2026-10-15 · v0.1.1 发布准备
 
 - [x] 应用版本同步为 0.1.1(package.json / Cargo.toml / Cargo.lock / tauri.conf.json),新增 `docs/releases/v0.1.1.md`,更新 README 下载入口与功能/验收范围。
@@ -552,6 +573,9 @@
 - [x] Apple 翻译桥接;系统版本/平台限制明确显示(→ spec 04 §6.2)。
 
 ### 7.4 服务 · OCR
+- [x] 腾讯云高精度 OCR:SecretId/SecretKey、通用/多语种场景、置信度、样例测试、F2/F3 服务路由、TC3 签名、脱敏错误和 v7→v8 配置迁移(→ spec 03 §2.6)。
+- [x] 2026-10-15 腾讯云接入检查:bindings 已重新生成;TypeScript 检查/前端构建、39 项前端纯逻辑测试、Rust 格式/编译检查及全量 Rust 测试(96 过、10 项按原生环境要求忽略)通过。独立 macOS QA 应用验证新增服务、多语种保存与重启恢复、缺凭据错误及深浅色布局;本轮不调用真实腾讯云 OCR。
+- [ ] 腾讯云真实账号样例识别与 F2/F3 覆盖对位验收;需有效云端凭据,Windows 尚未实测。
 - [x] 按系统显示后端与真实能力;macOS 快速/精准、置信度、13+ 自动检测持久化(→ spec 03)。
 - [x] BCP-47 添加/删除/拖动/箭头排序和优先顺序保存(→ spec 01 §2)。
 - [x] Windows 系统语言回退、安装语言枚举和系统安装入口;缺语言包跳转 OCR 页(→ spec 03 §4.1)。

@@ -13,6 +13,7 @@ pub mod indicator;
 pub mod keystroke;
 pub mod ocr;
 pub mod overlay;
+pub mod popup_position;
 pub mod screenshot;
 pub mod selection;
 pub mod selection_text;

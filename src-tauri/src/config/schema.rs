@@ -13,8 +13,8 @@ use specta::Type;
 /// v3:新增百度翻译预设(`builtin-baidu`,默认关闭)+ 谷歌翻译预设。
 /// v4:移除仓库内置 Google Key;所有需凭据或尚未实现的引擎默认关闭。
 /// v5:系统 OCR 识别偏好;v6:OCR 服务列表、默认服务及第三方凭据。
-/// v7:按服务记忆弹窗折叠与跳过翻译策略。
-pub const CURRENT_VERSION: u32 = 7;
+/// v7:按服务记忆弹窗折叠与跳过翻译策略;v8:腾讯云 OCR 与识别场景。
+pub const CURRENT_VERSION: u32 = 8;
 
 /// 顶层配置。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -111,8 +111,18 @@ fn default_true() -> bool {
 pub enum OcrServiceKind {
     System,
     Baidu,
+    Tencent,
     /// 支持图片输入的 OpenAI Chat Completions 兼容接口,仅用于截图翻译。
     Vision,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub enum TencentOcrConfigId {
+    #[default]
+    #[serde(rename = "OCR")]
+    Ocr,
+    #[serde(rename = "MulOCR")]
+    MulOcr,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -122,14 +132,17 @@ pub struct OcrService {
     pub name: String,
     pub kind: OcrServiceKind,
     pub api_url: String,
+    /// 百度/视觉模型 API Key;腾讯云 SecretId。
     pub api_key: String,
-    /// 百度 OCR 的 Secret Key,与百度翻译凭据不同。
+    /// 百度 OCR 或腾讯云 SecretKey,与翻译凭据独立。
     pub secret_key: String,
     pub model: String,
     pub timeout_ms: u32,
     /// 百度高精度含位置版;false 使用标准含位置版。
     pub baidu_accurate: bool,
     pub baidu_language: String,
+    #[serde(default)]
+    pub tencent_config_id: TencentOcrConfigId,
 }
 
 pub const SYSTEM_OCR_ID: &str = "system";
@@ -146,6 +159,7 @@ pub fn default_ocr_services() -> Vec<OcrService> {
         timeout_ms: 30_000,
         baidu_accurate: true,
         baidu_language: "CHN_ENG".into(),
+        tencent_config_id: TencentOcrConfigId::default(),
     }]
 }
 

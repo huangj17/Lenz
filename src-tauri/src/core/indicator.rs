@@ -47,7 +47,7 @@ static RECT: Mutex<(f64, f64, f64, f64)> = Mutex::new((0.0, 0.0, 0.0, 0.0));
 /// (读到 Lenz 自己的窗口)。故在检测到划词手势、图标浮出时就把选中文本抓下来存这里,
 /// 点击时优先取用;取不到再退回实时兜底。AX 直读不碰剪贴板,不违反「不在每次手势合成
 /// Cmd+C」的约束(spec 05 §6)。
-static CAPTURED: Mutex<Option<String>> = Mutex::new(None);
+static CAPTURED: Mutex<Option<crate::core::selection_text::SelectedText>> = Mutex::new(None);
 
 /// 图标显示会话代号:每次 `show_at` 自增,自动隐藏任务据此判断是否仍当前
 /// (重新定位 / 用户触发 / 主动隐藏都会令旧的隐藏任务失效)。作为 managed state 注入。
@@ -80,7 +80,7 @@ pub fn hit_test(x: f64, y: f64) -> bool {
 }
 
 /// 取走并清空缓存的选中文本(点击图标触发翻译时消费)。
-pub fn take_captured() -> Option<String> {
+pub fn take_captured() -> Option<crate::core::selection_text::SelectedText> {
     CAPTURED.lock().unwrap().take()
 }
 
@@ -124,15 +124,17 @@ pub fn show_debounced(app: &AppHandle, x: f64, y: f64) {
 /// AX 调用可能对无响应目标应用同步阻塞,放 `spawn_blocking`。仅当仍是 `gen` 对应的
 /// 图标会话时才写入,避免旧会话的迟到结果污染新会话(如快速连续两次划词)。
 pub fn capture_selection_async(app: &AppHandle, gen: u64) {
+    let anchor = crate::core::screenshot::selection_cursor_anchor();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let text = tokio::task::spawn_blocking(crate::core::selection_text::read_selected_text)
             .await
             .ok()
             .flatten();
-        if let Some(t) = text {
+        if let Some(mut t) = text {
             if app.state::<IndicatorSession>().is_current(gen) {
-                log::info!("划词图标:浮出时 AX 预读命中 {} 字", t.chars().count());
+                t.bounds = t.bounds.or(anchor);
+                log::info!("划词图标:浮出时 AX 预读命中 {} 字", t.text.chars().count());
                 *CAPTURED.lock().unwrap() = Some(t);
             }
         }

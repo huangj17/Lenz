@@ -67,7 +67,7 @@ function builtinEngines(): TranslatorEngine[] {
 
 export function createDefaultConfig(): Config {
   return {
-    version: 7,
+    version: 8,
     app: {
       locale: "system",
       theme: "system",
@@ -90,7 +90,7 @@ export function createDefaultConfig(): Config {
       defaultServiceId: "system",
       services: [{
         id: "system", name: "System OCR", kind: "system", apiUrl: "", apiKey: "", secretKey: "", model: "",
-        timeoutMs: 30000, baiduAccurate: true, baiduLanguage: "CHN_ENG",
+        timeoutMs: 30000, baiduAccurate: true, baiduLanguage: "CHN_ENG", tencentConfigId: "OCR",
       }],
       preferredLanguages: [],
       minConfidence: 0.3,

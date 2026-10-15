@@ -49,6 +49,9 @@ xcap = "0.9.6"
 reqwest = { version = "0.12", features = ["json"] }
 # 有道智云签名(spec 04 §6):SHA256 摘要。
 sha2 = "0.10"
+# 腾讯云 OCR 的 TC3-HMAC-SHA256 签名与 UTC 日期。
+hmac = "0.12"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
 semver = "1"
 # 百度翻译签名(spec 04 §13):MD5 摘要。
 md-5 = "0.10"

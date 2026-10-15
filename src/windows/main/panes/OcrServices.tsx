@@ -4,11 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/Icon";
 import { ocrApi } from "@/lib/ipc";
 import { errorMessage } from "@/lib/errors";
+import { tencentOcrErrorKey } from "@/lib/ocr-errors";
 import type { OcrService, TestOcrResult } from "@/lib/types";
 import { useConfigStore } from "@/stores/config";
 import { Card, Section } from "../components/primitives";
 
 const BAIDU_LANGUAGES = ["CHN_ENG", "ENG", "JAP", "KOR", "FRE", "SPA", "POR", "GER", "ITA", "RUS"];
+type RemoteOcrKind = Exclude<OcrService["kind"], "system">;
 const fieldClass = "mt-1 w-full rounded-md border border-line bg-field px-2.5 py-1.5 text-xs text-fg outline-none focus:border-accent";
 
 export function OcrServices({ selectedId, onSelect }: { selectedId: string; onSelect: (id: string) => void }) {
@@ -16,7 +18,7 @@ export function OcrServices({ selectedId, onSelect }: { selectedId: string; onSe
   const config = useConfigStore((s) => s.config.ocr);
   const patch = useConfigStore((s) => s.patch);
   const [adding, setAdding] = useState(false);
-  const [addKind, setAddKind] = useState<"baidu" | "vision">("baidu");
+  const [addKind, setAddKind] = useState<RemoteOcrKind>("baidu");
   const selected = config.services.find((s) => s.id === selectedId) ?? config.services.find((s) => s.id === config.defaultServiceId) ?? config.services[0];
 
   const add = async () => {
@@ -24,7 +26,7 @@ export function OcrServices({ selectedId, onSelect }: { selectedId: string; onSe
     const service: OcrService = {
       id: crypto.randomUUID(), name: t(`ocr.kinds.${addKind}`), kind: addKind,
       apiUrl: "", apiKey: "", secretKey: "", model: "", timeoutMs: addKind === "vision" ? 60000 : 30000,
-      baiduAccurate: true, baiduLanguage: "CHN_ENG",
+      baiduAccurate: true, baiduLanguage: "CHN_ENG", tencentConfigId: "OCR",
     };
     try {
       if (await patch((current) => ({ ocr: { services: [...current.ocr.services, service] } }))) onSelect(service.id);
@@ -42,8 +44,9 @@ export function OcrServices({ selectedId, onSelect }: { selectedId: string; onSe
           </button>)}
         </div>
         <label className="mt-3 block text-[11px] text-sub">{t("ocr.addType")}
-          <select className={fieldClass} value={addKind} onChange={(event) => setAddKind(event.target.value as "baidu" | "vision")}>
+          <select className={fieldClass} value={addKind} onChange={(event) => setAddKind(event.target.value as RemoteOcrKind)}>
             <option value="baidu">{t("ocr.kinds.baidu")}</option>
+            <option value="tencent">{t("ocr.kinds.tencent")}</option>
             <option value="vision">{t("ocr.kinds.vision")}</option>
           </select>
         </label>
@@ -70,7 +73,7 @@ function OcrServiceEditor({ service, defaultId, onSelect }: { service: OcrServic
   const generation = useRef(0);
   const pending = useRef<Partial<OcrService>>({});
   const system = service.kind === "system";
-  const ready = system || (draft.name.trim() && (service.kind === "baidu"
+  const ready = system || (draft.name.trim() && (service.kind === "baidu" || service.kind === "tencent"
     ? draft.apiKey.trim() && draft.secretKey.trim() : draft.apiUrl.trim() && draft.model.trim()));
 
   useEffect(() => () => { generation.current += 1; }, []);
@@ -112,6 +115,8 @@ function OcrServiceEditor({ service, defaultId, onSelect }: { service: OcrServic
     return saved;
   };
   const localizedError = (message: string) => {
+    const tencentKey = tencentOcrErrorKey(message);
+    if (tencentKey) return t(tencentKey);
     const key = `ocr.errors.${message}`;
     return t(key, { defaultValue: message.startsWith("ocr_http_") ? t("ocr.httpError", { status: message.slice(9) })
       : message.startsWith("ocr_baidu_") && /^\d+$/.test(message.slice(10)) ? t("ocr.baiduError", { code: message.slice(10) }) : t("ocr.testFailed") });
@@ -153,7 +158,17 @@ function OcrServiceEditor({ service, defaultId, onSelect }: { service: OcrServic
     {!system && <>
       {input("name", t("engines.name"))}
       {service.kind === "vision" && input("apiUrl", t("ocr.apiUrl"), "https://…/v1")}
-      {input("apiKey", "API Key", service.kind === "vision" ? t("ocr.optionalKey") : undefined)}
+      {input("apiKey", service.kind === "tencent" ? "SecretId" : "API Key", service.kind === "vision" ? t("ocr.optionalKey") : undefined)}
+      {service.kind === "tencent" && <>
+        {input("secretKey", "SecretKey")}
+        <p className="mb-3 text-[11px] text-sub">{t("ocr.tencentCredentialsHint")}</p>
+        <label className="mb-3 block text-[11px] text-sub">{t("ocr.tencentScene")}
+          <select className={fieldClass} value={draft.tencentConfigId} onChange={(event) => edit({ tencentConfigId: event.target.value as OcrService["tencentConfigId"] })} onBlur={() => void save()}>
+            <option value="OCR">{t("ocr.tencentGeneral")}</option>
+            <option value="MulOCR">{t("ocr.tencentMultilingual")}</option>
+          </select>
+        </label>
+      </>}
       {service.kind === "baidu" && <>
         {input("secretKey", "Secret Key")}
         <p className="mb-3 text-[11px] text-sub">{t("ocr.baiduCredentialsHint")}</p>
@@ -178,7 +193,7 @@ function OcrServiceEditor({ service, defaultId, onSelect }: { service: OcrServic
       <p className="mb-2 text-[11px] text-sub">{t("engines.keyHint")}</p>
       <p className="mb-3 text-xs text-sub">{t("ocr.uploadNotice")}</p>
     </>}
-    <p className="mb-3 text-xs text-sub">{t(system ? "ocr.systemServiceHint" : service.kind === "vision" ? "ocr.visionHint" : "ocr.baiduHint")}</p>
+    <p className="mb-3 text-xs text-sub">{t(system ? "ocr.systemServiceHint" : service.kind === "vision" ? "ocr.visionHint" : service.kind === "tencent" ? "ocr.tencentHint" : "ocr.baiduHint")}</p>
     <div className="flex flex-wrap gap-2">
       <Button disabled={testing} className="disabled:opacity-50" onClick={() => void test()}>{t(testing ? "engines.testing" : "ocr.test")}</Button>
       {service.id !== defaultId && <Button disabled={!ready} className="disabled:opacity-50" onClick={() => void makeDefault()}>{t("engines.setDefault")}</Button>}

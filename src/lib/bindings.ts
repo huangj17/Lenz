@@ -246,17 +246,19 @@ export type OcrService = {
 	name: string,
 	kind: OcrServiceKind,
 	apiUrl: string,
+	/**  百度/视觉模型 API Key;腾讯云 SecretId。 */
 	apiKey: string,
-	/**  百度 OCR 的 Secret Key,与百度翻译凭据不同。 */
+	/**  百度 OCR 或腾讯云 SecretKey,与翻译凭据独立。 */
 	secretKey: string,
 	model: string,
 	timeoutMs: number,
 	/**  百度高精度含位置版;false 使用标准含位置版。 */
 	baiduAccurate: boolean,
 	baiduLanguage: string,
+	tencentConfigId?: TencentOcrConfigId,
 };
 
-export type OcrServiceKind = "system" | "baidu" |
+export type OcrServiceKind = "system" | "baidu" | "tencent" |
 /**  支持图片输入的 OpenAI Chat Completions 兼容接口,仅用于截图翻译。 */
 "vision";
 
@@ -360,7 +362,7 @@ export type ScreenshotError = ScreenshotError_Serialize | ScreenshotError_Deseri
 /**  `screenshot://error` 事件载荷(spec 06 §4)。 */
 export type ScreenshotError_Deserialize = {
 	sessionId?: number,
-	/**  失败阶段:`capture` / `ocr` / `translate` / `timeout`。 */
+	/**  失败阶段:`capture` / `ocr` / `translate` / `timeout` / `selection`。 */
 	stage: string,
 	/**  细分码:`permission` / `no_text` / `failed` / `timeout`。 */
 	code: string,
@@ -372,7 +374,7 @@ export type ScreenshotError_Deserialize = {
 /**  `screenshot://error` 事件载荷(spec 06 §4)。 */
 export type ScreenshotError_Serialize = {
 	sessionId: number,
-	/**  失败阶段:`capture` / `ocr` / `translate` / `timeout`。 */
+	/**  失败阶段:`capture` / `ocr` / `translate` / `timeout` / `selection`。 */
 	stage: string,
 	/**  细分码:`permission` / `no_text` / `failed` / `timeout`。 */
 	code: string,
@@ -480,6 +482,8 @@ export type SystemInfo = {
 };
 
 export type SystemResource = "repository" | "releases" | "accessibility" | "screenRecording" | "ocrLanguages" | "latestRelease";
+
+export type TencentOcrConfigId = "OCR" | "MulOCR";
 
 /**  `test_engine` 命令的返回结果(spec 01 §5)。 */
 export type TestEngineResult = {

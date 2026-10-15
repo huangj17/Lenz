@@ -39,7 +39,7 @@ interface Config {
   };
   ocr: {
     defaultServiceId: string;       // 默认 "system"
-    services: OcrService[];         // 内置系统服务 + 用户添加的百度/视觉模型服务
+    services: OcrService[];         // 内置系统服务 + 用户添加的百度/腾讯云/视觉模型服务
     preferredLanguages: string[];   // BCP-47
     minConfidence: number;          // 0~1
     fastMode: boolean;              // 仅 macOS Vision,默认 false
@@ -68,14 +68,15 @@ interface Config {
 interface OcrService {
   id: string;                       // 系统服务固定 "system",第三方为 uuid
   name: string;
-  kind: "system" | "baidu" | "vision";
+  kind: "system" | "baidu" | "tencent" | "vision";
   apiUrl: string;                   // 视觉模型:HTTP(S) base URL 或完整 Chat Completions 地址
-  apiKey: string;                   // 本地视觉服务可留空
-  secretKey: string;                // 百度 OCR 专用
+  apiKey: string;                   // 腾讯云为 SecretId;本地视觉服务可留空
+  secretKey: string;                // 百度 OCR / 腾讯云 SecretKey
   model: string;                    // 视觉模型必填
   timeoutMs: number;                // 1000–300000;系统预算另按 Vision 初始化状态计算
   baiduAccurate: boolean;           // true=高精度含位置版,false=标准含位置版
   baiduLanguage: string;            // 默认 CHN_ENG
+  tencentConfigId: "OCR" | "MulOCR"; // 默认 OCR,通用中英文 / 多语种
 }
 
 interface TranslatorEngine {
@@ -98,7 +99,7 @@ interface TranslatorEngine {
 
 首次启动生成的默认 config:
 
-- `version = 7`
+- `version = 8`
 - `ocr.defaultServiceId = "system"`,服务列表只含系统 OCR,不默认添加或选择第三方服务
 - `app.locale = "system"`, `theme = "system"`
 - `shortcuts` 按 PRD §4.1 平台默认值填充
@@ -190,6 +191,8 @@ export const configApi = {
 v5 → v6 移除 `ocr.engine`,补充 `defaultServiceId = "system"` 与内置系统服务列表,保留语言顺序、置信度、快速模式和自动检测偏好,不修改翻译服务及其凭据。配置保存与加载校验服务 id 唯一、系统服务存在且类型正确、默认 id 有效及超时范围;服务凭据完整性在测试/调用时验证。
 
 v6 → v7 为 `ui.popup` 增加 `services = {}`,保留已有宽度、翻译服务、OCR 服务及凭据。每项折叠偏好缺失字段默认 false;只有 `rememberCollapse && collapsed && skipWhenCollapsed` 才在新查询时跳过该服务。临时折叠不写入持久化的 collapsed;关闭“记住”会清除所记忆的折叠状态。
+
+v7 → v8 为每个 OCR 服务补充 `tencentConfigId = "OCR"`,不覆盖显式场景或已有服务/凭据/默认选择。Rust 枚举限制场景取值,serde 默认值同时兼容缺字段的服务草稿。腾讯云在 `apiKey` 中存 SecretId、`secretKey` 中存 SecretKey;接口域名和 Action 固定在后端,不使用服务的 `apiUrl`/`model`。
 
 - `migrate(old: Config) -> Config`:按 `version` 字段分支,逐级提升。
 - 每次 schema 变更需同时提交:

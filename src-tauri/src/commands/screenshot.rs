@@ -70,8 +70,9 @@ pub async fn open_screen_settings() -> Result<(), LenzError> {
 pub async fn resize_popup(height: f64, app: AppHandle) -> Result<(), LenzError> {
     if let Some(popup) = app.get_webview_window("popup") {
         let (w, _) = popup_logical_size(&popup);
+        let before = popup.outer_position().ok();
         let _ = popup.set_size(LogicalSize::new(w, height));
-        clamp_popup_into_monitor(&app, height);
+        clamp_popup_into_monitor(&app, height, before);
     }
     #[cfg(target_os = "macos")]
     invalidate_popup_shadow(&app);
@@ -88,8 +89,9 @@ pub async fn resize_popup_width(width: f64, app: AppHandle) -> Result<(), LenzEr
     if let Some(popup) = app.get_webview_window("popup") {
         let (_, h) = popup_logical_size(&popup);
         let w = width.clamp(POPUP_MIN_WIDTH, POPUP_MAX_WIDTH);
+        let before = popup.outer_position().ok();
         let _ = popup.set_size(LogicalSize::new(w, h));
-        clamp_popup_into_monitor(&app, h);
+        clamp_popup_into_monitor(&app, h, before);
     }
     #[cfg(target_os = "macos")]
     invalidate_popup_shadow(&app);

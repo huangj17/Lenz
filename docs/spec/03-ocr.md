@@ -1,6 +1,6 @@
 # Spec 03 · OCR 引擎
 
-> 覆盖 PRD §2.2 F5 与 §3.4(OCR 桥接)。定义系统/百度/视觉模型 OCR、服务路由、坐标回映射与样例测试。
+> 覆盖 PRD §2.2 F5 与 §3.4(OCR 桥接)。定义系统/百度/腾讯云/视觉模型 OCR、服务路由、坐标回映射与样例测试。
 
 ---
 
@@ -37,7 +37,7 @@ pub struct OcrOptions {
 
 pub struct OcrResult {
     pub blocks: Vec<OcrBlock>,
-    pub text: Option<String>, // 视觉模型完整原文;系统/百度为 None
+    pub text: Option<String>, // 视觉模型完整原文;系统/百度/腾讯云为 None
     pub detected_language: Option<String>,
     pub cost_ms: u32,
 }
@@ -63,10 +63,11 @@ pub fn default_engine() -> Arc<dyn OcrEngine> {
 
 ### 2.2 服务选择与配置
 
-`core/ocr/services.rs::resolve_engine` 按请求开始时的 `config.ocr` 快照解析默认服务,系统实例继续复用,配置切换无需重启。配置字段与 v5→v6 迁移见 [Spec 01 §2、§7](./01-config-storage.md#2-配置-schema)。
+`core/ocr/services.rs::resolve_engine` 按请求开始时的 `config.ocr` 快照解析默认服务,系统实例继续复用,配置切换无需重启。配置字段与各版本迁移见 [Spec 01 §2、§7](./01-config-storage.md#2-配置-schema)。
 
 - `system`:F2/F3 均使用本机系统 OCR。
 - `baidu`:F2/F3 均使用百度含位置接口。
+- `tencent`:F2/F3 均使用腾讯云通用文字识别高精度版。
 - `vision`:F2 使用视觉模型;F3 始终回退本机系统 OCR,不向模型发送截图。
 - 不因第三方接口报错而自动发送给其他服务。原有取消/会话检查继续生效,远端 Future 被取消时停止等待与后续事件投递。
 
@@ -87,6 +88,16 @@ pub fn default_engine() -> Arc<dyn OcrEngine> {
 `test_ocr_service(service)` 接收服务草稿,使用当前 OCR 偏好识别内置 `resources/OcrSmoke.png`(1024×220),不抓屏、不改变默认服务。返回 `{ success, text, costMs, error }`,只有文字包含 `LENZ` 和 `12345` 才判定通过;失败时保留可用的识别文字供检查。
 
 第三方 HTTP 客户端不跟随重定向,错误只保留 HTTP 状态码/百度数字错误码或固定标识,不回显响应正文、URL、凭据、用户文字或图片。设置页将错误本地化,明确图片上传行为与本机明文凭据存储。
+
+### 2.6 腾讯云 OCR
+
+`core/ocr/tencent.rs::TencentOcr` 使用腾讯云 SecretId/SecretKey,通过共享 HTTP 客户端 POST 固定端点 `https://ocr.tencentcloudapi.com/`,Action=`GeneralAccurateOCR`,Version=`2018-11-19`,Region 省略。参见[接口文档](https://cloud.tencent.com/document/api/866/34937)与[TC3 签名文档](https://cloud.tencent.com/document/api/866/33519)。
+
+请求包含纯 `ImageBase64`、配置的 `ConfigID`(`OCR`/`MulOCR`)、`EnableDetectText=true`、`IsWords=false`。使用 UTC 日期和 `TC3-HMAC-SHA256` 签名,签名与发送使用同一份序列化字节;SecretKey 不发送。Base64 编码前按长度计算,上限采用保守的十进制 10M(10,000,000 字节);空图片或超限在请求前报错,不隐式缩放。
+
+`TextDetections[].DetectedText` 转为文本块,真实 `Confidence/100` 按最低置信度过滤;缺失置信度时保留文字。`Polygon` 为原图四点坐标,先取外接矩形并裁剪到截图内,再复用 `map_pixel_bbox`。`ItemPolygon` 属于旋转纠正后的图片,只在 `Angle` 明确为 0°(等价整圈)且缺少 Polygon 时回退使用;旋转/角度未知又缺原图坐标时返回无效响应,不猜测覆盖位置。倾斜文字仍以当前覆盖层的矩形显示。多语种语种逐行返回,暂不把混合图片推断为单一 `detectedLanguage`。
+
+解析 `Response.Error` 并映射固定错误标识:鉴权、签名过期、未开通、限流、额度/欠费、图片过大和超时。无文字转为空 blocks,沿用 F2/F3 的 no-text 分支。设置页、弹窗和覆盖层本地化腾讯错误;debug 日志只允许格式合法的 RequestId。服务超时与现有会话取消检查共用,失败不切换其他提供商。离线测试使用 Python 标准库独立生成的签名期望值及本地 HTTP fixture,覆盖请求、错误、坐标和超时;真实云端识别仍需有效凭据验收。
 
 ## 3. macOS 实现
 
@@ -187,7 +198,7 @@ async fn run_ocr(
 
 > 实现说明:前端传 PNG 字节不现实,故 `run_ocr` 以**屏幕逻辑矩形**为入参,内部
 > `capture_region(rect)` 截图后再调引擎 `recognize`;`OcrOptions` 取自 `config.ocr`。
-> F2/F3 主链路共用相同 OCR 配置;设置页不另设测试 OCR 按钮。`OcrInput`/`OcrOptions`
+> F2/F3 主链路共用相同 OCR 配置;设置页通过 `test_ocr_service` 识别内置样例(见 §2.5)。`OcrInput`/`OcrOptions`
 > 仍是引擎层(`OcrEngine::recognize`)的入参。
 
 ## 7. 性能

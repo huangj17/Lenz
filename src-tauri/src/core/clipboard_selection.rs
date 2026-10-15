@@ -6,10 +6,13 @@ use std::time::{Duration, Instant};
 
 static PROBE: Mutex<()> = Mutex::new(());
 
-pub fn read() -> Option<String> {
+pub fn read(source: u64) -> Option<String> {
     // Drop overlapping shortcuts instead of queueing copies into a different app.
     let _guard = PROBE.try_lock().ok()?;
-    platform::read()
+    if crate::core::selection_text::foreground_id() != Some(source) {
+        return None;
+    }
+    platform::read(source)
 }
 
 #[cfg(target_os = "macos")]
@@ -33,7 +36,7 @@ mod platform {
         })
     }
 
-    pub fn read() -> Option<String> {
+    pub fn read(source: u64) -> Option<String> {
         objc2::rc::autoreleasepool(|_| {
             let board = NSPasteboard::generalPasteboard();
             let before = board.changeCount();
@@ -55,27 +58,38 @@ mod platform {
                     ));
                 }
             }
-            if board.changeCount() != before {
+            if board.changeCount() != before
+                || crate::core::selection_text::foreground_id() != Some(source)
+                || crate::core::keystroke::modifiers_held()
+            {
                 return None;
             }
             let input_before = inputs();
             crate::core::keystroke::copy_selection().ok()?;
-            let deadline = Instant::now() + Duration::from_millis(250);
-            while board.changeCount() == before {
+            let deadline = Instant::now() + Duration::from_millis(800);
+            let mut copied_version = before;
+            let mut changed_at = Instant::now();
+            loop {
+                let version = board.changeCount();
+                if version != copied_version {
+                    copied_version = version;
+                    changed_at = Instant::now();
+                }
+                if copied_version != before && changed_at.elapsed() >= Duration::from_millis(30) {
+                    break;
+                }
                 if Instant::now() >= deadline {
                     return None;
                 }
                 std::thread::sleep(Duration::from_millis(10));
             }
-            let copied_version = board.changeCount();
             let text = board
                 .stringForType(unsafe { NSPasteboardTypeString })
                 .map(|s| s.to_string());
-            // Allow delayed formats / another copy to settle before deciding ownership.
-            std::thread::sleep(Duration::from_millis(30));
             let input_after = inputs();
             let only_our_key = input_after[0].wrapping_sub(input_before[0]) == 1
-                && input_after[1..] == input_before[1..];
+                && input_after[1..] == input_before[1..]
+                && crate::core::selection_text::foreground_id() == Some(source);
             if !super::may_restore(
                 before as u64,
                 copied_version as u64,
@@ -232,7 +246,7 @@ mod platform {
         }
         Some(data)
     }
-    pub fn read() -> Option<String> {
+    pub fn read(_source: u64) -> Option<String> {
         let owner = Window::new()?;
         let lock = Lock::open(&owner)?;
         let saved = snapshot()?;
@@ -304,14 +318,17 @@ mod platform {
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 mod platform {
-    pub fn read() -> Option<String> {
+    pub fn read(_source: u64) -> Option<String> {
         None
     }
 }
 
 #[cfg(any(target_os = "macos", test))]
 fn may_restore(before: u64, copied: u64, current: u64, no_user_input: bool) -> bool {
-    copied == before.wrapping_add(1) && current == copied && no_user_input
+    // One Copy can clear and write the board several times (plain text + rich formats).
+    // Freshness comes from a changed native version, stability and input ownership,
+    // not an assumption that the version increases exactly once.
+    copied != before && current == copied && no_user_input
 }
 
 #[cfg(test)]
@@ -321,8 +338,24 @@ mod tests {
     fn concurrent_copy_or_user_input_wins() {
         assert!(may_restore(10, 11, 11, true));
         assert!(!may_restore(10, 11, 12, true));
-        assert!(!may_restore(10, 12, 12, true));
+        assert!(may_restore(10, 12, 12, true));
         assert!(!may_restore(10, 11, 11, false));
         assert!(!may_restore(10, 10, 10, true));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "requires the tests/fixtures/selection.txt opened in TextEdit in the foreground and Accessibility permission; preserves the clipboard"]
+    fn native_fixture_copy_returns_selection_and_restores_clipboard() {
+        crate::core::selection_text::tests::fixture_selection();
+        use objc2_app_kit::{NSPasteboard, NSPasteboardTypeString};
+        objc2::rc::autoreleasepool(|_| {
+            let board = NSPasteboard::generalPasteboard();
+            let before = board.stringForType(unsafe { NSPasteboardTypeString });
+            let source = crate::core::selection_text::foreground_id().expect("fixture source");
+            let selected = read(source).expect("copy must return the current fixture selection");
+            assert!(selected == include_str!("../../../tests/fixtures/selection.txt"));
+            assert!(board.stringForType(unsafe { NSPasteboardTypeString }) == before);
+        });
     }
 }

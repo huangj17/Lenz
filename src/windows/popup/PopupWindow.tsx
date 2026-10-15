@@ -1,4 +1,5 @@
 import { errorMessage } from "@/lib/errors";
+import { tencentOcrErrorKey } from "@/lib/ocr-errors";
 import { PopupSessions } from "@/lib/popupSessions";
 import { PopupTranslations, popupTranslationRows, type PopupTranslationPanel, type PopupTranslationError, type PopupTranslationRow } from "@/lib/popupTranslations";
 import { PopupServiceRow } from "./PopupServiceRow";
@@ -18,7 +19,7 @@ import { useTranslation } from "react-i18next";
 import { Icon, Kbd } from "@/components/Icon";
 import { LensMark } from "@/components/LensMark";
 import { Select, type SelectOption } from "@/components/Select";
-import { isLenzError, emit, Events, listenEvent, screenshotApi, translateApi } from "@/lib/ipc";
+import { isLenzError, emit, Events, listenEvent, screenshotApi, selectionApi, translateApi } from "@/lib/ipc";
 import { TRANSLATE_LANGUAGES } from "@/lib/languages";
 import { useConfigStore } from "@/stores/config";
 import type { PopupServiceUiConfig, ScreenshotErrorPayload } from "@/lib/types";
@@ -387,6 +388,7 @@ export function PopupWindow() {
   const engineName = (id: string) => engines.find((e) => e.id === id)?.name ?? id;
 
   const panel = view.kind === "translations" ? view : null;
+  const ocrServiceErrorKey = view.kind === "error" && view.stage === "ocr" ? tencentOcrErrorKey(view.message) : null;
   const successes = panel?.rows.filter((row) => row.status === "success");
   const succ = successes?.find((row) => row.engineId === panel?.primaryEngineId) ?? successes?.[0];
   const rowError = (error: PopupTranslationError) => error.message.includes("apple_languages_required")
@@ -576,7 +578,11 @@ export function PopupWindow() {
             <div className="flex items-start gap-2 text-[12px] font-medium text-danger">
               <Icon name="info" size={14} className="mt-px shrink-0" />
               <span>
-                {view.code === "permission"
+                {view.stage === "selection"
+                  ? t(view.code === "selection_permission" ? "popup.error.selectionPermission"
+                    : view.code === "selection_modifiers" ? "popup.error.selectionModifiers"
+                      : "popup.error.selectionEmpty")
+                  : view.code === "permission"
                   ? t("popup.error.permission")
                   : view.code === "package_required"
                     ? t("popup.error.package_required")
@@ -587,7 +593,9 @@ export function PopupWindow() {
                           : view.stage === "ocr" ? "popup.error.ocrTimeout" : "popup.error.timeout")
                         : view.stage === "translate"
                           ? t("popup.error.translateFailed", { msg: view.message })
-                          : t("popup.error.generic")}
+                          : ocrServiceErrorKey
+                            ? t(ocrServiceErrorKey)
+                            : t("popup.error.generic")}
               </span>
             </div>
 
@@ -599,10 +607,11 @@ export function PopupWindow() {
             )}
 
             <div className="flex gap-2">
-              {view.code === "permission" && (
+              {(view.code === "permission" || view.code === "selection_permission") && (
                 <button
                   type="button"
-                  onClick={() => void screenshotApi.openScreenSettings()}
+                  onClick={() => void (view.code === "selection_permission"
+                    ? selectionApi.openAccessibilitySettings() : screenshotApi.openScreenSettings())}
                   className="rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-accent-fg hover:opacity-90"
                 >
                   {t("popup.error.openSettings")}

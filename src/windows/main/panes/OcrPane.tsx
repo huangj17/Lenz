@@ -69,7 +69,7 @@ export function OcrPane({ focusTarget }: { focusTarget?: string | null }) {
   return (
     <div>
       <OcrServices selectedId={selected?.id ?? "system"} onSelect={setSelectedId} />
-      {selected?.kind === "baidu" && <Section title={t("ocr.minConfidence")}>
+      {(selected?.kind === "baidu" || selected?.kind === "tencent") && <Section title={t("ocr.minConfidence")}>
         <Card><Row last label={t("ocr.minConfidence")}>
           <div className="flex items-center gap-2">
             <input type="range" min={0} max={1} step={0.05} value={config.minConfidence}

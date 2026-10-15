@@ -155,7 +155,7 @@ pub struct ScreenshotTranslating {
 pub struct ScreenshotError {
     #[serde(default)]
     pub session_id: u32,
-    /// 失败阶段:`capture` / `ocr` / `translate` / `timeout`。
+    /// 失败阶段:`capture` / `ocr` / `translate` / `timeout` / `selection`。
     pub stage: String,
     /// 细分码:`permission` / `no_text` / `failed` / `timeout`。
     pub code: String,

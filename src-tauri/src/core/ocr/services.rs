@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use super::remote::{BaiduOcr, VisionOcr};
+use super::tencent::TencentOcr;
 use super::{recognize_with_timeout, OcrEngine, OcrInput, OcrOptions};
 use crate::config::schema::{OcrConfig, OcrService, OcrServiceKind};
 use crate::error::LenzError;
@@ -45,6 +46,7 @@ fn build_service(
     match service.kind {
         OcrServiceKind::System => Ok(system),
         OcrServiceKind::Baidu => Ok(Arc::new(BaiduOcr::new(service.clone())?)),
+        OcrServiceKind::Tencent => Ok(Arc::new(TencentOcr::new(service.clone())?)),
         OcrServiceKind::Vision => Ok(Arc::new(VisionOcr::new(service.clone())?)),
     }
 }
@@ -132,6 +134,35 @@ pub async fn test_service(
 mod tests {
     use super::*;
     use crate::config::{schema::validate_ocr_config, Config};
+
+    #[test]
+    fn tencent_is_used_for_both_purposes_and_never_falls_back_on_invalid_credentials() {
+        let mut config = Config::default().ocr;
+        let mut service = config.services[0].clone();
+        service.id = "tencent".into();
+        service.kind = OcrServiceKind::Tencent;
+        service.api_key = "fixture-only".into();
+        service.secret_key = "fixture-secret".into();
+        config.services.push(service);
+        config.default_service_id = "tencent".into();
+        let system = super::super::default_engine();
+        for purpose in [OcrPurpose::Screenshot, OcrPurpose::Overlay] {
+            let engine = resolve_engine(&config, system.clone(), purpose).unwrap();
+            assert_eq!(engine.name(), "tencent-ocr");
+            assert!(!Arc::ptr_eq(&engine, &system));
+            assert_eq!(
+                engine.recognition_timeout(&OcrOptions {
+                    preferred_languages: Vec::new(),
+                    fast_mode: false,
+                    auto_detect_language: true,
+                    min_confidence: 0.3,
+                }),
+                std::time::Duration::from_secs(30)
+            );
+        }
+        config.services[1].secret_key.clear();
+        assert!(resolve_engine(&config, system, OcrPurpose::Overlay).is_err());
+    }
 
     #[tokio::test]
     async fn vision_is_only_used_for_screenshots_and_never_for_overlay() {

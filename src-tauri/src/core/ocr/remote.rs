@@ -21,7 +21,7 @@ static HTTP: LazyLock<Result<reqwest::Client, reqwest::Error>> = LazyLock::new(|
         .build()
 });
 
-fn http() -> Result<&'static reqwest::Client, LenzError> {
+pub(super) fn http() -> Result<&'static reqwest::Client, LenzError> {
     HTTP.as_ref()
         .map_err(|_| LenzError::Network("ocr_network".into()))
 }
@@ -38,7 +38,9 @@ fn request_error(error: reqwest::Error) -> LenzError {
     }
 }
 
-async fn send<T: DeserializeOwned>(request: reqwest::RequestBuilder) -> Result<T, LenzError> {
+pub(super) async fn send<T: DeserializeOwned>(
+    request: reqwest::RequestBuilder,
+) -> Result<T, LenzError> {
     let response = request.send().await.map_err(request_error)?;
     if !response.status().is_success() {
         return Err(LenzError::OcrFailed(format!(

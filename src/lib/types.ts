@@ -142,7 +142,7 @@ export type ScreenshotResult = RustScreenshotResult;
 
 /** `screenshot://error` —— stage: capture/ocr/translate/timeout */
 export type ScreenshotErrorPayload = Omit<ScreenshotError_Serialize, "stage"> & {
-  stage: "capture" | "ocr" | "translate" | "timeout";
+  stage: "capture" | "ocr" | "translate" | "timeout" | "selection";
 };
 
 /** `screenshot://progress` */

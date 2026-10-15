@@ -16,6 +16,7 @@ use crate::types::Rect;
 
 mod remote;
 mod services;
+mod tencent;
 pub use services::{resolve_engine, test_service, OcrPurpose, TestOcrResult};
 
 pub const OCR_TIMEOUT: Duration = Duration::from_secs(10);
@@ -52,7 +53,7 @@ pub struct OcrOptions {
     /// 速度优先(对应 Vision `.fast`;Windows 系统 OCR 不支持切换精度)。
     pub fast_mode: bool,
     pub auto_detect_language: bool,
-    /// 过滤低置信度文本块(0..1);仅对返回真实置信度的 Vision 生效。
+    /// 过滤低置信度文本块(0..1);对返回真实置信度的系统/云端 OCR 生效。
     pub min_confidence: f32,
 }
 

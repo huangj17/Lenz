@@ -17,6 +17,8 @@ use crate::config::{Config, ConfigStore};
 use crate::core::ocr::{
     recognize_with_timeout, resolve_engine, OcrBlock, OcrEngine, OcrInput, OcrOptions, OcrPurpose,
 };
+use crate::core::popup_position::{below_selection, ScreenRect, SelectionPlacement};
+use crate::core::selection_text::{foreground_id, SelectedText};
 use crate::core::translator::{Translator, TranslatorManager};
 use crate::core::{capture, keystroke, selection_window};
 use crate::error::LenzError;
@@ -44,6 +46,9 @@ pub fn popup_width(app: &AppHandle) -> f64 {
 const POPUP_INIT_HEIGHT: f64 = 150.0;
 /// 选区与 popup 的垂直间距(spec 06 §2.6)。
 const POPUP_GAP: f64 = 12.0;
+
+#[derive(Default)]
+pub struct SelectionPopupPosition(Mutex<Option<SelectionPlacement>>);
 /// 抓屏前等待选区蒙层从屏幕消失的时延:覆盖「事件线程→主线程」派发 + 合成器出帧,
 /// 避免截到遮罩 / 销毁残帧导致 OCR 空结果(spec 02 §7)。
 const OVERLAY_CLEAR_DELAY_MS: u64 = 150;
@@ -185,9 +190,8 @@ fn popup_primary(app: &AppHandle, config: &Config) -> Option<Arc<dyn Translator>
 
 /// 最近一次成功的翻译结果(F1/F2 通用)。作为 managed state 注入。
 ///
-/// 用于划词快捷键的「无新选区则回显上次内容」(见 `on_selection_shortcut`)。内存态之外
-/// 还持久化到磁盘(`last-result.json`),使**应用重启后**按 Alt+D(无选区/剪贴板空)仍能
-/// 回显上次结果。
+/// 持久化到磁盘(`last-result.json`),仅在重新读取的选区原文、目标语言和引擎匹配时复用。
+/// 取词失败不能据此回显无关旧内容。
 #[derive(Default)]
 pub struct LastResult(Mutex<Option<ScreenshotResult>>);
 
@@ -238,7 +242,7 @@ impl LastResult {
                 if let Ok(mut g) = self.0.lock() {
                     *g = Some(r);
                 }
-                log::info!("已加载上次翻译结果(供 Alt+D 回显)");
+                log::info!("已加载上次翻译结果缓存");
             }
             Err(e) => log::warn!("hydrate last-result: 解析失败,忽略: {e}"),
         }
@@ -563,6 +567,10 @@ fn show_and_focus_popup(app: &AppHandle, popup: &tauri::WebviewWindow) {
 
 /// 把 popup 定位到选区正下方(水平居中),夹紧到所在显示器,然后显示并聚焦。
 fn position_and_show_popup(app: &AppHandle, region: &Rect, scale: Option<f64>) {
+    *app.state::<SelectionPopupPosition>()
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = None;
     #[cfg(target_os = "windows")]
     {
         let scale = scale
@@ -619,7 +627,11 @@ fn position_and_show_popup(app: &AppHandle, region: &Rect, scale: Option<f64>) {
 /// 初次定位只按 `POPUP_INIT_HEIGHT` 摆放,长译文撑高后(最高 480)若沿用旧的左上角,
 /// 底部会溢出屏幕、内容被截断(spec 06 §2.6)。这里读当前位置 + 新高度,把窗口夹回
 /// 显示器矩形内(放不下时顶边贴齐显示器顶部),优先保证内容完整可见。
-pub fn clamp_popup_into_monitor(app: &AppHandle, height: f64) {
+pub fn clamp_popup_into_monitor(
+    app: &AppHandle,
+    height: f64,
+    before_resize: Option<tauri::PhysicalPosition<i32>>,
+) {
     let Some(popup) = app.get_webview_window(POPUP_LABEL) else {
         return;
     };
@@ -627,6 +639,35 @@ pub fn clamp_popup_into_monitor(app: &AppHandle, height: f64) {
     let Ok(phys) = popup.outer_position() else {
         return;
     };
+    {
+        let state = app.state::<SelectionPopupPosition>();
+        let mut anchor = state.0.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(placement) = anchor.as_mut() {
+            // Native resizing may move the top edge. Only movement before the resize
+            // is evidence that the user dragged the popup.
+            let before = before_resize.unwrap_or(phys);
+            #[cfg(target_os = "windows")]
+            let (current, size_scale) = ((before.x as f64, before.y as f64), scale);
+            #[cfg(not(target_os = "windows"))]
+            let (current, size_scale) = ((before.x as f64 / scale, before.y as f64 / scale), 1.0);
+            let width = popup
+                .outer_size()
+                .map(|s| s.width as f64 / scale * size_scale)
+                .unwrap_or_else(|_| popup_width(app) * size_scale);
+            if let Some((x, y)) = placement.resize(current, width, height * size_scale) {
+                #[cfg(target_os = "windows")]
+                let _ = popup.set_position(tauri::PhysicalPosition::new(
+                    x.round() as i32,
+                    y.round() as i32,
+                ));
+                #[cfg(not(target_os = "windows"))]
+                let _ = popup.set_position(LogicalPosition::new(x, y));
+                return;
+            }
+            // User dragged the popup: respect its new position from now on.
+            *anchor = None;
+        }
+    }
     let pos = phys.to_logical::<f64>(scale);
     // 用窗口当前实际宽度(尊重用户拖拽后的宽度),而非固定常量。
     let w = popup
@@ -667,21 +708,21 @@ const MOD_WAIT_TIMEOUT: Duration = Duration::from_millis(400);
 /// 划词翻译(快捷键模式):自动复制前台选中文本 → 翻译 → popup。
 ///
 /// 流程(spec 05 §3):
-/// 1. 记录复制前剪贴板;向前台应用合成 `Cmd/Ctrl+C` 复制当前选区;
-/// 2. 轮询等待剪贴板变化,取得「选中文本」;
-/// 3. 有新选区 → 居中显示 popup + 翻译;
-/// 4. 无新选区(未选中 / 无权限)→ 回显上次结果;都没有则静默忽略。
+/// 优先读取前台应用的系统选区,失败才等待修饰键松开并复制当前选区。
+/// 选区和触发位置在显示 popup 前捕获;取词失败显示原因,不回显无关旧结果。
 pub fn on_selection_shortcut(app: &AppHandle) {
     let gen = app.state::<ScreenshotSession>().begin();
+    let anchor = selection_cursor_anchor();
+    let source = foreground_id();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        handle_selection_shortcut(app, gen).await;
+        handle_selection_shortcut(app, gen, anchor, source).await;
     });
 }
 
 /// 直接用已拿到的选中文本翻译(划词图标点击时,复用图标浮出瞬间 AX 预读的缓存)。
 /// 跳过实时读取,规避「点击图标夺焦后读到错内容」。
-pub fn translate_with_text(app: &AppHandle, text: String) {
+pub fn translate_with_text(app: &AppHandle, text: SelectedText) {
     let gen = app.state::<ScreenshotSession>().begin();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -689,45 +730,70 @@ pub fn translate_with_text(app: &AppHandle, text: String) {
     });
 }
 
-async fn handle_selection_shortcut(app: AppHandle, gen: u32) {
+async fn handle_selection_shortcut(
+    app: AppHandle,
+    gen: u32,
+    anchor: Option<ScreenRect>,
+    source: Option<u64>,
+) {
+    if !crate::core::selection::permission_granted() {
+        return selection_error(&app, gen, anchor, "selection_permission").await;
+    }
+    let Some(source_id) = source else {
+        return selection_error(&app, gen, anchor, "selection_empty").await;
+    };
     // ① 首选 Accessibility API 直读选中文本:不碰剪贴板、不合成按键,规避修饰键污染 /
     //    同文字重复 / 焦点时序 / 剪贴板被覆盖等一系列问题(spec 05 §3)。AX 调用可能对
     //    无响应目标应用造成同步 IPC 阻塞,放到 spawn_blocking 上跑,避免堵塞 async 运行时。
-    let ax = tokio::task::spawn_blocking(crate::core::selection_text::read_selected_text)
-        .await
-        .ok()
-        .flatten();
+    let ax = tokio::task::spawn_blocking(move || {
+        (foreground_id() == source)
+            .then(crate::core::selection_text::read_selected_text)
+            .flatten()
+    })
+    .await
+    .ok()
+    .flatten();
     if !is_current(&app, gen) {
         return;
     }
-    if let Some(text) = ax {
-        log::info!("划词:AX 直读命中 {} 字", text.chars().count());
-        return translate_selection(&app, text, gen).await;
+    if foreground_id() != source {
+        return;
+    }
+    if let Some(mut selected) = ax {
+        log::info!("划词:AX 直读命中 {} 字", selected.text.chars().count());
+        selected.bounds = selected.bounds.or(anchor);
+        return translate_selection(&app, selected, gen).await;
     }
 
     // ② 兜底(AX 取不到,如部分 Chrome/Electron):合成 Cmd+C 读剪贴板。
     //    Alt+D 触发时 Option 等修饰键往往仍按着,会并入合成的 Cmd+C(→ ⌘⌥C,前台不复制),
     //    先等其松开;原生剪贴板版本号可识别重复复制的相同文字。
-    wait_modifiers_released().await;
+    if !wait_modifiers_released().await {
+        return selection_error(&app, gen, anchor, "selection_modifiers").await;
+    }
+    if !is_current(&app, gen) || foreground_id() != source {
+        return;
+    }
+    let copied = copy_selection_via_clipboard(source_id).await;
     if !is_current(&app, gen) {
         return;
     }
-    let copied = copy_selection_via_clipboard(&app).await;
-    if !is_current(&app, gen) {
+    if foreground_id() != source {
         return;
     }
     if let Some(text) = copied {
         log::info!("划词:剪贴板兜底命中 {} 字", text.chars().count());
-        return translate_selection(&app, text, gen).await;
+        return translate_selection(
+            &app,
+            SelectedText {
+                text,
+                bounds: anchor,
+            },
+            gen,
+        )
+        .await;
     }
-
-    // ③ AX 与剪贴板都拿不到选区:回显上次结果(spec 05 §3 —— 再次按键复现上次内容)。
-    if let Some(last) = app.state::<LastResult>().get() {
-        log::info!("划词:无新选区,回显上次结果");
-        reshow_result(&app, last, gen).await;
-    } else {
-        log::info!("划词:AX 空 + 剪贴板无选区 + 无历史;忽略(未选中文本或无权限)");
-    }
+    selection_error(&app, gen, anchor, "selection_empty").await;
 }
 
 /// 拿到选中文本后的统一收尾(F1 各路径——AX 直读 / 剪贴板兜底 / 图标预读——的唯一汇聚点)。
@@ -737,8 +803,12 @@ async fn handle_selection_shortcut(app: AppHandle, gen: u32) {
 /// - **去重**:原文与「上次翻译结果」完全相同 → 直接回显缓存,不再重复请求引擎
 ///   (满足验收「同段不重复触发」,且省一次 LLM 调用)。
 ///
-/// 通过过滤后:新会话代号 + 光标处弹框 + 翻译。
-async fn translate_selection(app: &AppHandle, text: String, gen: u32) {
+/// 通过过滤后:使用本次捕获的选区位置弹框并翻译。
+async fn translate_selection(app: &AppHandle, selected: SelectedText, gen: u32) {
+    let SelectedText {
+        text,
+        bounds: anchor,
+    } = selected;
     if !is_current(app, gen) {
         return;
     }
@@ -758,14 +828,14 @@ async fn translate_selection(app: &AppHandle, text: String, gen: u32) {
                 current_engine.as_deref(),
             ) {
                 log::info!("划词:原文/目标语言/引擎均相同,回显缓存结果");
-                return reshow_result(app, last, gen).await;
+                return reshow_result(app, last, gen, anchor).await;
             }
         }
     }
     if !is_current(app, gen) {
         return;
     }
-    position_popup_at_cursor(app);
+    position_selection_popup(app, anchor);
     // 首帧投递前等待 popup webview 就绪,避免冷启动首次触发丢掉 progress/result(方案 A)。
     wait_popup_ready(app).await;
     app.state::<ScreenshotSession>()
@@ -784,14 +854,18 @@ fn cached_result_matches(
         && engine_id == Some(result.engine_id.as_str())
 }
 
-/// 回显一份已有结果到光标处 popup(「无新选区回显上次」与「同原文去重」共用)。
-/// 起一个新会话代号令进行中的旧流程作废,再在光标处摆出 popup 并重发 result 事件。
-async fn reshow_result(app: &AppHandle, mut result: ScreenshotResult, gen: u32) {
+/// 当前选区与缓存匹配时,在本次选区位置回显已有结果。
+async fn reshow_result(
+    app: &AppHandle,
+    mut result: ScreenshotResult,
+    gen: u32,
+    anchor: Option<ScreenRect>,
+) {
     if !is_current(app, gen) {
         return;
     }
     result.session_id = gen;
-    position_popup_at_cursor(app);
+    position_selection_popup(app, anchor);
     wait_popup_ready(app).await;
     if is_current(app, result.session_id) {
         let _ = app.emit(EVT_RESULT, result);
@@ -799,21 +873,30 @@ async fn reshow_result(app: &AppHandle, mut result: ScreenshotResult, gen: u32) 
 }
 
 /// 合成 Cmd+C 前等待触发快捷键的修饰键松开,避免被仍按住的 Option/Cmd 等并入合成事件
-/// (spec 05 §3)。无修饰键按下时立即返回;最多等 `MOD_WAIT_TIMEOUT`,超时则尽力继续。
-async fn wait_modifiers_released() {
+/// (spec 05 §3)。超时返回失败,不能向仍按住快捷键的源应用发送被污染的复制组合。
+async fn wait_modifiers_released() -> bool {
     let deadline = Instant::now() + MOD_WAIT_TIMEOUT;
     while keystroke::modifiers_held() {
         if Instant::now() >= deadline {
-            log::debug!("selection shortcut: 修饰键 {MOD_WAIT_TIMEOUT:?} 内未松开,继续合成 Cmd+C");
-            break;
+            return false;
         }
         tokio::time::sleep(MOD_WAIT_INTERVAL).await;
     }
+    true
+}
+
+async fn selection_error(app: &AppHandle, gen: u32, anchor: Option<ScreenRect>, code: &str) {
+    if !is_current(app, gen) {
+        return;
+    }
+    position_selection_popup(app, anchor);
+    wait_popup_ready(app).await;
+    emit_error(app, gen, "selection", code, code, None);
 }
 
 /// 原生剪贴板事务必须跑完恢复阶段,不能被翻译会话取消中断。
-async fn copy_selection_via_clipboard(_app: &AppHandle) -> Option<String> {
-    tokio::task::spawn_blocking(crate::core::clipboard_selection::read)
+async fn copy_selection_via_clipboard(source: u64) -> Option<String> {
+    tokio::task::spawn_blocking(move || crate::core::clipboard_selection::read(source))
         .await
         .ok()
         .flatten()
@@ -911,47 +994,100 @@ async fn run_text_pipeline(app: &AppHandle, original: String, gen: u32) {
     );
 }
 
-/// 划词弹框定位:锚定到当前光标右下方(+16,+16),按 popup 估算尺寸夹紧到所在
-/// 显示器工作区(spec 05 §7)。取不到光标位置(非 macOS / 失败)时回退居中。
-fn position_popup_at_cursor(app: &AppHandle) {
+/// Capture once at trigger time, before any AX IPC, copy delay or translation.
+pub fn selection_cursor_anchor() -> Option<ScreenRect> {
     #[cfg(target_os = "windows")]
-    if let Some(point) = crate::core::cursor::current_physical() {
-        let scale = crate::core::cursor::point_scale(point);
-        return position_windows_popup(
-            app,
-            point.x as f64 + 16.0 * scale,
-            point.y as f64 + 16.0 * scale,
-            point.x as f64,
-            point.y as f64,
-            scale,
-        );
+    {
+        return crate::core::cursor::current_physical()
+            .map(|p| ScreenRect::point(p.x as f64, p.y as f64));
     }
-    let Some((cx, cy)) = crate::core::cursor::current_logical() else {
+    #[cfg(not(target_os = "windows"))]
+    {
+        crate::core::cursor::current_logical().map(|(x, y)| ScreenRect::point(x, y))
+    }
+}
+
+fn position_selection_popup(app: &AppHandle, anchor: Option<ScreenRect>) {
+    let Some(selection) = anchor else {
         return position_popup_centered(app);
     };
     let Some(popup) = app.get_webview_window(POPUP_LABEL) else {
-        log::warn!("popup window not found; cannot show selection result");
         return;
     };
-    let w = popup_width(app);
-    let mut x = cx + 16.0;
-    let mut y = cy + 16.0;
-    if let Ok(bounds) = selection_window::logical_monitor_bounds(app) {
-        if let Some((lx, ly, lw, lh)) = bounds
-            .into_iter()
-            .find(|(mx, my, mw, mh)| cx >= *mx && cx < mx + mw && cy >= *my && cy < my + mh)
-        {
-            x = x.clamp(lx, (lx + lw - w).max(lx));
-            y = y.clamp(ly, (ly + lh - POPUP_INIT_HEIGHT).max(ly));
-        }
+    let cx = selection.x + selection.w / 2.0;
+    let cy = selection.y + selection.h / 2.0;
+    let monitors = popup.available_monitors().unwrap_or_default();
+    let monitor = monitors.iter().find(|m| {
+        #[cfg(target_os = "windows")]
+        let scale = 1.0;
+        #[cfg(not(target_os = "windows"))]
+        let scale = m.scale_factor();
+        ScreenRect::new(
+            m.position().x as f64 / scale,
+            m.position().y as f64 / scale,
+            m.size().width as f64 / scale,
+            m.size().height as f64 / scale,
+        )
+        .is_some_and(|r| r.contains(cx, cy))
+    });
+    let Some(monitor) = monitor else {
+        return position_popup_centered(app);
+    };
+    #[cfg(target_os = "windows")]
+    let (coordinate_scale, size_scale) = (1.0, monitor.scale_factor());
+    #[cfg(not(target_os = "windows"))]
+    let (coordinate_scale, size_scale) = (monitor.scale_factor(), 1.0);
+    let work = monitor.work_area();
+    let Some(work) = ScreenRect::new(
+        work.position.x as f64 / coordinate_scale,
+        work.position.y as f64 / coordinate_scale,
+        work.size.width as f64 / coordinate_scale,
+        work.size.height as f64 / coordinate_scale,
+    ) else {
+        return;
+    };
+    let gap = POPUP_GAP * size_scale;
+    let position = below_selection(
+        selection,
+        work,
+        popup_width(app) * size_scale,
+        POPUP_INIT_HEIGHT * size_scale,
+        gap,
+    );
+    *app.state::<SelectionPopupPosition>()
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(SelectionPlacement {
+        selection,
+        monitor: work,
+        gap,
+        position,
+    });
+    #[cfg(target_os = "windows")]
+    {
+        let _ = popup.set_position(tauri::PhysicalPosition::new(
+            position.0.round() as i32,
+            position.1.round() as i32,
+        ));
+        let _ = popup.set_size(tauri::PhysicalSize::new(
+            (popup_width(app) * size_scale).round() as u32,
+            (POPUP_INIT_HEIGHT * size_scale).round() as u32,
+        ));
     }
-    let _ = popup.set_position(LogicalPosition::new(x, y));
-    let _ = popup.set_size(LogicalSize::new(w, POPUP_INIT_HEIGHT));
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = popup.set_size(LogicalSize::new(popup_width(app), POPUP_INIT_HEIGHT));
+        let _ = popup.set_position(LogicalPosition::new(position.0, position.1));
+    }
     show_and_focus_popup(app, &popup);
 }
 
 /// 把 popup 居中显示在主显示器上 1/3 处(取不到光标位置时的回退定位)。
 fn position_popup_centered(app: &AppHandle) {
+    *app.state::<SelectionPopupPosition>()
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = None;
     let Some(popup) = app.get_webview_window(POPUP_LABEL) else {
         log::warn!("popup window not found; cannot show selection result");
         return;

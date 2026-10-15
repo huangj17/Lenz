@@ -33,6 +33,8 @@ macOS:`titleBarStyle: "overlay"`(隐藏标题栏,前端用 `data-tauri-drag-regi
 
 主题由 `<html>.dark` 统一控制,Tailwind `dark:` 用相同 class selector,避免手动深色主题下选中控件仍出现白底。
 
+应用图标按 PRD §4.4 使用冰蓝渐变圆角底板。`scripts/gen-icons.mjs` 复用透明的 `src/assets/lenz-logo.svg` 生成带底板的 `lenz-logo.png`(1024×1024),再执行 `pnpm tauri icon src/assets/lenz-logo.png` 同步 `src-tauri/icons/` 的 PNG、macOS ICNS 与 Windows ICO/MSIX 图标。窗口内 `LensMark` 仍直接使用透明 SVG,托盘模板使用独立的 `tray.svg`。
+
 ### 2.2 Tab 结构
 
 | Tab | 路由 | 内容 |
@@ -46,7 +48,7 @@ macOS:`titleBarStyle: "overlay"`(隐藏标题栏,前端用 `data-tauri-drag-regi
 
 头部搜索支持中英文关键词、上下选择和 Enter 跳转,滚动、聚焦目标设置。通用页显示实际监听状态及 macOS 辅助功能/屏幕录制授权入口。OCR 页按系统能力展示控件,支持语言添加/删除/排序和配置保存。
 
-OCR 服务列表固定保留系统 OCR,可新增多个百度 OCR / 视觉模型服务,文本字段失焦保存。支持设为默认、测试识别及二次点击确认删除;删除当前默认服务后恢复系统 OCR。百度提供 API Key、Secret Key、含位置版本、语言和超时;视觉模型提供接口地址、可选密钥、模型及超时,明确标注仅用于截图翻译、覆盖翻译回退系统 OCR。按选中服务显示能力控件,第三方不展示系统语言包/精度开关。测试只发送内置样例图,显示识别文字、耗时和本地化错误;编辑或切换服务后旧测试结果失效。
+OCR 服务列表固定保留系统 OCR,可新增多个百度 OCR / 腾讯云 OCR / 视觉模型服务,文本字段失焦保存。支持设为默认、测试识别及二次点击确认删除;删除当前默认服务后恢复系统 OCR。百度提供 API Key、Secret Key、含位置版本、语言和超时;腾讯云提供 SecretId、SecretKey、通用/多语种场景、置信度及超时,使用固定高精度接口并明确截图上传行为;视觉模型提供接口地址、可选密钥、模型及超时,明确标注仅用于截图翻译、覆盖翻译回退系统 OCR。按选中服务显示能力控件,第三方不展示系统语言包/精度开关。测试只发送内置样例图,显示识别文字、耗时和本地化错误;编辑或切换服务后旧测试结果失效。
 
 ### 2.3 服务 · 文本翻译分段
 
@@ -132,7 +134,7 @@ F1/F2 弹窗按设置顺序为每个已启用服务显示一行:徽标/名称、
 
 ### 3.5 定位
 
-由各功能模块(F1/F2)在调用 `show_popup` 前计算目标坐标,通过 `window.setPosition` 设置。定位逻辑见 [Spec 05 §7](./05-selection-translation.md) 和 [Spec 06 §2.6](./06-screenshot-translation.md)。
+由各功能模块(F1/F2)在调用 `show_popup` 前计算目标坐标,通过 `window.setPosition` 设置。F1 默认锚定选中文字下方,内容 resize 沿用本次选区;手动拖动后释放锚定。定位逻辑见 [Spec 05 §7](./05-selection-translation.md) 和 [Spec 06 §2.6](./06-screenshot-translation.md)。
 
 ## 4. selection 窗口
 
