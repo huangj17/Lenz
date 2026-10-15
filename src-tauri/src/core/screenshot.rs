@@ -998,8 +998,7 @@ async fn run_text_pipeline(app: &AppHandle, original: String, gen: u32) {
 pub fn selection_cursor_anchor() -> Option<ScreenRect> {
     #[cfg(target_os = "windows")]
     {
-        return crate::core::cursor::current_physical()
-            .map(|p| ScreenRect::point(p.x as f64, p.y as f64));
+        crate::core::cursor::current_physical().map(|p| ScreenRect::point(p.x as f64, p.y as f64))
     }
     #[cfg(not(target_os = "windows"))]
     {
