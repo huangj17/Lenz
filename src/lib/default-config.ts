@@ -67,7 +67,7 @@ function builtinEngines(): TranslatorEngine[] {
 
 export function createDefaultConfig(): Config {
   return {
-    version: 5,
+    version: 7,
     app: {
       locale: "system",
       theme: "system",
@@ -87,7 +87,11 @@ export function createDefaultConfig(): Config {
       popupDelayMs: 300,
     },
     ocr: {
-      engine: "system",
+      defaultServiceId: "system",
+      services: [{
+        id: "system", name: "System OCR", kind: "system", apiUrl: "", apiKey: "", secretKey: "", model: "",
+        timeoutMs: 30000, baiduAccurate: true, baiduLanguage: "CHN_ENG",
+      }],
       preferredLanguages: [],
       minConfidence: 0.3,
       fastMode: false,
@@ -103,6 +107,7 @@ export function createDefaultConfig(): Config {
         fontSize: 14,
         showOriginal: true,
         width: 360,
+        services: {},
       },
     },
   };

@@ -5,7 +5,7 @@
 
 use serde_json::Value;
 
-use super::schema::{default_engines, CURRENT_VERSION};
+use super::schema::{default_engines, default_ocr_services, CURRENT_VERSION, SYSTEM_OCR_ID};
 
 /// 将任意旧版本的原始 JSON 配置迁移到当前版本。
 ///
@@ -38,6 +38,24 @@ pub fn migrate(mut raw: Value, from_version: u32) -> Value {
         if let Some(ocr) = raw.get_mut("ocr").and_then(Value::as_object_mut) {
             ocr.entry("fastMode").or_insert(Value::Bool(false));
             ocr.entry("autoDetectLanguage").or_insert(Value::Bool(true));
+        }
+    }
+    if from_version < 6 {
+        if let Some(ocr) = raw.get_mut("ocr").and_then(Value::as_object_mut) {
+            ocr.remove("engine");
+            ocr.entry("defaultServiceId")
+                .or_insert(Value::from(SYSTEM_OCR_ID));
+            ocr.entry("services").or_insert_with(|| {
+                serde_json::to_value(default_ocr_services()).expect("serializable OCR defaults")
+            });
+        }
+    }
+
+    if from_version < 7 {
+        if let Some(popup) = raw.pointer_mut("/ui/popup").and_then(Value::as_object_mut) {
+            popup
+                .entry("services")
+                .or_insert_with(|| serde_json::json!({}));
         }
     }
 
@@ -189,6 +207,64 @@ fn migrate_v3_to_v4(mut raw: Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn v6_adds_empty_popup_policies_without_resetting_existing_settings() {
+        let mut raw = serde_json::to_value(crate::config::Config::default()).unwrap();
+        raw["version"] = serde_json::json!(6);
+        raw["ui"]["popup"]
+            .as_object_mut()
+            .unwrap()
+            .remove("services");
+        raw["ui"]["popup"]["width"] = serde_json::json!(520);
+        raw["translator"]["engines"][0]["apiKey"] = serde_json::json!("fixture-only");
+        let before = raw.clone();
+        let out = migrate(raw, 6);
+        assert_eq!(out["version"], CURRENT_VERSION);
+        assert_eq!(out["ui"]["popup"]["services"], serde_json::json!({}));
+        assert_eq!(out["ui"]["popup"]["width"], 520);
+        assert_eq!(out["translator"], before["translator"]);
+        assert_eq!(out["ocr"], before["ocr"]);
+        let config: crate::config::Config = serde_json::from_value(out).unwrap();
+        assert!(config.ui.popup.services.is_empty());
+    }
+
+    #[test]
+    fn popup_policy_migration_keeps_service_values_and_defaults_missing_fields() {
+        let mut raw = serde_json::to_value(crate::config::Config::default()).unwrap();
+        raw["ui"]["popup"]["services"] = serde_json::json!({
+            "a": { "rememberCollapse": true, "collapsed": true, "skipWhenCollapsed": true },
+            "b": { "skipWhenCollapsed": true }
+        });
+        let out = migrate(raw, 6);
+        let config: crate::config::Config = serde_json::from_value(out).unwrap();
+        assert!(config.ui.popup.services["a"].skip_initial_translation());
+        assert!(!config.ui.popup.services["b"].collapsed);
+        assert!(!config.ui.popup.services["b"].remember_collapse);
+        assert!(config.ui.popup.services["b"].skip_when_collapsed);
+        let restored: crate::config::Config =
+            serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
+        assert_eq!(restored.ui.popup.services, config.ui.popup.services);
+    }
+
+    #[test]
+    fn v5_migrates_to_system_service_without_losing_preferences_or_translation_credentials() {
+        let mut raw = serde_json::to_value(crate::config::Config::default()).unwrap();
+        raw["version"] = serde_json::json!(5);
+        raw["ocr"] = serde_json::json!({"engine":"system","preferredLanguages":["ja","en-US"],"minConfidence":0.7,"fastMode":true,"autoDetectLanguage":false});
+        raw["translator"]["engines"][0]["apiKey"] = serde_json::json!("fixture-only");
+        let out = migrate(raw, 5);
+        let config: crate::config::Config = serde_json::from_value(out.clone()).unwrap();
+        crate::config::schema::validate_ocr_config(&config.ocr).unwrap();
+        assert!(out["ocr"].get("engine").is_none());
+        assert_eq!(config.ocr.default_service_id, SYSTEM_OCR_ID);
+        assert_eq!(config.ocr.services.len(), 1);
+        assert_eq!(config.ocr.preferred_languages, ["ja", "en-US"]);
+        assert_eq!(config.ocr.min_confidence, 0.7);
+        assert!(config.ocr.fast_mode);
+        assert!(!config.ocr.auto_detect_language);
+        assert_eq!(config.translator.engines[0].api_key, "fixture-only");
+    }
 
     #[test]
     fn v4_adds_ocr_preferences_without_resetting_user_values() {

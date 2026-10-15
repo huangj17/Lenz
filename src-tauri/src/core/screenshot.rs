@@ -13,9 +13,11 @@ use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager};
 
-use crate::config::ConfigStore;
-use crate::core::ocr::{recognize_with_timeout, OcrBlock, OcrEngine, OcrInput, OcrOptions};
-use crate::core::translator::TranslatorManager;
+use crate::config::{Config, ConfigStore};
+use crate::core::ocr::{
+    recognize_with_timeout, resolve_engine, OcrBlock, OcrEngine, OcrInput, OcrOptions, OcrPurpose,
+};
+use crate::core::translator::{Translator, TranslatorManager};
 use crate::core::{capture, keystroke, selection_window};
 use crate::error::LenzError;
 use crate::types::{
@@ -62,21 +64,27 @@ const POPUP_READY_POLL: Duration = Duration::from_millis(20);
 /// cancels reqwest work immediately instead of merely suppressing its result.
 pub struct ScreenshotSession {
     generation: tokio::sync::watch::Sender<u32>,
+    requests: Mutex<std::collections::HashMap<(u32, String), tokio::sync::watch::Sender<bool>>>,
 }
 impl Default for ScreenshotSession {
     fn default() -> Self {
         Self {
             generation: tokio::sync::watch::channel(0).0,
+            requests: Mutex::new(Default::default()),
         }
     }
 }
 impl ScreenshotSession {
     pub fn begin(&self) -> u32 {
+        // Serialize generation changes with child registration, so a new child
+        // cannot be removed by the previous generation's cleanup.
+        let mut requests = self.requests.lock().unwrap_or_else(|e| e.into_inner());
         let mut next = 0;
         self.generation.send_modify(|value| {
             *value += 1;
             next = *value;
         });
+        requests.clear();
         next
     }
     pub fn is_current(&self, gen: u32) -> bool {
@@ -93,6 +101,86 @@ impl ScreenshotSession {
             value = work => Some(value),
         }
     }
+
+    pub fn cancel_request(&self, gen: u32, request_id: &str) {
+        let mut requests = self.requests.lock().unwrap_or_else(|e| e.into_inner());
+        if !self.is_current(gen) {
+            return;
+        }
+        // Retain a cancelled value even if cancellation arrives before invoke
+        // starts polling; watch::wait_for checks the initial value as well.
+        requests
+            .entry((gen, request_id.to_string()))
+            .or_insert_with(|| tokio::sync::watch::channel(false).0)
+            .send_replace(true);
+    }
+
+    pub async fn run_request<T>(
+        &self,
+        gen: u32,
+        request_id: &str,
+        work: impl std::future::Future<Output = T>,
+    ) -> Option<T> {
+        let key = (gen, request_id.to_string());
+        let mut cancelled = {
+            let mut requests = self.requests.lock().unwrap_or_else(|e| e.into_inner());
+            if !self.is_current(gen) {
+                return None;
+            }
+            requests
+                .entry(key.clone())
+                .or_insert_with(|| tokio::sync::watch::channel(false).0)
+                .subscribe()
+        };
+        let result = self
+            .run(gen, async {
+                tokio::select! {
+                    biased;
+                    _ = cancelled.wait_for(|value| *value) => None,
+                    value = work => Some(value),
+                }
+            })
+            .await
+            .flatten();
+        self.requests
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&key);
+        result
+    }
+}
+
+fn popup_engine_ids(config: &Config) -> Vec<&str> {
+    let mut ids: Vec<_> = config
+        .translator
+        .engines
+        .iter()
+        .filter(|engine| {
+            engine.enabled
+                && !config
+                    .ui
+                    .popup
+                    .services
+                    .get(&engine.id)
+                    .is_some_and(|policy| policy.skip_initial_translation())
+        })
+        .map(|engine| engine.id.as_str())
+        .collect();
+    if let Some(index) = ids
+        .iter()
+        .position(|id| *id == config.translator.default_engine_id)
+    {
+        let default_id = ids.remove(index);
+        ids.insert(0, default_id);
+    }
+    ids
+}
+
+fn popup_primary(app: &AppHandle, config: &Config) -> Option<Arc<dyn Translator>> {
+    let manager = app.state::<TranslatorManager>();
+    popup_engine_ids(config)
+        .into_iter()
+        .find_map(|id| manager.get(Some(id)))
 }
 
 /// 最近一次成功的翻译结果(F1/F2 通用)。作为 managed state 注入。
@@ -294,7 +382,14 @@ async fn run_pipeline(app: &AppHandle, region: Rect, gen: u32) {
     // ── OCR ──
     emit_progress(app, gen, "ocr");
     let t1 = Instant::now();
-    let engine = app.state::<Arc<dyn OcrEngine>>().inner().clone();
+    let engine = match resolve_engine(
+        &cfg.ocr,
+        app.state::<Arc<dyn OcrEngine>>().inner().clone(),
+        OcrPurpose::Screenshot,
+    ) {
+        Ok(engine) => engine,
+        Err(error) => return emit_error(app, gen, "ocr", "failed", &error.to_string(), None),
+    };
     let opts = OcrOptions {
         preferred_languages: cfg.ocr.preferred_languages.clone(),
         fast_mode: cfg.ocr.fast_mode,
@@ -326,36 +421,29 @@ async fn run_pipeline(app: &AppHandle, region: Rect, gen: u32) {
         }
         Err(e) => return emit_error(app, gen, "ocr", "failed", &e.to_string(), None),
     };
-    let original = join_blocks(&ocr.blocks);
+    let original = ocr.text.unwrap_or_else(|| join_blocks(&ocr.blocks));
     if original.trim().is_empty() {
         return emit_error(app, gen, "ocr", "no_text", "no text recognized", None);
     }
     let cost_ocr = t1.elapsed().as_millis() as u32;
 
     // ── 翻译 ──
-    // 原文(OCR 结果)已知:发 translating,让 popup 显示原文 + 引擎行转圈,而非整块骨架。
+    let translator = popup_primary(app, &cfg);
+    let request_id = translator
+        .as_ref()
+        .map(|_| uuid::Uuid::new_v4().to_string());
     emit_translating(
         app,
         gen,
         &original,
         ocr.detected_language.clone(),
         &cfg.translator.target_lang,
-        &cfg.translator.default_engine_id,
+        translator.as_ref().map(|engine| engine.id()).unwrap_or(""),
+        request_id.clone(),
     );
     let t2 = Instant::now();
-    let translator = {
-        let mgr = app.state::<TranslatorManager>();
-        mgr.get(None)
-    };
-    let Some(translator) = translator else {
-        return emit_error(
-            app,
-            gen,
-            "translate",
-            "failed",
-            "no engine configured",
-            Some(original),
-        );
+    let (Some(translator), Some(request_id)) = (translator, request_id) else {
+        return;
     };
     let req = TranslateRequest {
         texts: vec![original.clone()],
@@ -363,7 +451,11 @@ async fn run_pipeline(app: &AppHandle, region: Rect, gen: u32) {
         target_lang: cfg.translator.target_lang.clone(),
         engine_id: None,
     };
-    let resp = translator.translate(req).await;
+    let resp = app
+        .state::<ScreenshotSession>()
+        .run_request(gen, &request_id, translator.translate(req))
+        .await;
+    let Some(resp) = resp else { return };
     if !is_current(app, gen) {
         return;
     }
@@ -658,10 +750,7 @@ async fn translate_selection(app: &AppHandle, text: String, gen: u32) {
     // 默认引擎后回显旧译文。
     if let Some(last) = app.state::<LastResult>().get() {
         if let Ok(cfg) = app.state::<ConfigStore>().get() {
-            let current_engine = app
-                .state::<TranslatorManager>()
-                .get(None)
-                .map(|engine| engine.id().to_string());
+            let current_engine = popup_primary(app, &cfg).map(|engine| engine.id().to_string());
             if cached_result_matches(
                 &last,
                 &text,
@@ -749,29 +838,22 @@ async fn run_text_pipeline(app: &AppHandle, original: String, gen: u32) {
             )
         }
     };
-    // 原文已知:发 translating,让 popup 立即显示原文 + 引擎行转圈(F1 无截图/OCR 阶段)。
+    let translator = popup_primary(app, &cfg);
+    let request_id = translator
+        .as_ref()
+        .map(|_| uuid::Uuid::new_v4().to_string());
     emit_translating(
         app,
         gen,
         &original,
         None,
         &cfg.translator.target_lang,
-        &cfg.translator.default_engine_id,
+        translator.as_ref().map(|engine| engine.id()).unwrap_or(""),
+        request_id.clone(),
     );
     let t = Instant::now();
-    let translator = {
-        let mgr = app.state::<TranslatorManager>();
-        mgr.get(None)
-    };
-    let Some(translator) = translator else {
-        return emit_error(
-            app,
-            gen,
-            "translate",
-            "failed",
-            "no engine configured",
-            Some(original),
-        );
+    let (Some(translator), Some(request_id)) = (translator, request_id) else {
+        return;
     };
     let req = TranslateRequest {
         texts: vec![original.clone()],
@@ -779,7 +861,11 @@ async fn run_text_pipeline(app: &AppHandle, original: String, gen: u32) {
         target_lang: cfg.translator.target_lang.clone(),
         engine_id: None,
     };
-    let resp = translator.translate(req).await;
+    let resp = app
+        .state::<ScreenshotSession>()
+        .run_request(gen, &request_id, translator.translate(req))
+        .await;
+    let Some(resp) = resp else { return };
     if !is_current(app, gen) {
         return;
     }
@@ -922,6 +1008,7 @@ fn emit_translating(
     source_lang: Option<String>,
     target_lang: &str,
     engine_id: &str,
+    request_id: Option<String>,
 ) {
     if !is_current(app, gen) {
         return;
@@ -934,6 +1021,7 @@ fn emit_translating(
             source_lang,
             target_lang: target_lang.to_string(),
             engine_id: engine_id.to_string(),
+            request_id,
         },
     );
 }
@@ -1060,6 +1148,185 @@ mod tests {
                 .await,
             None::<()>
         );
+    }
+
+    #[tokio::test]
+    async fn popup_cancel_drops_every_concurrent_service_request() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        let session = Arc::new(super::ScreenshotSession::default());
+        let gen = session.begin();
+        let dropped = Arc::new(AtomicUsize::new(0));
+        struct PendingGuard(Arc<AtomicUsize>);
+        impl Drop for PendingGuard {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let mut tasks = Vec::new();
+        let mut ready = Vec::new();
+        for _ in 0..3 {
+            let session = session.clone();
+            let dropped = dropped.clone();
+            let (started, receiver) = tokio::sync::oneshot::channel();
+            ready.push(receiver);
+            tasks.push(tokio::spawn(async move {
+                session
+                    .run(gen, async move {
+                        let _guard = PendingGuard(dropped);
+                        let _ = started.send(());
+                        std::future::pending::<()>().await;
+                    })
+                    .await
+            }));
+        }
+        for receiver in ready {
+            receiver.await.unwrap();
+        }
+        session.cancel();
+        for task in tasks {
+            assert_eq!(
+                tokio::time::timeout(std::time::Duration::from_secs(1), task)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                None
+            );
+        }
+        assert_eq!(dropped.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn folded_request_cancelled_before_registration_never_starts() {
+        let session = super::ScreenshotSession::default();
+        let gen = session.begin();
+        session.cancel_request(gen, "folded");
+        assert_eq!(
+            session
+                .run_request(gen, "folded", async {
+                    panic!("folded request must not start")
+                })
+                .await,
+            None::<()>
+        );
+        // A new request for the same service has a different identity.
+        assert_eq!(
+            session.run_request(gen, "expanded", async { 42 }).await,
+            Some(42)
+        );
+        assert!(session.requests.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn folding_drops_only_its_request_and_parent_cancel_drops_siblings() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        struct Guard(Arc<AtomicUsize>);
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let session = Arc::new(super::ScreenshotSession::default());
+        let gen = session.begin();
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let mut tasks = Vec::new();
+        for id in ["a", "b"] {
+            let worker = session.clone();
+            let flag = dropped.clone();
+            let (started, ready) = tokio::sync::oneshot::channel();
+            tasks.push(tokio::spawn(async move {
+                worker
+                    .run_request(gen, id, async {
+                        let _guard = Guard(flag);
+                        let _ = started.send(());
+                        std::future::pending::<()>().await;
+                    })
+                    .await
+            }));
+            ready.await.unwrap();
+        }
+        session.cancel_request(gen, "a");
+        let a = tasks.remove(0);
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), a)
+                .await
+                .unwrap()
+                .unwrap(),
+            None
+        );
+        assert_eq!(dropped.load(Ordering::SeqCst), 1);
+        assert!(!tasks[0].is_finished(), "another service must keep running");
+        session.cancel();
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), tasks.remove(0))
+                .await
+                .unwrap()
+                .unwrap(),
+            None
+        );
+        assert_eq!(dropped.load(Ordering::SeqCst), 2);
+        assert!(session.requests.lock().unwrap().is_empty());
+        let new_gen = session.begin();
+        session.cancel_request(gen, "b");
+        assert_eq!(
+            session.run_request(new_gen, "b", async { 7 }).await,
+            Some(7)
+        );
+    }
+
+    #[test]
+    fn native_primary_respects_per_service_folding_without_changing_default() {
+        use crate::config::schema::PopupServiceUiConfig;
+        let mut config = crate::config::Config::default();
+        for engine in &mut config.translator.engines {
+            engine.enabled = false;
+        }
+        let a = config.translator.engines[0].id.clone();
+        let b = config.translator.engines[1].id.clone();
+        config.translator.engines[0].enabled = true;
+        config.translator.engines[1].enabled = true;
+        config.translator.default_engine_id = b.clone();
+        assert_eq!(super::popup_engine_ids(&config), [b.as_str(), a.as_str()]);
+        config.ui.popup.services.insert(
+            b.clone(),
+            PopupServiceUiConfig {
+                collapsed: true,
+                remember_collapse: true,
+                skip_when_collapsed: true,
+            },
+        );
+        assert_eq!(super::popup_engine_ids(&config), [a.as_str()]);
+        assert_eq!(
+            config.translator.default_engine_id, b,
+            "overlay default stays configured"
+        );
+        config
+            .ui
+            .popup
+            .services
+            .insert(a.clone(), config.ui.popup.services[&b].clone());
+        assert!(super::popup_engine_ids(&config).is_empty());
+        config
+            .ui
+            .popup
+            .services
+            .get_mut(&b)
+            .unwrap()
+            .remember_collapse = false;
+        assert_eq!(super::popup_engine_ids(&config), [b.as_str()]);
+        config
+            .ui
+            .popup
+            .services
+            .get_mut(&a)
+            .unwrap()
+            .skip_when_collapsed = false;
+        assert_eq!(super::popup_engine_ids(&config), [b.as_str(), a.as_str()]);
     }
 
     fn block(text: &str, x: i32, y: i32, w: i32, h: i32) -> OcrBlock {

@@ -7,7 +7,7 @@ import { OcrPane } from "./OcrPane";
 type Seg = "translate" | "ocr";
 
 /** 服务 —— 分段控件在 文本翻译 / OCR 间切换(对齐设计 ServicesPane) */
-export function ServicesPane({ section, onSectionChange }: { section?: Seg; onSectionChange?: (section: Seg) => void }) {
+export function ServicesPane({ section, onSectionChange, focusTarget }: { section?: Seg; onSectionChange?: (section: Seg) => void; focusTarget?: string | null }) {
   const { t } = useTranslation();
   const [seg, setSeg] = useState<Seg>("translate");
 
@@ -24,7 +24,7 @@ export function ServicesPane({ section, onSectionChange }: { section?: Seg; onSe
         />
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
-        {(section ?? seg) === "translate" ? <EnginesPane /> : <OcrPane />}
+        {(section ?? seg) === "translate" ? <EnginesPane /> : <OcrPane focusTarget={focusTarget} />}
       </div>
     </div>
   );

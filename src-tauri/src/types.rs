@@ -145,6 +145,8 @@ pub struct ScreenshotTranslating {
     pub source_lang: Option<String>,
     pub target_lang: String,
     pub engine_id: String,
+    /// 原生主服务请求标识,供弹窗单独取消;无自动请求时为 None。
+    pub request_id: Option<String>,
 }
 
 /// `screenshot://error` 事件载荷(spec 06 §4)。

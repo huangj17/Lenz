@@ -1,6 +1,6 @@
 # Spec 03 · OCR 引擎
 
-> 覆盖 PRD §2.2 F5 与 §3.4(OCR 桥接)。定义 OCR 抽象、macOS Vision 与 Windows.Media.Ocr 实现、坐标回映射。
+> 覆盖 PRD §2.2 F5 与 §3.4(OCR 桥接)。定义系统/百度/视觉模型 OCR、服务路由、坐标回映射与样例测试。
 
 ---
 
@@ -37,6 +37,7 @@ pub struct OcrOptions {
 
 pub struct OcrResult {
     pub blocks: Vec<OcrBlock>,
+    pub text: Option<String>, // 视觉模型完整原文;系统/百度为 None
     pub detected_language: Option<String>,
     pub cost_ms: u32,
 }
@@ -59,6 +60,33 @@ pub fn default_engine() -> Arc<dyn OcrEngine> {
 ```
 
 `default_engine()` 在启动阶段构造一次,放 `State<Arc<dyn OcrEngine>>`。
+
+### 2.2 服务选择与配置
+
+`core/ocr/services.rs::resolve_engine` 按请求开始时的 `config.ocr` 快照解析默认服务,系统实例继续复用,配置切换无需重启。配置字段与 v5→v6 迁移见 [Spec 01 §2、§7](./01-config-storage.md#2-配置-schema)。
+
+- `system`:F2/F3 均使用本机系统 OCR。
+- `baidu`:F2/F3 均使用百度含位置接口。
+- `vision`:F2 使用视觉模型;F3 始终回退本机系统 OCR,不向模型发送截图。
+- 不因第三方接口报错而自动发送给其他服务。原有取消/会话检查继续生效,远端 Future 被取消时停止等待与后续事件投递。
+
+### 2.3 百度 OCR
+
+`core/ocr/remote.rs::BaiduOcr` 使用独立的 OCR API Key / Secret Key。先 POST `https://aip.baidubce.com/oauth/2.0/token` 获取 access token,再 POST `/rest/2.0/ocr/v1/accurate`(高精度含位置版)或 `/general`(标准含位置版)。当前每次识别获取 token,不持久化 token。参见[鉴权文档](https://ai.baidu.com/ai-doc/REFERENCE/Ck3dwjhhu)和[高精度含位置版文档](https://ai.baidu.com/ai-doc/OCR/tk3h7y2aq)。
+
+图片用 Base64 经 `application/x-www-form-urlencoded` 编码发送,请求 `probability=true`、`detect_direction=false` 和用户选择的 `language_type`。首批提供中英混合及英/日/韩/法/西/葡/德/意/俄语言选项。`words_result[].location` 按截图物理像素坐标用 `map_pixel_bbox` 回映射,裁剪到截图内;真实行置信度按 `minConfidence` 过滤。未返回置信度时保留文字,不使用占位值过滤。
+
+### 2.4 通用视觉模型
+
+`VisionOcr` 支持 HTTP(S) 的 OpenAI Chat Completions 兼容接口:base URL 自动补版本/路径,完整 `/chat/completions` 地址原样使用,密钥可留空以支持本地模型。`messages` 包含固定转录指令和 `image_url: { url: "data:image/png;base64,..." }`,只要求提取原文,不进行翻译。格式依据 [OpenAI 图像输入文档](https://developers.openai.com/api/docs/guides/images-vision)。
+
+完整原文放入 `OcrResult.text`,`blocks` 为空,不伪造 bbox/置信度。支持字符串和文本分段响应,拒绝截断、过滤或拒绝响应;空文本由 F2 现有 no-text 分支处理。保留模型返回的换行/段落。
+
+### 2.5 测试与错误
+
+`test_ocr_service(service)` 接收服务草稿,使用当前 OCR 偏好识别内置 `resources/OcrSmoke.png`(1024×220),不抓屏、不改变默认服务。返回 `{ success, text, costMs, error }`,只有文字包含 `LENZ` 和 `12345` 才判定通过;失败时保留可用的识别文字供检查。
+
+第三方 HTTP 客户端不跟随重定向,错误只保留 HTTP 状态码/百度数字错误码或固定标识,不回显响应正文、URL、凭据、用户文字或图片。设置页将错误本地化,明确图片上传行为与本机明文凭据存储。
 
 ## 3. macOS 实现
 
@@ -167,7 +195,7 @@ async fn run_ocr(
 - **目标**(对齐 PRD §5.1):1920×1080 区域 OCR ≤ 1s。
 - 热状态基线(开发机,Apple M1):Vision `.accurate` 约 200~500ms;Windows 性能尚未实测。首次模型初始化不计入热状态目标。
 - 2026-10-14 本机合成图验证:640×220 英文图片首次 Vision 识别约 25.9s,重复调用约 0.44s;原先截图/OCR 共用 10s 会误报超时。
-- F2/F3 与 `run_ocr` 共用 `recognize_with_timeout`,OCR 独立限时 10s。Vision 按优先语言顺序、快速/精准模式和自动语言检测组成初始化配置;该配置首次成功前允许 60s,成功后恢复 10s。置信度只影响结果过滤,不重新计算初始化状态;识别失败不标记成功。
+- F2/F3、`run_ocr` 与样例测试共用 `recognize_with_timeout`。系统 OCR 常规独立限时 10s;macOS Vision 按优先语言顺序、快速/精准模式和自动语言检测组成初始化配置,该配置首次成功前允许 60s,成功后恢复 10s。第三方服务按各自 `timeoutMs`(1000–300000ms)执行,百度鉴权和识别共享总预算。置信度只影响结果过滤,不重新计算初始化状态;识别失败不标记成功。
 - Vision 同时最多执行一个原生识别。取消/超时只停止等待和后续结果投递,并发槽仍由阻塞线程持有直到原生调用结束,避免连续重试堆积原生任务。
 - 日志记录引擎、尺寸、识别模式、语言数量、超时预算、块数和耗时,不记录识别文字或图像;原生结束日志在调用方取消后仍可用于诊断。
 - 优化:
@@ -194,5 +222,5 @@ async fn run_ocr(
 
 ## 10. 扩展点
 
-- 未来新增 Tesseract 实现:`core/ocr/tesseract.rs`,实现同一 trait,通过 `config.ocr.engine = "tesseract"` 切换。
-- 云端 OCR(Azure / Google Vision):同样走 trait,但需要注意隐私声明。
+- 未来新增 Tesseract / PaddleOCR 实现,扩充 `OcrServiceKind` 和服务工厂;当前 `tesseract.rs` 仍为未实现的预留位。
+- 云端 OCR(Azure / Google Vision)可按同一服务接口扩展;视觉模型暂不支持原图覆盖。

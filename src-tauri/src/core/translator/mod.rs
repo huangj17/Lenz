@@ -13,6 +13,7 @@ mod google;
 mod languages;
 mod microsoft;
 mod openai;
+pub(crate) use openai::chat_endpoint;
 mod youdao;
 
 use std::collections::HashMap;

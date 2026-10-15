@@ -191,7 +191,7 @@ export function MainWindow() {
 
         {tab === "services" ? (
           <div className="min-h-0 flex-1 overflow-hidden px-6 pt-[22px] pb-6">
-            <ServicesPane section={servicesSection} onSectionChange={setServicesSection} />
+            <ServicesPane section={servicesSection} onSectionChange={setServicesSection} focusTarget={target} />
           </div>
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-[22px] pb-6">

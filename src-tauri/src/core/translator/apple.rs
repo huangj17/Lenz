@@ -133,3 +133,49 @@ async fn native_translate(
         ))
     }
 }
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    fn request(target_lang: &str) -> TranslateRequest {
+        TranslateRequest {
+            texts: vec!["Hello".into(), "Good morning".into(), "Thank you".into()],
+            source_lang: Some("en-US".into()),
+            target_lang: target_lang.into(),
+            engine_id: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn native_same_language_preserves_batch() {
+        if !available() {
+            return;
+        }
+        let req = request("en");
+        let expected = req.texts.clone();
+        let result = native_translate(req, 5000).await.unwrap();
+        assert_eq!(result.translations, expected);
+        assert_eq!(result.detected_source_lang.as_deref(), Some("en-US"));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires installed English and Simplified Chinese Apple translation languages"]
+    async fn native_installed_languages_translate_batch() {
+        let result = native_translate(request("zh-CN"), 15000).await.unwrap();
+        assert_eq!(result.translations.len(), 3);
+        assert!(result.translations.iter().all(|text| !text.is_empty()));
+        assert_ne!(result.translations, request("zh-CN").texts);
+        assert_eq!(result.detected_source_lang.as_deref(), Some("en-US"));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires French Apple translation language to be absent"]
+    async fn native_missing_languages_return_setup_error_before_timeout() {
+        let started = std::time::Instant::now();
+        let error = native_translate(request("fr"), 5000).await.unwrap_err();
+        assert!(matches!(error, LenzError::TranslateFailed(ref message)
+            if message.starts_with("apple_languages_required:")));
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
+}

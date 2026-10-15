@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Card, Section, Row } from "../components/primitives";
 import { Toggle } from "@/components/ui/toggle";
@@ -8,6 +8,7 @@ import { systemApi } from "@/lib/ipc";
 import { useSystemStore } from "@/stores/system";
 import { moveLanguage } from "@/lib/settingsSearch";
 import { useConfigStore } from "@/stores/config";
+import { OcrServices } from "./OcrServices";
 
 const LANG_NAMES: Record<string, string> = {
   "en-US": "English",
@@ -29,7 +30,7 @@ const LANG_NAMES: Record<string, string> = {
 const SUGGESTED = ["ja-JP", "ko-KR", "fr-FR", "de-DE", "es-ES"];
 
 type Accuracy = "fast" | "accurate";
-export function OcrPane() {
+export function OcrPane({ focusTarget }: { focusTarget?: string | null }) {
   const { t } = useTranslation();
   const config = useConfigStore((s) => s.config.ocr);
   const patch = useConfigStore((s) => s.patch);
@@ -39,6 +40,11 @@ export function OcrPane() {
   const [language, setLanguage] = useState("");
   const [error, setLocalError] = useState<string | null>(null);
   const [dragged, setDragged] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = config.services.find((s) => s.id === (selectedId ?? config.defaultServiceId)) ?? config.services[0];
+  useEffect(() => {
+    if (focusTarget === "ocr-accuracy" || focusTarget === "ocr-languages") setSelectedId("system");
+  }, [focusTarget]);
   const preferred = config.preferredLanguages;
   const candidates = Array.from(new Set([...(info?.ocrLanguages ?? []), ...SUGGESTED])).filter((tag) => !preferred.includes(tag));
   const windows = info?.platform === "windows";
@@ -62,6 +68,17 @@ export function OcrPane() {
   const openLanguages = () => { void systemApi.open("ocrLanguages").catch(setError); };
   return (
     <div>
+      <OcrServices selectedId={selected?.id ?? "system"} onSelect={setSelectedId} />
+      {selected?.kind === "baidu" && <Section title={t("ocr.minConfidence")}>
+        <Card><Row last label={t("ocr.minConfidence")}>
+          <div className="flex items-center gap-2">
+            <input type="range" min={0} max={1} step={0.05} value={config.minConfidence}
+              aria-label={t("ocr.minConfidence")} onChange={(event) => void patch({ ocr: { minConfidence: Number(event.target.value) } })} />
+            <span className="w-8 text-right font-mono text-xs">{config.minConfidence.toFixed(2)}</span>
+          </div>
+        </Row></Card>
+      </Section>}
+      {selected?.kind === "system" && <>
       {windows && info && !info.windowsPackageIdentity && <div role="alert" className="mb-4 rounded-md border border-line bg-card p-3 text-xs">
         <p>{t("ocr.packageRequired")}</p>
         <button type="button" className="mt-2 text-accent-ink" onClick={() => void systemApi.open("releases").catch(setError)}>{t("ocr.downloadInstalledVersion")}</button>
@@ -134,6 +151,7 @@ export function OcrPane() {
           </div>}
         </Section>
       </div>
+      </>}
     </div>
   );
 }

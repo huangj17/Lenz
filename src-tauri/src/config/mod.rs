@@ -139,6 +139,7 @@ impl ConfigStore {
             // 4. 反序列化校验。
             let next: Config = serde_json::from_value(doc)
                 .map_err(|e| LenzError::config(format!("invalid patch result: {e}")))?;
+            schema::validate_ocr_config(&next.ocr)?;
             // Register first: conflicts must not persist an unusable shortcut config.
             if guard.shortcuts != next.shortcuts {
                 crate::core::shortcut::register_shortcuts(app, &next.shortcuts)?;
@@ -207,6 +208,7 @@ fn parse_and_migrate(raw: &str) -> Result<(Config, bool), LenzError> {
     };
 
     let config: Config = serde_json::from_value(migrated)?;
+    schema::validate_ocr_config(&config.ocr)?;
     Ok((config, needs_migration))
 }
 

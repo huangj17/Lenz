@@ -82,11 +82,22 @@ pub fn begin_popup_session(session: State<'_, crate::core::screenshot::Screensho
 pub async fn translate_popup(
     req: TranslateRequest,
     session_id: u32,
+    request_id: String,
     session: State<'_, crate::core::screenshot::ScreenshotSession>,
     mgr: State<'_, TranslatorManager>,
 ) -> Result<TranslateResponse, LenzError> {
     session
-        .run(session_id, mgr.translate(req))
+        .run_request(session_id, &request_id, mgr.translate(req))
         .await
         .unwrap_or_else(|| Err(LenzError::Cancelled("superseded or closed".into())))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn cancel_popup_translation(
+    session_id: u32,
+    request_id: String,
+    session: State<'_, crate::core::screenshot::ScreenshotSession>,
+) {
+    session.cancel_request(session_id, &request_id);
 }

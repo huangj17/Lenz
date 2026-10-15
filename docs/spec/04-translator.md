@@ -63,6 +63,16 @@ impl TranslatorManager {
 - 配置变更(`config://changed` 含 `translator.*`)时调 `reload`,不重启进程。
 - 所有引擎共享一个 `reqwest::Client`(见 §7)。
 
+### 2.1 弹窗多服务对比
+
+- F1/F2 原生 pipeline 在符合各服务折叠策略的启用列表中优先选择默认服务,否则按设置顺序选择可用服务。在 `screenshot://translating` 中报告实际主引擎 id 和请求 `requestId`;全部折叠跳过时 id 为空、requestId 为 null,不发起原生翻译。前端按设置顺序创建全部启用行,通过 `translate_popup(req, sessionId, requestId)` 请求其余符合策略的服务,避免重复调用原生主服务。
+- 每行独立维护展开状态、`rememberCollapse` 与 `skipWhenCollapsed`,保存在 `ui.popup.services[engineId]`。新查询仅恢复勾选“记住”的状态,未记住默认展开;折叠且跳过时为 idle,显示“展开后翻译”。未开启跳过时仍请求并保留结果,展开不重复调用。
+- 折叠且跳过时取消该服务的 pending 请求,调用 `cancel_popup_translation(sessionId, requestId)`;展开 idle 行再发起新的 UUID 请求。后端以 session + request id 取消对应 future,取消先于请求注册时也有效;前端检查请求 id 与 epoch,拒绝被取消请求的迟到响应。取消原生主服务不影响额外服务。
+- 原生结果/错误只更新对应服务行;其他服务分别显示加载、译文/耗时或错误。配置不完整的已启用服务也保留错误行,不静默消失。禁用服务不请求、不展示。
+- 原文编辑、语言切换/互换会先 `begin_popup_session`,再按记忆折叠策略并行请求启用服务。失败行单独重试,保留其余成功结果。关闭/新会话通过共享 `ScreenshotSession` 释放所有旧请求;前端 epoch 和 `PopupSessions` 同时阻止迟到响应/事件。
+- 原生缓存回显只含主服务的旧结果;保留其中仍启用的主服务结果,其余当前启用服务按折叠策略重新查询。若缓存服务已经禁用,不展示它。折叠成功项展开时复用缓存。
+- `translate_text` / `translate_batch` 的默认路由与原图覆盖使用默认服务;弹窗折叠策略不修改全局默认服务。
+
 ## 3. OpenAI 兼容实现
 
 文件:`core/translator/openai.rs`
@@ -179,12 +189,12 @@ OpenAI 引擎不做客户端语言检测;在 system prompt 里写 "auto-detect s
 
 文件:`core/translator/apple.rs`
 
-- macOS 15+ 使用公开 Translation 框架。macOS 26+ 已安装语言包时使用 `TranslationSession(installedSource:target:)`;较早系统或缺失语言包时用 SwiftUI `translationTask`,显示 Apple 原生下载授权界面。
+- macOS 15+ 使用公开 Translation 框架。先用 `LanguageAvailability.status(from:to:)` 检查语言包;缺包时返回 `apple_languages_required` 安装指引,不创建会一直等待下载授权的翻译窗口。macOS 26+ 已安装语言包时使用 `TranslationSession(installedSource:target:)`;macOS 15 的已安装语言对使用 SwiftUI `translationTask` 宿主。
 - `native/AppleTranslate.swift` 在构建时编译对应 CPU 架构 helper,嵌入 Rust 二进制。用户专属临时目录中 0700 helper 用 stdin/stdout JSON 桥接,不通过命令行传文本;取消/超时终止子进程。
 - 批量结果按输入顺序返回;未知源语言用 NaturalLanguage 检测;同语言直接返回原文。
 - Windows 和 macOS 15 以下不创建此运行态引擎,设置页说明限制并禁用启用/设默认;其他翻译引擎正常可用。
-- 首次语言包下载可能超过默认超时,可在设置增加 `timeoutMs`(1000~600000ms)。支持语言和下载由系统决定。
-- API 依据:[Apple TranslationSession](https://developer.apple.com/documentation/translation/translationsession)。跨语言翻译和下载授权仍单列原生系统验收。
+- 语言包通过“系统设置 → 通用 → 语言与地区 → 翻译语言”安装,设置页提供打开入口,需同时下载源语言和目标语言;连接测试源语言固定为英语。安装时间不计入请求超时,`timeoutMs`(1000~600000ms)只限制检查/翻译请求。测试失败消息完整换行显示,缺包和超时提供中英提示。
+- API 依据:[Apple TranslationSession](https://developer.apple.com/documentation/translation/translationsession)、[Apple 语言包安装说明](https://support.apple.com/zh-cn/guide/mac-help/mchldd8b3c15/mac)。2026-10-15 本机 macOS 27.0.1 安装英/中语言包后跨语言单条和批量实测成功;macOS 15 宿主仍待单独验收。
 
 ## 7. HTTP Client(应用内代理已移除)
 
@@ -255,7 +265,7 @@ async fn test_engine(
 
 - [ ] OpenAI 批量翻译的 JSON 格式是否稳定——需在 M3 对多个模型做回归测试,决定是否加解析兜底。
 - [ ] 流式输出(streaming):为 P2 预留,Translator trait 可将来扩展 `translate_stream` 方法。
-- [ ] 苹果系统翻译原生桥接:macOS `Translation` 框架无头调用方案(隐藏 SwiftUI 宿主 / Shortcuts / 私有框架),含语言包下载与跨平台(Windows 无此引擎)处理。
+- [x] 苹果系统翻译原生桥接:公开 `Translation` 框架、系统语言包预检查及安装入口,Windows 无此引擎;实现见 §6.2,macOS 15 宿主仍需实机验收。
 
 ## 12. 内置默认引擎预设
 
@@ -268,7 +278,7 @@ id 用稳定 slug(`builtin-*`),`apiKey` / `region` 留空待用户填写。schem
 | id | 名称 | kind | 默认开启 | apiUrl | model |
 |---|---|---|---|---|---|
 | builtin-youdao | 有道翻译 | youdao | ❌(需 appKey:appSecret) | (默认端点) | — |
-| builtin-apple | 苹果翻译 | apple | ❌(尚未实现) | — | — |
+| builtin-apple | 苹果翻译 | apple | ❌(需 macOS 15+ 及语言包) | — | — |
 | builtin-google | Google 翻译 | google | ❌(需 Key) | (默认端点) | — |
 | builtin-zhipu | 智谱 GLM | openai | ❌(需 Key) | `open.bigmodel.cn/api/paas/v4` | glm-4-flash |
 | builtin-siliconflow | 硅基流动 | openai | ❌(需 Key) | `api.siliconflow.cn/v1` | Qwen/Qwen2.5-7B-Instruct |

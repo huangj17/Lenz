@@ -29,6 +29,14 @@ export class PopupSessions {
     this.buffered = undefined;
   }
 
+  cancel(): void {
+    if (this.buffered) this.floor = Math.max(this.floor, this.buffered.id);
+    this.ticket++;
+    this.pending = false;
+    this.blocked = true;
+    this.buffered = undefined;
+  }
+
   event(id: number, apply: () => void): void {
     if (this.pending) {
       if (!this.buffered || id >= this.buffered.id) this.buffered = { id, apply };

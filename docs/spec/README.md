@@ -11,7 +11,7 @@
 | 00 | [总览与架构](./00-architecture.md) | 模块划分、进程/窗口模型、前后端通信约定 | PRD §3 |
 | 01 | [配置与存储](./01-config-storage.md) | 配置 schema、持久化路径、读写时序 | PRD §2.2 F4, §3 |
 | 02 | [截图与选区](./02-capture.md) | 屏幕截图、全屏选区蒙层、坐标系与 HiDPI | PRD §2.2 F2/F3, §3.4 |
-| 03 | [OCR 引擎](./03-ocr.md) | OCR trait、macOS Vision、Windows.Media.Ocr | PRD §2.2 F5, §3.4 |
+| 03 | [OCR 引擎](./03-ocr.md) | OCR trait、系统 OCR、百度 OCR、视觉模型与服务管理 | PRD §2.2 F5, §3.4 |
 | 04 | [翻译引擎](./04-translator.md) | Translator trait、OpenAI 兼容、传统 API、多引擎管理 | PRD §2.2 F4, §3.4 |
 | 05 | [划词翻译 (F1)](./05-selection-translation.md) | 选中监听、弹框触发、结果展示 | PRD §2.2 F1 |
 | 06 | [截图翻译 (F2)](./06-screenshot-translation.md) | 截图 → OCR → 翻译 → 弹框流程 | PRD §2.2 F2 |

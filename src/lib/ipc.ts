@@ -26,6 +26,8 @@ import type {
   LenzError,
   LenzErrorCode,
   OcrResult,
+  OcrService,
+  TestOcrResult,
   OverlayClosedPayload,
   PermissionRequiredPayload,
   Rect,
@@ -184,8 +186,10 @@ export const engineApi = {
 /** 翻译命令(spec 04) */
 export const translateApi = {
   beginPopupSession: () => invoke<number>("begin_popup_session"),
-  popup: (req: TranslateRequest, sessionId: number) =>
-    invoke<TranslateResponse>("translate_popup", { req, sessionId }),
+  popup: (req: TranslateRequest, sessionId: number, requestId: string) =>
+    invoke<TranslateResponse>("translate_popup", { req, sessionId, requestId }),
+  cancelPopupRequest: (sessionId: number, requestId: string) =>
+    invoke<void>("cancel_popup_translation", { sessionId, requestId }),
   text: (req: TranslateRequest) =>
     invoke<TranslateResponse>("translate_text", { req }),
   batch: (req: TranslateRequest) =>
@@ -216,6 +220,7 @@ export const screenshotApi = {
 /** OCR 命令(spec 03):截图区域 → 识别 */
 export const ocrApi = {
   run: (rect: Rect) => invoke<OcrResult>("run_ocr", { rect }),
+  test: (service: OcrService) => invoke<TestOcrResult>("test_ocr_service", { service }),
 };
 
 /** 覆盖层命令(spec 07) */

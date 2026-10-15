@@ -38,7 +38,8 @@ interface Config {
     popupDelayMs: number;           // 选中后延迟触发,防抖
   };
   ocr: {
-    engine: "system";               // MVP 仅系统
+    defaultServiceId: string;       // 默认 "system"
+    services: OcrService[];         // 内置系统服务 + 用户添加的百度/视觉模型服务
     preferredLanguages: string[];   // BCP-47
     minConfidence: number;          // 0~1
     fastMode: boolean;              // 仅 macOS Vision,默认 false
@@ -54,8 +55,27 @@ interface Config {
     popup: {
       fontSize: number;             // 默认 14
       showOriginal: boolean;
+      width: number;                // 默认 360,范围 300~720
+      services: Record<string, {    // 按翻译服务 id 保存,旧配置默认空对象
+        collapsed: boolean;
+        rememberCollapse: boolean;
+        skipWhenCollapsed: boolean;
+      }>;
     };
   };
+}
+
+interface OcrService {
+  id: string;                       // 系统服务固定 "system",第三方为 uuid
+  name: string;
+  kind: "system" | "baidu" | "vision";
+  apiUrl: string;                   // 视觉模型:HTTP(S) base URL 或完整 Chat Completions 地址
+  apiKey: string;                   // 本地视觉服务可留空
+  secretKey: string;                // 百度 OCR 专用
+  model: string;                    // 视觉模型必填
+  timeoutMs: number;                // 1000–300000;系统预算另按 Vision 初始化状态计算
+  baiduAccurate: boolean;           // true=高精度含位置版,false=标准含位置版
+  baiduLanguage: string;            // 默认 CHN_ENG
 }
 
 interface TranslatorEngine {
@@ -78,7 +98,8 @@ interface TranslatorEngine {
 
 首次启动生成的默认 config:
 
-- `version = 5`
+- `version = 7`
+- `ocr.defaultServiceId = "system"`,服务列表只含系统 OCR,不默认添加或选择第三方服务
 - `app.locale = "system"`, `theme = "system"`
 - `shortcuts` 按 PRD §4.1 平台默认值填充
 - `selection.autoDetect = false`(避免误触;用户按需开启)
@@ -165,6 +186,10 @@ export const configApi = {
 - 未来(P2)接入系统 keychain(`keyring` crate)。在此之前,schema 中的字段名不变,以便零迁移切换。
 
 ## 7. 迁移策略
+
+v5 → v6 移除 `ocr.engine`,补充 `defaultServiceId = "system"` 与内置系统服务列表,保留语言顺序、置信度、快速模式和自动检测偏好,不修改翻译服务及其凭据。配置保存与加载校验服务 id 唯一、系统服务存在且类型正确、默认 id 有效及超时范围;服务凭据完整性在测试/调用时验证。
+
+v6 → v7 为 `ui.popup` 增加 `services = {}`,保留已有宽度、翻译服务、OCR 服务及凭据。每项折叠偏好缺失字段默认 false;只有 `rememberCollapse && collapsed && skipWhenCollapsed` 才在新查询时跳过该服务。临时折叠不写入持久化的 collapsed;关闭“记住”会清除所记忆的折叠状态。
 
 - `migrate(old: Config) -> Config`:按 `version` 字段分支,逐级提升。
 - 每次 schema 变更需同时提交:

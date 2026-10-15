@@ -63,6 +63,7 @@ impl OcrEngine for WinMediaOcr {
 
         Ok(OcrResult {
             blocks,
+            text: None,
             detected_language: None,
             cost_ms: started.elapsed().as_millis() as u32,
         })

@@ -12,6 +12,7 @@ export type IconName =
   | "capture"
   | "overlay"
   | "settings"
+  | "gear"
   | "keyboard"
   | "cpu"
   | "ocr"
@@ -99,6 +100,15 @@ export function Icon({
           d="M10 2v2M10 16v2M18 10h-2M4 10H2M15.7 4.3l-1.4 1.4M5.7 14.3l-1.4 1.4M15.7 15.7l-1.4-1.4M5.7 5.7L4.3 4.3"
           {...p}
         />
+      </>
+    ),
+    gear: (
+      <>
+        <path
+          d="M8.5 2h3l.5 2.2 1.5.9 2.2-.7 1.5 2.6-1.7 1.5v3l1.7 1.5-1.5 2.6-2.2-.7-1.5.9-.5 2.2h-3L8 15.8l-1.5-.9-2.2.7L2.8 13l1.7-1.5v-3L2.8 7l1.5-2.6 2.2.7L8 4.2z"
+          {...p}
+        />
+        <circle cx="10" cy="10" r="2.5" {...p} />
       </>
     ),
     keyboard: (

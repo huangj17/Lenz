@@ -20,7 +20,8 @@ export const commands = {
 	translateText: (req: TranslateRequest) => typedError<TranslateResponse, LenzError>(__TAURI_INVOKE("translate_text", { req })),
 	/**  Reserve a popup session before a manual request, cancelling all older work. */
 	beginPopupSession: () => __TAURI_INVOKE<number>("begin_popup_session"),
-	translatePopup: (req: TranslateRequest, sessionId: number) => typedError<TranslateResponse, LenzError>(__TAURI_INVOKE("translate_popup", { req, sessionId })),
+	translatePopup: (req: TranslateRequest, sessionId: number, requestId: string) => typedError<TranslateResponse, LenzError>(__TAURI_INVOKE("translate_popup", { req, sessionId, requestId })),
+	cancelPopupTranslation: (sessionId: number, requestId: string) => __TAURI_INVOKE<void>("cancel_popup_translation", { sessionId, requestId }),
 	/**  批量翻译。与 `translate_text` 同路径,引擎内部决定单请求批量或逐条。 */
 	translateBatch: (req: TranslateRequest) => typedError<TranslateResponse, LenzError>(__TAURI_INVOKE("translate_batch", { req })),
 	/**
@@ -35,6 +36,8 @@ export const commands = {
 	 *  供设置页「测试 OCR」与 F2/F3 链路使用;识别选项取自 `config.ocr`。
 	 */
 	runOcr: (rect: Rect) => typedError<OcrResult, LenzError>(__TAURI_INVOKE("run_ocr", { rect })),
+	/**  测试传入的服务草稿,只识别内置样例,不会切换默认服务。 */
+	testOcrService: (service: OcrService) => typedError<TestOcrResult, LenzError>(__TAURI_INVOKE("test_ocr_service", { service })),
 	/**  采集指定屏幕区域(逻辑坐标),返回 PNG + 物理像素信息。 */
 	captureScreenRegion: (rect: Rect) => typedError<CaptureResult, LenzError>(__TAURI_INVOKE("capture_screen_region", { rect })),
 	/**  进入选区模式:为每块显示器各创建一个 selection 蒙层窗口(spec 02 §4)。 */
@@ -217,9 +220,10 @@ export type OcrBlock = {
 	confidence: number | null,
 };
 
-/**  OCR 配置。MVP 仅支持系统引擎。 */
+/**  OCR 服务与系统识别偏好。v6 将单一系统引擎迁移为服务列表。 */
 export type OcrConfig = {
-	engine: OcrEngineKind,
+	defaultServiceId: string,
+	services: OcrService[],
 	/**  偏好识别语言(BCP-47)。 */
 	preferredLanguages: string[],
 	/**  最低置信度过滤阈值,0~1。 */
@@ -228,14 +232,33 @@ export type OcrConfig = {
 	autoDetectLanguage?: boolean,
 };
 
-export type OcrEngineKind = "system";
-
 /**  OCR 结果(spec 03 §2)。 */
 export type OcrResult = {
 	blocks: OcrBlock[],
+	/**  无坐标的视觉模型直接返回原文,不伪造文本块位置或置信度。 */
+	text: string | null,
 	detectedLanguage: string | null,
 	costMs: number,
 };
+
+export type OcrService = {
+	id: string,
+	name: string,
+	kind: OcrServiceKind,
+	apiUrl: string,
+	apiKey: string,
+	/**  百度 OCR 的 Secret Key,与百度翻译凭据不同。 */
+	secretKey: string,
+	model: string,
+	timeoutMs: number,
+	/**  百度高精度含位置版;false 使用标准含位置版。 */
+	baiduAccurate: boolean,
+	baiduLanguage: string,
+};
+
+export type OcrServiceKind = "system" | "baidu" |
+/**  支持图片输入的 OpenAI Chat Completions 兼容接口,仅用于截图翻译。 */
+"vision";
 
 export type OverlayBlock = {
 	bbox: Rect,
@@ -284,6 +307,12 @@ export type PermissionRequired = {
 	detail: string,
 };
 
+export type PopupServiceUiConfig = {
+	collapsed?: boolean,
+	rememberCollapse?: boolean,
+	skipWhenCollapsed?: boolean,
+};
+
 export type PopupUiConfig = {
 	/**  字号,默认 14。 */
 	fontSize: number,
@@ -291,6 +320,8 @@ export type PopupUiConfig = {
 	showOriginal: boolean,
 	/**  弹框逻辑宽度(用户可拖拽右缘调节并记忆),默认 360;取值夹 [300, 720]。 */
 	width?: number,
+	/**  按翻译服务 id 保存的弹窗折叠策略。 */
+	services?: { [key in string]: PopupServiceUiConfig },
 };
 
 /**  屏幕矩形区域,单位为逻辑像素。 */
@@ -383,6 +414,8 @@ export type ScreenshotTranslating = {
 	sourceLang: string | null,
 	targetLang: string,
 	engineId: string,
+	/**  原生主服务请求标识,供弹窗单独取消;无自动请求时为 None。 */
+	requestId: string | null,
 };
 
 /**  划词监听相关。 */
@@ -453,6 +486,13 @@ export type TestEngineResult = {
 	ok: boolean,
 	latencyMs: number,
 	sample: string,
+	error: string | null,
+};
+
+export type TestOcrResult = {
+	success: boolean,
+	text: string,
+	costMs: number,
 	error: string | null,
 };
 

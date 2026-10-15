@@ -8,7 +8,7 @@ import { Toggle } from "@/components/ui/toggle";
 import { Icon } from "@/components/Icon";
 import { useSystemStore } from "@/stores/system";
 import { useConfigStore } from "@/stores/config";
-import { engineApi } from "@/lib/ipc";
+import { engineApi, systemApi } from "@/lib/ipc";
 import type {
   TestEngineResult,
   TranslatorEngine,
@@ -340,6 +340,11 @@ export function EnginesPane() {
 
   const issues = draft ? validate(draft) : [];
   const appleUnavailable = draft?.kind === "apple" && !info?.appleTranslationAvailable;
+  const testError = testResult?.error?.includes("apple_languages_required")
+    ? t("engines.appleLanguagesRequired")
+    : draft?.kind === "apple" && testResult?.error?.startsWith("timeout:")
+      ? t("engines.appleTimeout")
+      : testResult?.error ?? "";
 
   return (
     <div id="engines" className="flex h-full flex-col">
@@ -494,6 +499,14 @@ export function EnginesPane() {
               {draft.kind === "apple" ? (
                 <div className="rounded-md border-[0.5px] border-line bg-field px-3 py-2.5 text-xs text-sub">
                   {t(appleUnavailable ? "engines.appleUnavailable" : "engines.appleReady")}
+                  {!appleUnavailable && (
+                    <button type="button" className="mt-2 block text-accent-ink"
+                      onClick={() => { void systemApi.open("ocrLanguages").catch((err) => {
+                        setTestResult({ ok: false, latencyMs: 0, sample: "", error: errorMessage(err) });
+                      }); }}>
+                      {t("engines.appleInstallLanguages")}
+                    </button>
+                  )}
                 </div>
               ) : (
                 <>
@@ -645,20 +658,20 @@ export function EnginesPane() {
                   <Icon name="trash" size={12} />
                   {confirmDel ? t("engines.confirmDelete") : t("engines.delete")}
                 </Button>
-                {testResult && (
+                {testResult?.ok && (
                   <span
-                    className={clsx(
-                      "min-w-0 flex-1 truncate text-xs",
-                      testResult.ok ? "text-sage" : "text-danger",
-                    )}
-                    title={testResult.ok ? testResult.sample : (testResult.error ?? "")}
+                    className="min-w-0 flex-1 truncate text-xs text-sage"
+                    title={testResult.sample}
                   >
-                    {testResult.ok
-                      ? `✓ ${t("engines.testOk", { ms: testResult.latencyMs, sample: testResult.sample })}`
-                      : `✗ ${t("engines.testFail", { error: testResult.error ?? "" })}`}
+                    {`✓ ${t("engines.testOk", { ms: testResult.latencyMs, sample: testResult.sample })}`}
                   </span>
                 )}
               </div>
+              {testResult && !testResult.ok && (
+                <div role="alert" className="mt-2 break-words text-xs text-danger [overflow-wrap:anywhere]">
+                  {`✗ ${t("engines.testFail", { error: testError })}`}
+                </div>
+              )}
             </div>
           )}
         </div>

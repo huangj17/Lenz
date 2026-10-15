@@ -45,6 +45,8 @@ update_overlay(progress="complete", blocks+translations+colors) [Rust]
 
 F3 与 F2 的差异在于:F3 需要保留每个 `OcrBlock` 的 **独立 bbox**,不做行合并拼接。
 
+默认 OCR 为系统/百度时使用该服务的含坐标结果;默认为视觉模型时继续使用系统 OCR,不向视觉模型发送截图。路由见 [Spec 03 §2.2](./03-ocr.md#22-服务选择与配置)。百度按服务 `timeoutMs` 执行,行坐标复用物理像素→屏幕逻辑坐标转换,使用真实置信度过滤。
+
 截图独立限时 10s;OCR 共用 [Spec 03 §7](./03-ocr.md#7-性能) 的独立预算,Vision 首次使用一组语言/模式允许 60s 初始化,成功后为 10s。失败提示区分截图和文字识别阶段,日志包含各阶段耗时。首次初始化不受 ≤4s 的热状态性能目标约束。
 
 - 过滤:macOS 去除 `confidence < min_confidence` 的 block;Windows 不用合成置信度过滤。

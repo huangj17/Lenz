@@ -12,7 +12,9 @@ use specta::Type;
 /// 谷歌/微软/ollama/LM Studio 默认关闭)+ `TranslatorEngine.region` 字段。
 /// v3:新增百度翻译预设(`builtin-baidu`,默认关闭)+ 谷歌翻译预设。
 /// v4:移除仓库内置 Google Key;所有需凭据或尚未实现的引擎默认关闭。
-pub const CURRENT_VERSION: u32 = 5;
+/// v5:系统 OCR 识别偏好;v6:OCR 服务列表、默认服务及第三方凭据。
+/// v7:按服务记忆弹窗折叠与跳过翻译策略。
+pub const CURRENT_VERSION: u32 = 7;
 
 /// 顶层配置。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -84,11 +86,12 @@ pub struct SelectionConfig {
     pub popup_delay_ms: u32,
 }
 
-/// OCR 配置。MVP 仅支持系统引擎。
+/// OCR 服务与系统识别偏好。v6 将单一系统引擎迁移为服务列表。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct OcrConfig {
-    pub engine: OcrEngineKind,
+    pub default_service_id: String,
+    pub services: Vec<OcrService>,
     /// 偏好识别语言(BCP-47)。
     pub preferred_languages: Vec<String>,
     /// 最低置信度过滤阈值,0~1。
@@ -105,8 +108,68 @@ fn default_true() -> bool {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub enum OcrEngineKind {
+pub enum OcrServiceKind {
     System,
+    Baidu,
+    /// 支持图片输入的 OpenAI Chat Completions 兼容接口,仅用于截图翻译。
+    Vision,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OcrService {
+    pub id: String,
+    pub name: String,
+    pub kind: OcrServiceKind,
+    pub api_url: String,
+    pub api_key: String,
+    /// 百度 OCR 的 Secret Key,与百度翻译凭据不同。
+    pub secret_key: String,
+    pub model: String,
+    pub timeout_ms: u32,
+    /// 百度高精度含位置版;false 使用标准含位置版。
+    pub baidu_accurate: bool,
+    pub baidu_language: String,
+}
+
+pub const SYSTEM_OCR_ID: &str = "system";
+
+pub fn default_ocr_services() -> Vec<OcrService> {
+    vec![OcrService {
+        id: SYSTEM_OCR_ID.into(),
+        name: "System OCR".into(),
+        kind: OcrServiceKind::System,
+        api_url: String::new(),
+        api_key: String::new(),
+        secret_key: String::new(),
+        model: String::new(),
+        timeout_ms: 30_000,
+        baidu_accurate: true,
+        baidu_language: "CHN_ENG".into(),
+    }]
+}
+
+pub fn validate_ocr_config(config: &OcrConfig) -> Result<(), crate::error::LenzError> {
+    use std::collections::HashSet;
+    let mut ids = HashSet::new();
+    for service in &config.services {
+        if service.id.trim().is_empty()
+            || !ids.insert(service.id.as_str())
+            || service.name.trim().is_empty()
+            || !(1_000..=300_000).contains(&service.timeout_ms)
+            || (service.id == SYSTEM_OCR_ID) != (service.kind == OcrServiceKind::System)
+        {
+            return Err(crate::error::LenzError::Config(
+                "invalid_ocr_services".into(),
+            ));
+        }
+    }
+    if !ids.contains(SYSTEM_OCR_ID) || !ids.contains(config.default_service_id.as_str()) {
+        return Err(crate::error::LenzError::Config(
+            "invalid_ocr_default".into(),
+        ));
+    }
+    Ok(())
 }
 
 /// 翻译引擎集合配置。
@@ -189,6 +252,23 @@ pub struct PopupUiConfig {
     /// 弹框逻辑宽度(用户可拖拽右缘调节并记忆),默认 360;取值夹 [300, 720]。
     #[serde(default = "default_popup_width")]
     pub width: u32,
+    /// 按翻译服务 id 保存的弹窗折叠策略。
+    #[serde(default)]
+    pub services: std::collections::BTreeMap<String, PopupServiceUiConfig>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PopupServiceUiConfig {
+    pub collapsed: bool,
+    pub remember_collapse: bool,
+    pub skip_when_collapsed: bool,
+}
+
+impl PopupServiceUiConfig {
+    pub fn skip_initial_translation(&self) -> bool {
+        self.remember_collapse && self.collapsed && self.skip_when_collapsed
+    }
 }
 
 fn default_popup_width() -> u32 {
@@ -345,7 +425,8 @@ impl Default for Config {
                 popup_delay_ms: 300,
             },
             ocr: OcrConfig {
-                engine: OcrEngineKind::System,
+                default_service_id: SYSTEM_OCR_ID.into(),
+                services: default_ocr_services(),
                 preferred_languages: vec!["en-US".into(), "zh-Hans".into()],
                 min_confidence: 0.3,
                 fast_mode: false,
@@ -362,6 +443,7 @@ impl Default for Config {
                     font_size: 14,
                     show_original: true,
                     width: 360,
+                    services: Default::default(),
                 },
             },
         }

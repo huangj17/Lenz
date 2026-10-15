@@ -14,6 +14,7 @@ const INDEX: [string, SettingsSection, string, string][] = [
   ["engine-timeout", "translate", "engines.timeout", "超时 时间 timeout milliseconds"],
   ["engines", "translate", "services.translate", "翻译 引擎 服务 模型 密钥 prompt temperature tokens openai ollama api key model"],
   ["ocr-accuracy", "ocr", "ocr.accuracy", "识别 精度 快速 精准 confidence accuracy fast"],
+  ["ocr-services", "ocr", "ocr.services", "OCR 服务 百度 视觉 大模型 测试 接口 密钥 baidu vision model api key test"],
   ["ocr-languages", "ocr", "ocr.languages", "OCR 语言 自动 检测 language detection"],
   ["about", "about", "nav.about", "关于 许可证 更新日志 版本 github license release changelog about version"],
 ];

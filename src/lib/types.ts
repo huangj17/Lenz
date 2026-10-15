@@ -40,6 +40,8 @@ import type {
   UiConfig as RustUiConfig,
 } from "./bindings";
 export type { SystemInfo, SystemResource, UpdateInfo, OverlayPayload, OverlayBlock, OverlayProgress, OverlayUpdated } from "./bindings";
+export type { OcrService, OcrServiceKind, TestOcrResult } from "./bindings";
+export type { PopupServiceUiConfig } from "./bindings";
 
 // ──────────────────────────────────────────────────────────────────────────
 // 基础几何 / 触发类型

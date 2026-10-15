@@ -1,7 +1,7 @@
 //! 原图覆盖翻译:共用截图与 OCR 坐标契约,独立取消作用域。
 use super::{
     capture,
-    ocr::{recognize_with_timeout, OcrEngine, OcrInput, OcrOptions},
+    ocr::{recognize_with_timeout, resolve_engine, OcrEngine, OcrInput, OcrOptions, OcrPurpose},
     screenshot::ScreenshotSession,
     translator::TranslatorManager,
 };
@@ -230,7 +230,11 @@ async fn pipeline(app: &AppHandle, region: Rect, gen: u32) -> Result<(), LenzErr
             }
         }
     })?;
-    let engine = app.state::<Arc<dyn OcrEngine>>().inner().clone();
+    let engine = resolve_engine(
+        &cfg.ocr,
+        app.state::<Arc<dyn OcrEngine>>().inner().clone(),
+        OcrPurpose::Overlay,
+    )?;
     let ocr = recognize_with_timeout(
         engine.as_ref(),
         OcrInput {

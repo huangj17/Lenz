@@ -145,7 +145,7 @@ impl Translator for OpenAiTranslator {
 /// - 已含 `/chat/completions` → 原样;
 /// - 已含版本段(`/v1`、`/api/paas/v4` 等)→ 仅补 `/chat/completions`;
 /// - 裸 host(`http://localhost:1234`)→ 补 `/v1/chat/completions`。
-fn chat_endpoint(api_url: &str) -> String {
+pub(crate) fn chat_endpoint(api_url: &str) -> String {
     let base = api_url.trim().trim_end_matches('/');
     if base.is_empty() {
         return "https://api.openai.com/v1/chat/completions".to_string();

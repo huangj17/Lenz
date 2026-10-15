@@ -32,10 +32,12 @@ fn specta_builder() -> SpectaBuilder<tauri::Wry> {
             commands::translate::translate_text,
             commands::translate::begin_popup_session,
             commands::translate::translate_popup,
+            commands::translate::cancel_popup_translation,
             commands::translate::translate_batch,
             commands::translate::test_engine,
             // ocr
             commands::ocr::run_ocr,
+            commands::ocr::test_ocr_service,
             // capture
             commands::capture::capture_screen_region,
             commands::capture::start_selection,

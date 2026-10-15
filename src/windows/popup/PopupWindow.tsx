@@ -1,11 +1,14 @@
 import { errorMessage } from "@/lib/errors";
 import { PopupSessions } from "@/lib/popupSessions";
+import { PopupTranslations, popupTranslationRows, type PopupTranslationPanel, type PopupTranslationError, type PopupTranslationRow } from "@/lib/popupTranslations";
+import { PopupServiceRow } from "./PopupServiceRow";
 /**
  * 翻译结果弹框窗口(spec 06 §3 / spec 09 §3)。视觉对齐设计交接包 popup-f1/f2:
  * 暖色毛玻璃卡片 + Lens 头部 + 原文块(识别语言 chip + 字数)+ 语言切换条 +
  * 引擎结果行(徽标 + 名称 + 默认 + 用时)+ 底部 esc 提示。
  *
- * 订阅 `screenshot://progress|result|error`,在 loading / success / error 三态切换。
+ * 订阅 `screenshot://progress|translating|result|error`,截图/OCR 使用整体进度,
+ * 翻译阶段按已启用服务分别展示加载、结果和错误。
  * 头部为窗口拖拽区(`data-tauri-drag-region`)。内容渲染后用 `setSize` 动态调高;
  * ESC / 失焦 / 关闭隐藏;复制译文;翻译失败展示原文 + 重试;权限缺失引导打开系统设置。
  */
@@ -18,7 +21,7 @@ import { Select, type SelectOption } from "@/components/Select";
 import { isLenzError, emit, Events, listenEvent, screenshotApi, translateApi } from "@/lib/ipc";
 import { TRANSLATE_LANGUAGES } from "@/lib/languages";
 import { useConfigStore } from "@/stores/config";
-import type { ScreenshotErrorPayload } from "@/lib/types";
+import type { PopupServiceUiConfig, ScreenshotErrorPayload } from "@/lib/types";
 
 /** 弹框可拖拽宽度上/下限(逻辑像素),与后端 `POPUP_MIN/MAX_WIDTH` 一致。 */
 const POPUP_MIN_WIDTH = 300;
@@ -26,23 +29,7 @@ const POPUP_MAX_WIDTH = 720;
 
 type View =
   | { kind: "loading"; stage: "capture" | "ocr" | "translate" }
-  // 翻译中:原文已知、译文未出。渲染与 success 相同的布局,仅引擎行右侧转圈、译文区占位。
-  | {
-      kind: "translating";
-      original: string;
-      sourceLang: string | null;
-      targetLang: string;
-      engineId: string;
-    }
-  | {
-      kind: "success";
-      original: string;
-      translation: string;
-      sourceLang: string | null;
-      targetLang: string;
-      engineId: string;
-      costMs: number;
-    }
+  | PopupTranslationPanel
   | ({ kind: "error" } & ScreenshotErrorPayload);
 
 /** BCP-47 → 当前 UI 语言下的语言名;失败回退原 code。`null` 交由调用方补「自动检测」标签。 */
@@ -53,12 +40,6 @@ function langName(code: string | null | undefined, uiLocale: string): string {
   } catch {
     return code;
   }
-}
-
-/** 引擎名取前两个字符作徽标。 */
-function badgeOf(name: string): string {
-  const s = name.trim().replace(/\s+/g, "");
-  return (s.slice(0, 2) || "EN").toUpperCase();
 }
 
 async function hidePopup() {
@@ -76,7 +57,7 @@ function Header({ onClose, onDragStart }: { onClose: () => void; onDragStart: ()
     <div
       data-tauri-drag-region
       onMouseDown={onDragStart}
-      className="flex items-center gap-2 border-b border-line px-3 py-2.5"
+      className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2.5"
     >
       <LensMark size={15} />
       <span className="text-[12px] font-semibold tracking-tight text-fg">Lenz</span>
@@ -97,10 +78,11 @@ export function PopupWindow() {
   const engines = useConfigStore((s) => s.config.translator.engines);
   const targetLang = useConfigStore((s) => s.config.translator.targetLang);
   const defaultEngineId = useConfigStore((s) => s.config.translator.defaultEngineId);
+  const loaded = useConfigStore((s) => s.loaded);
   const patch = useConfigStore((s) => s.patch);
 
   const [view, setView] = useState<View>({ kind: "loading", stage: "capture" });
-  // 哪个复制按钮刚被点过("original" / "translation");原文与译文各自独立反馈。
+  // 复制反馈按 original / translation:{engineId} 区分,避免复制到其他服务的译文。
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   // 原文可编辑草稿:同步自最近一次结果的原文;用户可改写后回车重译。
@@ -112,8 +94,19 @@ export function PopupWindow() {
   // 前端请求代号配合后端会话:过滤 IPC 途中迟到的响应和事件。
   const translateGenerationRef = useRef(0);
   const sessions = useRef(new PopupSessions());
+  const translations = useRef(new PopupTranslations(translateApi.popup, setView, translateApi.cancelPopupRequest));
+  const preferenceOverrides = useRef<Record<string, PopupServiceUiConfig>>({});
+  const preferenceTickets = useRef<Record<string, number>>({});
+  const nextPreferenceTicket = useRef(0);
+  const [preferenceError, setPreferenceError] = useState<{ engineId: string; message: string } | null>(null);
+  const serviceSettings = () => ({
+    ...useConfigStore.getState().config.ui.popup.services,
+    ...preferenceOverrides.current,
+  });
   const cancelAndHide = useCallback(() => {
     translateGenerationRef.current += 1;
+    sessions.current.cancel();
+    translations.current.clear();
     void screenshotApi.cancel();
     void hidePopup();
   }, []);
@@ -181,16 +174,23 @@ export function PopupWindow() {
 
   // 新结果/翻译中到达时,把可编辑原文重置为该原文(loading/error 不覆盖用户草稿)。
   const incomingOriginal =
-    view.kind === "success" || view.kind === "translating" ? view.original : null;
+    view.kind === "translations" ? view.original : null;
   useEffect(() => {
     if (incomingOriginal !== null) setDraft(incomingOriginal);
   }, [incomingOriginal]);
 
   // ── 订阅 F2 / F1 事件 ─────────────────────────────────────────────────
   useEffect(() => {
+    // Read the actual configuration before acknowledging popup readiness, so a
+    // cold-start native event can snapshot every enabled engine.
+    if (!loaded) return;
+    let active = true;
+    const enabledIds = () => useConfigStore.getState().config.translator.engines
+      .filter((engine) => engine.enabled).map((engine) => engine.id);
     const subs = [
       listenEvent(Events.ScreenshotProgress, (e) => sessions.current.event(e.payload.sessionId ?? 0, () => {
         translateGenerationRef.current += 1;
+        translations.current.clear();
         setCopiedId(null);
         setView({ kind: "loading", stage: e.payload.stage });
       })),
@@ -198,40 +198,43 @@ export function PopupWindow() {
         translateGenerationRef.current += 1;
         const p = e.payload;
         setCopiedId(null);
-        setView({
-          kind: "translating",
-          original: p.original,
-          sourceLang: p.sourceLang,
-          targetLang: p.targetLang,
-          engineId: p.engineId,
-        });
+        translations.current.start({ ...p, sessionId: p.sessionId ?? 0 }, enabledIds(), p.engineId, p.engineId,
+          serviceSettings(), p.requestId);
       })),
       listenEvent(Events.ScreenshotResult, (e) => sessions.current.event(e.payload.sessionId ?? 0, () => {
-        translateGenerationRef.current += 1;
         const r = e.payload;
-        setView({
-          kind: "success",
-          original: r.original,
-          translation: r.translation,
-          sourceLang: r.sourceLang,
-          targetLang: r.targetLang,
-          engineId: r.engineId,
-          costMs: r.cost.translate,
+        const input = { ...r, sessionId: r.sessionId ?? 0 };
+        // Cache replay may arrive without a preceding translating event. Reuse
+        // that primary result and request the other currently enabled services.
+        if (!translations.current.matches(input)) {
+          translateGenerationRef.current += 1;
+          setCopiedId(null);
+          translations.current.start(input, enabledIds(), r.engineId, r.engineId, serviceSettings());
+        }
+        translations.current.nativeSuccess(input.sessionId, r.engineId, {
+          translations: [r.translation], detectedSourceLang: r.sourceLang,
+          engineId: r.engineId, costMs: r.cost.translate,
         });
       })),
       listenEvent(Events.ScreenshotError, (e) => sessions.current.event(e.payload.sessionId ?? 0, () => {
+        const p = e.payload;
+        if (p.stage === "translate" && translations.current.nativeFailure(p.sessionId ?? 0, p)) return;
         translateGenerationRef.current += 1;
-        setView({ kind: "error", ...e.payload });
+        translations.current.clear();
+        setView({ kind: "error", ...p });
       })),
     ];
     // 四个监听全部挂上后,通知后端 popup 可接收事件——关闭冷启动首帧竞态:
     // 首次划词/截图时后端会先等这个 `popup://ready` 再投递 progress/result(方案 A)。
-    void Promise.all(subs).then(() => void emit("popup://ready"));
+    void Promise.all(subs).then(() => { if (active) void emit("popup://ready"); });
     return () => {
+      active = false;
       translateGenerationRef.current += 1;
+      sessions.current.cancel();
+      translations.current.clear();
       for (const s of subs) void s.then((fn) => fn());
     };
-  }, []);
+  }, [loaded]);
 
   // ── ESC 取消 / 失焦隐藏 ───────────────────────────────────────────────
   useEffect(() => {
@@ -251,9 +254,11 @@ export function PopupWindow() {
       // 仍处于拖拽宽限期内(刚拖动过)的失焦也跳过 —— 避免拖动被当成「点窗口外」而隐藏;
       // 已出结果 / 报错后点窗口外才隐藏。
       if (Date.now() < dragGuardUntilRef.current) return;
-      // 处理中(loading / translating)不因失焦而消失;仅已出结果 / 报错后点窗口外才隐藏。
-      const k = viewRef.current.kind;
-      if (k !== "loading" && k !== "translating") void hidePopup();
+      // 任意服务仍在请求时保留窗口;所有服务都结束后点窗口外才隐藏。
+      const current = viewRef.current;
+      if (current.kind === "loading" || (current.kind === "translations"
+        && current.rows.some((row) => row.status === "pending"))) return;
+      cancelAndHide();
     });
     return () => {
       window.removeEventListener("keydown", onKey);
@@ -315,38 +320,53 @@ export function PopupWindow() {
     }
   }, []);
 
+  const saveServiceSettings = async (engineId: string, values: PopupServiceUiConfig) => {
+    const ticket = ++nextPreferenceTicket.current;
+    preferenceTickets.current[engineId] = ticket;
+    preferenceOverrides.current[engineId] = { ...serviceSettings()[engineId], ...values };
+    setPreferenceError(null);
+    const saved = await patch({ ui: { popup: { services: { [engineId]: preferenceOverrides.current[engineId] } } } });
+    if (preferenceTickets.current[engineId] !== ticket) return;
+    delete preferenceTickets.current[engineId];
+    delete preferenceOverrides.current[engineId];
+    if (!saved) {
+      const persisted = useConfigStore.getState().config.ui.popup.services?.[engineId];
+      translations.current.configure(engineId, {
+        rememberCollapse: persisted?.rememberCollapse ?? false,
+        skipWhenCollapsed: persisted?.skipWhenCollapsed ?? false,
+      });
+      setPreferenceError({ engineId, message: t("popup.preferenceSaveFailed") });
+    }
+  };
+  const toggleService = (row: PopupTranslationRow) => {
+    translations.current.configure(row.engineId, { collapsed: !row.collapsed });
+    if (row.rememberCollapse) void saveServiceSettings(row.engineId, { collapsed: !row.collapsed });
+  };
+
   // 统一的(重)翻译:重译按钮、原文改写回车、语言下拉切换/互换都走这里。
   // `src` 传 null = 自动检测;`tgt` 缺省用当前配置的目标语言。用「翻译中」布局(原文 +
   // 引擎行转圈)而非整块骨架,切换语言时原文与语言条不闪。
   const runTranslate = useCallback(
     async (original: string, src: string | null = null, tgt: string = targetLang) => {
       const requestGeneration = ++translateGenerationRef.current;
+      translations.current.clear();
+      const ids = useConfigStore.getState().config.translator.engines
+        .filter((engine) => engine.enabled).map((engine) => engine.id);
       setView({
-        kind: "translating",
+        kind: "translations",
+        sessionId: 0,
         original,
         sourceLang: src,
         targetLang: tgt,
-        engineId: defaultEngineId,
+        primaryEngineId: defaultEngineId,
+        rows: popupTranslationRows(ids, serviceSettings()),
       });
       const ticket = sessions.current.begin();
       try {
         const sessionId = await translateApi.beginPopupSession();
         if (!sessions.current.commit(ticket, sessionId) || requestGeneration !== translateGenerationRef.current) return;
-        const resp = await translateApi.popup({
-          texts: [original],
-          targetLang: tgt,
-          sourceLang: src ?? undefined,
-        }, sessionId);
-        if (requestGeneration !== translateGenerationRef.current) return;
-        setView({
-          kind: "success",
-          original,
-          translation: resp.translations[0] ?? "",
-          sourceLang: resp.detectedSourceLang ?? src,
-          targetLang: tgt,
-          engineId: resp.engineId,
-          costMs: resp.costMs,
-        });
+        translations.current.start({ sessionId, original, sourceLang: src, targetLang: tgt }, ids, defaultEngineId,
+          undefined, serviceSettings());
       } catch (err) {
         sessions.current.fail(ticket);
         if (isLenzError(err) && err.code === "Cancelled") return;
@@ -366,11 +386,14 @@ export function PopupWindow() {
 
   const engineName = (id: string) => engines.find((e) => e.id === id)?.name ?? id;
 
-  // success 与 translating 共用同一套「原文 + 语言条 + 引擎行」布局:
-  // `panel` 提供公共字段(原文/语言/引擎);`succ` 非空表示译文已出(否则引擎行转圈)。
-  const panel =
-    view.kind === "success" || view.kind === "translating" ? view : null;
-  const succ = view.kind === "success" ? view : null;
+  const panel = view.kind === "translations" ? view : null;
+  const successes = panel?.rows.filter((row) => row.status === "success");
+  const succ = successes?.find((row) => row.engineId === panel?.primaryEngineId) ?? successes?.[0];
+  const rowError = (error: PopupTranslationError) => error.message.includes("apple_languages_required")
+    ? t("engines.appleLanguagesRequired")
+    : error.code.toLowerCase() === "timeout" ? t("popup.error.timeout")
+      : error.message === "engine_not_found" ? t("popup.error.engineUnavailable")
+        : t("popup.error.translateFailed", { msg: error.message });
 
   // 语言下拉选项:常用语言 ∪ 当前源/目标(保证即便检测到冷门语言,下拉里也能选中它)。
   const langCodes = useMemo(() => {
@@ -402,9 +425,9 @@ export function PopupWindow() {
   };
   // 互换源/目标:源已知才有意义;源为「自动检测」(未知)时保持不变(安全 no-op)。
   const onSwapLang = () => {
-    if (!succ?.sourceLang || !succ.translation.trim()) return;
-    const newTarget = succ.sourceLang;
-    const newSource = succ.targetLang;
+    if (!panel?.sourceLang || !succ?.translation.trim()) return;
+    const newTarget = panel.sourceLang;
+    const newSource = panel.targetLang;
     setDraft(succ.translation);
     void patch({ translator: { targetLang: newTarget } });
     void runTranslate(succ.translation, newSource, newTarget);
@@ -447,7 +470,7 @@ export function PopupWindow() {
           <>
             {/* 原文块(可编辑;回车重译,Shift+回车换行) */}
             {panel.original.trim() && (
-              <div className="border-b border-line bg-field/60 px-3 py-2.5">
+              <div className="shrink-0 border-b border-line bg-field/60 px-3 py-2.5">
                 <textarea
                   ref={originalRef}
                   value={draft}
@@ -486,7 +509,7 @@ export function PopupWindow() {
             )}
 
             {/* 语言切换条:源(含自动检测)/ 目标 均为样式化下拉,切换即时重译 */}
-            <div className="flex items-center border-b border-line bg-field/30 px-2 py-1.5">
+            <div className="flex shrink-0 items-center border-b border-line bg-field/30 px-2 py-1.5">
               <Select
                 className="flex-1"
                 value={panel.sourceLang ?? "auto"}
@@ -497,7 +520,7 @@ export function PopupWindow() {
               <button
                 type="button"
                 onClick={onSwapLang}
-                disabled={!succ?.sourceLang || !succ.translation.trim()}
+                disabled={!panel.sourceLang || !succ?.translation.trim()}
                 aria-label={t("popup.swapLang")}
                 title={t("popup.swapLang")}
                 className="mx-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md text-sub hover:bg-field hover:text-fg disabled:pointer-events-none disabled:opacity-40"
@@ -514,58 +537,33 @@ export function PopupWindow() {
               />
             </div>
 
-            {/* 引擎结果行(卡片封顶时,本块作为可伸缩滚动区吸收溢出) */}
-            <div className="flex min-h-0 flex-1 flex-col border-l-2 border-accent px-3 py-2.5">
-              <div className="flex items-center gap-2">
-                <span className="ln-engine-badge grid h-[18px] w-[18px] place-items-center rounded font-mono text-[9px] font-bold text-white">
-                  {badgeOf(engineName(panel.engineId))}
-                </span>
-                <span className="text-[12px] font-semibold text-fg">
-                  {engineName(panel.engineId)}
-                </span>
-                {succ ? (
-                  <span className="ml-auto flex items-center gap-1.5 font-mono text-[10px] text-sub">
-                    <Icon name="check" size={10} className="text-[color:var(--sage)]" />
-                    {succ.costMs}ms
-                  </span>
-                ) : (
-                  // 翻译中:引擎行右侧转圈
-                  <span className="ml-auto flex items-center gap-1.5 text-[10px] text-sub">
-                    <span
-                      className="h-3 w-3 animate-spin rounded-full border-[1.5px] border-line border-t-accent"
-                      aria-label={t("popup.translating")}
-                    />
-                  </span>
-                )}
-              </div>
-              {succ ? (
-                <>
-                  <p className="mt-2 min-h-0 flex-1 select-text overflow-y-auto whitespace-pre-wrap pl-[26px] text-[13.5px] leading-relaxed text-fg">
-                    {succ.translation}
-                  </p>
-                  <div className="mt-2.5 flex items-center gap-3 pl-[26px]">
-                    <button
-                      type="button"
-                      onClick={() => void onCopy("translation", succ.translation)}
-                      className="inline-flex items-center gap-1.5 text-[11px] text-sub hover:text-fg"
-                    >
-                      <Icon name={copiedId === "translation" ? "check" : "copy"} size={13} />
-                      {copiedId === "translation" ? t("popup.copied") : t("popup.copy")}
-                    </button>
-                  </div>
-                </>
-              ) : (
-                // 翻译中:译文区占位(骨架行),保持面板高度不塌陷
-                <div className="mt-2 flex flex-col gap-2 pl-[26px]">
-                  <div className="h-3 w-5/6 animate-pulse rounded bg-field" />
-                  <div className="h-3 w-2/3 animate-pulse rounded bg-field" />
-                </div>
+            {/* All enabled services share a scrollable list; each row settles independently. */}
+            <div className="min-h-0 flex-1 overflow-y-auto" aria-label={t("popup.results")}>
+              {panel.rows.length === 0 && (
+                <p className="p-3 text-xs text-sub">{t("popup.error.noEngines")}</p>
               )}
+              {panel.rows.map((row) => (
+                <PopupServiceRow key={row.engineId} row={row} name={engineName(row.engineId)}
+                  primary={row.engineId === panel.primaryEngineId} isDefault={row.engineId === defaultEngineId}
+                  copied={copiedId === "translation:" + row.engineId}
+                  errorText={row.status === "error" ? rowError(row.error) : ""}
+                  saveError={preferenceError?.engineId === row.engineId ? preferenceError.message : undefined}
+                  onCopy={(text) => void onCopy("translation:" + row.engineId, text)}
+                  onRetry={() => translations.current.retry(row.engineId)} onCollapse={() => toggleService(row)}
+                  onRemember={(enabled) => {
+                    translations.current.configure(row.engineId, { rememberCollapse: enabled });
+                    void saveServiceSettings(row.engineId, { rememberCollapse: enabled, collapsed: enabled && row.collapsed });
+                  }}
+                  onSkip={(enabled) => {
+                    translations.current.configure(row.engineId, { skipWhenCollapsed: enabled });
+                    void saveServiceSettings(row.engineId, { skipWhenCollapsed: enabled });
+                  }} />
+              ))}
             </div>
 
             {/* 底部 */}
-            <div className="flex items-center gap-2 border-t border-line bg-field/40 px-3 py-1.5 text-[10px] text-sub">
-              <span>{t("popup.via", { engine: engineName(panel.engineId) })}</span>
+            <div className="flex shrink-0 items-center gap-2 border-t border-line bg-field/40 px-3 py-1.5 text-[10px] text-sub">
+              <span>{panel.rows.length === 1 ? t("popup.via", { engine: engineName(panel.rows[0].engineId) }) : t("popup.serviceCount", { count: panel.rows.length })}</span>
               <span className="ml-auto">
                 <Kbd keys={["esc"]} />
               </span>

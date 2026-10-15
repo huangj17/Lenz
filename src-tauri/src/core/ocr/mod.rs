@@ -14,6 +14,10 @@ use specta::Type;
 use crate::error::LenzError;
 use crate::types::Rect;
 
+mod remote;
+mod services;
+pub use services::{resolve_engine, test_service, OcrPurpose, TestOcrResult};
+
 pub const OCR_TIMEOUT: Duration = Duration::from_secs(10);
 #[cfg(any(target_os = "macos", test))]
 const OCR_INITIALIZATION_TIMEOUT: Duration = Duration::from_secs(60);
@@ -57,6 +61,8 @@ pub struct OcrOptions {
 #[serde(rename_all = "camelCase")]
 pub struct OcrResult {
     pub blocks: Vec<OcrBlock>,
+    /// 无坐标的视觉模型直接返回原文,不伪造文本块位置或置信度。
+    pub text: Option<String>,
     pub detected_language: Option<String>,
     pub cost_ms: u32,
 }
@@ -256,6 +262,7 @@ mod tests {
             self.ready.store(true, Ordering::SeqCst);
             Ok(OcrResult {
                 blocks: Vec::new(),
+                text: None,
                 detected_language: None,
                 cost_ms: delay.as_millis() as u32,
             })

@@ -160,6 +160,7 @@ impl OcrEngine for VisionOcr {
 
         Ok(OcrResult {
             blocks,
+            text: None,
             // Vision 不直接暴露逐块语言,这里先不填(M2 可选增强)。
             detected_language: None,
             cost_ms: started.elapsed().as_millis() as u32,

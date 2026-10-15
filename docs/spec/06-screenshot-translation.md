@@ -34,7 +34,9 @@ emit screenshot://result { ... }             [Rust → frontend popup]
 popup 窗口展示原文 + 译文                    [前端 popup 窗口]
 ```
 
-所有步骤在 Rust 异步运行时任务中串行执行(非命令链路,由 Rust 内部协调)。
+截图/OCR/符合折叠策略的主服务翻译由 Rust 异步任务协调。弹窗收到 translating 后,在相同后端会话中按折叠策略并行请求其余已启用服务;各结果独立更新,不等待最慢服务。共享会话的取消覆盖所有请求,见 [spec 04 §2.1](./04-translator.md#21-弹窗多服务对比)。
+
+OCR 使用配置中的默认服务(系统/百度/视觉模型),见 [Spec 03 §2.2–2.5](./03-ocr.md#22-服务选择与配置)。视觉模型返回的 `text` 直接作为原文,保留段落;系统/百度的 `blocks` 仍通过 `join_blocks` 合并。OCR 第三方服务超时按该服务的 `timeoutMs`,不受系统热状态 10s 预算限制。
 
 ## 2. 详细步骤
 
@@ -72,7 +74,7 @@ popup 窗口展示原文 + 译文                    [前端 popup 窗口]
 - 调 `translate_text`:
   - `source_lang = detected_language`(来自 OCR),若为 null 则让引擎自动检测。
   - `target_lang = config.translator.targetLang`。
-- 翻译失败 → emit `screenshot://error { stage: "translate", ... }`。
+- 原生主服务翻译失败 → emit `screenshot://error { stage: "translate", ... }`,只更新该服务错误行;其他服务继续返回。每项失败均可单独重试,成功项保持可复制。
 
 ```ts
 // screenshot://translating 事件载荷(原文已知、译文未出)
@@ -81,7 +83,8 @@ interface ScreenshotTranslating {
   original: string;
   sourceLang: string | null;   // F2 为 OCR 检测值;F1 划词为 null
   targetLang: string;
-  engineId: string;            // 即将使用的引擎(默认引擎 id)
+  engineId: string;            // 实际主引擎;全部折叠跳过时为空
+  requestId: string | null;    // 独立取消主服务;无自动请求时为 null
 }
 ```
 
@@ -112,8 +115,8 @@ popup 窗口监听 `screenshot://progress`、`screenshot://translating`、`scree
 - 顶部语言标识行:`{sourceLang} → {targetLang}`。
 - 原文区(可折叠,默认展开):滚动容器,字体略小。
 - 分割线。
-- 译文区:主字体,选中可复制。
-- 底部工具栏:复制按钮、引擎名标识。
+- 译文区:按已启用服务的设置顺序逐项显示,每行独立加载/错误/耗时/复制/重试;整块列表滚动。
+- 底部工具栏:单服务显示引擎名,多服务显示服务数量;固定保留 Esc 提示。
 
 弹框定位:出现在选区 `region` 的正下方(`y + h + 12`),水平居中对齐选区,溢出则调整。
 
@@ -123,7 +126,7 @@ popup 窗口监听 `screenshot://progress`、`screenshot://translating`、`scree
 |---|---|
 | capture 权限不足 | popup 展示"需要屏幕录制权限",含跳转系统设置按钮 |
 | ocr no_text | popup 展示"未识别到文字,请重新框选" |
-| translate 失败 | popup 展示 OCR 原文 + "翻译失败:{error}",含重试按钮 |
+| translate 失败 | 保留原文及其他服务结果,仅对应服务行展示 "翻译失败:{error}" 和重试按钮 |
 | 截图/OCR 超过各自预算或引擎超过 `timeoutMs` | popup 区分"截图超时"、"文字识别超时"和翻译"响应超时";翻译超时保留原文并允许重试 |
 
 ## 5. 进度反馈
@@ -164,7 +167,7 @@ popup 或选区窗口聚焦时按 ESC → 回 IDLE,取消会话;抓屏期间浮�
 
 - Rust `ScreenshotSession` 用 `watch` 维护递增会话号;F1、F2、手动重译共享取消域。
 - 新触发 / 关闭调用 `begin` 或 `cancel`,通过 `select!` 释放旧 HTTP future;已开始的原生阻塞截图/OCR可继续结束,结果不投递。
-- 所有 `screenshot://*` 事件带 `sessionId`。手动重译先调用 `begin_popup_session`,再调用 `translate_popup(req, sessionId)`;前端屏蔽旧会话事件,保留预约期间已到达的新会话结果。
+- 所有 `screenshot://*` 事件带 `sessionId`。手动重译先调用 `begin_popup_session`,再调用 `translate_popup(req, sessionId, requestId)`;前端屏蔽旧会话事件,保留预约期间已到达的新会话结果。
 - 剪贴板事务在阻塞任务内完成恢复步骤,不随翻译取消中断。
 - 语言互换仅在成功且源语言已知时可用,用当前译文作为新原文。
 

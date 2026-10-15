@@ -8,7 +8,6 @@ struct Input: Decodable {
     let texts: [String]
     let sourceLang: String?
     let targetLang: String
-    let prepare: Bool?
 }
 struct Output: Encodable {
     var translations: [String] = []
@@ -32,10 +31,6 @@ struct TranslationView: View {
         }.padding(32)
         .translationTask(source: source, target: Locale.Language(identifier: input.targetLang)) { session in
             do {
-                if input.prepare == true {
-                    try await session.prepareTranslation()
-                    finish(Output())
-                }
                 var results: [String] = []
                 for text in input.texts {
                     results.append(try await session.translate(text).targetText)
@@ -63,21 +58,40 @@ struct Runner {
             recognizer.processString(input.texts.joined(separator: "\n"))
             let sourceTag = input.sourceLang ?? recognizer.dominantLanguage?.rawValue
             let source = sourceTag.map { Locale.Language(identifier: $0) }
-            if let source, source.languageCode != nil, source.languageCode == Locale.Language(identifier: input.targetLang).languageCode, input.prepare != true {
+            let target = Locale.Language(identifier: input.targetLang)
+            if let source, source.languageCode != nil, source.languageCode == target.languageCode {
                 finish(Output(translations: input.texts, detectedLanguage: sourceTag))
                 return
             }
-            // macOS 26 offers an installed-language session without a SwiftUI host.
-            if #available(macOS 26.0, *), input.prepare != true, let source {
-                let session = TranslationSession(installedSource: source, target: Locale.Language(identifier: input.targetLang))
-                if await session.isReady {
-                    var results: [String] = []
-                    for text in input.texts { results.append(try await session.translate(text).targetText) }
-                    finish(Output(translations: results, detectedLanguage: sourceTag))
-                    return
-                }
+            guard let source else {
+                finish(Output(error: TranslationError.unableToIdentifyLanguage.localizedDescription))
+                return
             }
-            // Earlier systems / missing packs use Apple's normal download consent UI.
+            // A missing pack can leave Apple's download consent sheet spinning
+            // indefinitely. Check before opening a host or creating a session;
+            // language installation belongs in System Settings, outside the request timeout.
+            switch await LanguageAvailability().status(from: source, to: target) {
+            case .supported:
+                finish(Output(error: "apple_languages_required: Download the source and target languages in System Settings > General > Language & Region > Translation Languages, then retry."))
+                return
+            case .unsupported:
+                finish(Output(error: TranslationError.unsupportedLanguagePairing.localizedDescription))
+                return
+            case .installed:
+                break
+            @unknown default:
+                finish(Output(error: TranslationError.internalError.localizedDescription))
+                return
+            }
+            // macOS 26 offers an installed-language session without a SwiftUI host.
+            if #available(macOS 26.0, *) {
+                let session = TranslationSession(installedSource: source, target: target)
+                var results: [String] = []
+                for text in input.texts { results.append(try await session.translate(text).targetText) }
+                finish(Output(translations: results, detectedLanguage: sourceTag))
+                return
+            }
+            // macOS 15 needs a SwiftUI host even when the languages are installed.
             let app = NSApplication.shared
             app.setActivationPolicy(.accessory)
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 160),
