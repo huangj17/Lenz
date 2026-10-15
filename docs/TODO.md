@@ -11,11 +11,14 @@
 
 ---
 
-## 2026-10-15 · v0.1.2 发布准备
+## 2026-10-15 · v0.1.2 发布验收
 
 - [x] 整合腾讯云 OCR、macOS 划词取词/选区定位修复、权限提示和渐变应用图标;应用版本同步为 0.1.2,发布说明见 `docs/releases/v0.1.2.md`。
 - [x] 本地前端 typecheck/build、39 项纯逻辑测试、Rust fmt/check、全量测试(96 过、10 项环境测试忽略)及全目标 Clippy(`-D warnings`)通过。腾讯云原生设置页验证与限制见服务 OCR 记录及发布说明。
-- [ ] 推送 main 后通过 macOS/Windows CI,推送 v0.1.2 标签并确认三个平台安装产物和校验文件发布;构建/发布结果以对应 GitHub Actions 和 Release 为准。
+- [x] 发布前 Windows CI 发现划词光标锚点分支的冗余 `return`,已修正;本地 macOS/Windows GNU 全目标 Clippy 通过。提交 `59df689` 的 [macOS/Windows CI](https://github.com/huangj17/Lenz/actions/runs/38707228945) 全部通过,Windows 测试仅编译,不计作运行验收。
+- [x] v0.1.2 标签指向 `59df689`,已推送并触发[安装包发布流程](https://github.com/huangj17/Lenz/actions/runs/38707793673)。
+- [x] [v0.1.2](https://github.com/huangj17/Lenz/releases/tag/v0.1.2) 已正式发布并标记 Latest;三个平台构建和发布任务全部成功。已下载两份 DMG、Windows MSIX/安装助手 ZIP 与 SHA256SUMS,四个安装附件的 SHA256 全部匹配。
+- [x] 下载包核验:Windows MSIX 为 `app.lenz.desktop` / `0.1.2.0` / x64,包含签名;ZIP 内 MSIX 与独立附件逐字节校验一致,包含公开 `.cer` 与安装助手,不含常见私钥文件。此检查不等于 Windows 安装/OCR/自启运行验收。
 
 ## 2026-10-15 · macOS 权限名称说明修正
 
