@@ -6,19 +6,19 @@
 
 ## 📦 下载与安装
 
-最新版本 [v0.1.1](https://github.com/huangj17/Lenz/releases/tag/v0.1.1)：多服务翻译对比、按服务折叠与记忆、苹果翻译语言包引导，以及 OCR 服务管理。
+最新版本 [v0.1.2](https://github.com/huangj17/Lenz/releases/tag/v0.1.2)：腾讯云高精度 OCR、macOS 快捷键取词与选区弹窗定位修复、权限提示和渐变应用图标。
 
 | 平台 | 安装包 | 最低系统版本 |
 |---|---|---|
-| macOS Apple Silicon | [aarch64 DMG](https://github.com/huangj17/Lenz/releases/download/v0.1.1/Lenz_0.1.1_aarch64.dmg) | macOS 12 |
-| macOS Intel | [x64 DMG](https://github.com/huangj17/Lenz/releases/download/v0.1.1/Lenz_0.1.1_x64.dmg) | macOS 12 |
-| Windows x64 | [MSIX + 安装助手 ZIP](https://github.com/huangj17/Lenz/releases/download/v0.1.1/Lenz_0.1.1_windows_x64_test-signed.zip) | Windows 10 1809 |
+| macOS Apple Silicon | [aarch64 DMG](https://github.com/huangj17/Lenz/releases/download/v0.1.2/Lenz_0.1.2_aarch64.dmg) | macOS 12 |
+| macOS Intel | [x64 DMG](https://github.com/huangj17/Lenz/releases/download/v0.1.2/Lenz_0.1.2_x64.dmg) | macOS 12 |
+| Windows x64 | [MSIX + 安装助手 ZIP](https://github.com/huangj17/Lenz/releases/download/v0.1.2/Lenz_0.1.2_windows_x64_test-signed.zip) | Windows 10 1809 |
 
 macOS 打开 DMG 后将 Lenz 拖入「应用程序」。本版使用 ad-hoc 签名，尚未完成 Developer ID 签名与公证；首次打开可能需要在系统「隐私与安全性」中确认。
 
 Windows ZIP 包含 MSIX、公开测试证书和安装助手。当前使用 365 天自签测试证书，安装前需检查并手动信任公开 `.cer`；安装助手不会自动修改证书信任。系统 OCR 需要 MSIX 包身份及对应 OCR 语言包，安装后从开始菜单启动。具体步骤见 [Windows 分发指南](docs/windows-distribution.md)。Windows 安装、OCR 和自启运行验收按本次发布安排推迟。
 
-安装产物附带 [SHA256SUMS.txt](https://github.com/huangj17/Lenz/releases/download/v0.1.1/SHA256SUMS.txt)。功能和验证范围见 [发布说明](docs/releases/v0.1.1.md)。
+安装产物附带 [SHA256SUMS.txt](https://github.com/huangj17/Lenz/releases/download/v0.1.2/SHA256SUMS.txt)。功能和验证范围见 [发布说明](docs/releases/v0.1.2.md)。
 
 ## ✨ 核心功能
 
@@ -29,14 +29,14 @@ Windows ZIP 包含 MSIX、公开测试证书和安装助手。当前使用 365 �
 | 原图覆盖翻译（F3） | `⌥ F` / `Alt+F` | 框选区域 → OCR + 翻译 → 译文按原文位置覆盖在屏幕上（核心差异化） |
 | 设置 | `⌘ ,` / `Ctrl+,` | 打开并聚焦设置窗口，托盘菜单同步展示快捷键 |
 
-配套能力：菜单栏托盘常驻、翻译引擎配置与连接测试、多服务结果对比与独立折叠、系统/百度/视觉模型 OCR 服务管理、OCR 语言与偏好设置、设置搜索、中英双语界面、深浅色主题、登录启动、GitHub Release 更新检查及离线开源许可证。
+配套能力：菜单栏托盘常驻、翻译引擎配置与连接测试、多服务结果对比与独立折叠、系统/百度/腾讯云/视觉模型 OCR 服务管理、OCR 语言与偏好设置、设置搜索、中英双语界面、深浅色主题、登录启动、GitHub Release 更新检查及离线开源许可证。
 
 ### 为什么做 Lenz
 
 Bob 是 macOS 上广受好评的翻译工具，但仅支持 macOS、订阅制收费、对本地 LLM 不够友好。Lenz 聚焦其最核心的翻译场景，做一个**开源（MIT）、跨平台、本地优先**的替代品：
 
 - 🖥 **跨平台**：macOS + Windows 统一体验
-- 🔒 **本地优先**：默认使用系统 OCR（macOS Vision / Windows.Media.Ocr），配合本地 LLM 可全程在本机处理。也可添加百度 OCR 或 OpenAI 兼容视觉模型；第三方 OCR 会将图片发送给所选服务。视觉模型当前仅用于截图翻译，原图覆盖继续使用系统 OCR
+- 🔒 **本地优先**：默认使用系统 OCR（macOS Vision / Windows.Media.Ocr），配合本地 LLM 可全程在本机处理。也可添加百度 OCR、腾讯云 OCR 或 OpenAI 兼容视觉模型；第三方 OCR 会将图片发送给所选服务。视觉模型当前仅用于截图翻译，原图覆盖继续使用系统 OCR
 - 🪶 **轻量**：Tauri 打包，v0.1.0 安装包约 6～7.5MB
 
 ## 🛠 技术栈
@@ -47,7 +47,7 @@ Bob 是 macOS 上广受好评的翻译工具，但仅支持 macOS、订阅制收
 
 ## 🚧 项目状态
 
-v0.1.1 的功能实现与平台运行验收分别记录（详见 [`docs/TODO.md`](docs/TODO.md)）：
+v0.1.2 的功能实现与平台运行验收分别记录（详见 [`docs/TODO.md`](docs/TODO.md)）：
 
 | 里程碑 | 当前状态 |
 |---|---|

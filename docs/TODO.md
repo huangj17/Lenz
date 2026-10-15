@@ -11,6 +11,12 @@
 
 ---
 
+## 2026-10-15 · v0.1.2 发布准备
+
+- [x] 整合腾讯云 OCR、macOS 划词取词/选区定位修复、权限提示和渐变应用图标;应用版本同步为 0.1.2,发布说明见 `docs/releases/v0.1.2.md`。
+- [x] 本地前端 typecheck/build、39 项纯逻辑测试、Rust fmt/check、全量测试(96 过、10 项环境测试忽略)及全目标 Clippy(`-D warnings`)通过。腾讯云原生设置页验证与限制见服务 OCR 记录及发布说明。
+- [ ] 推送 main 后通过 macOS/Windows CI,推送 v0.1.2 标签并确认三个平台安装产物和校验文件发布;构建/发布结果以对应 GitHub Actions 和 Release 为准。
+
 ## 2026-10-15 · macOS 权限名称说明修正
 
 - [x] 核对本机系统资源 `SecurityPrivacyExtension.appex/Contents/Resources/Localizable.loctable`: `ACCESSIBILITY` 的中英文显示名为“设备控制和数据访问” / “Device Control and Data Access”。保留已有 `Privacy_Accessibility` 深链,设置与弹窗文案同时说明新旧名称。
