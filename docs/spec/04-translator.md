@@ -190,11 +190,12 @@ OpenAI 引擎不做客户端语言检测;在 system prompt 里写 "auto-detect s
 
 > 原「代理支持」已移除:不再提供应用内代理配置(`ProxyConfig` / `useProxy` 均已删除)。**编号 §7 保留不复用**,与 spec 08 的处理方式一致。
 
-所有引擎共享管理器生命周期内的一个 `reqwest::Client`,默认 30s,单次请求以引擎 `timeoutMs` 覆盖;修改目标语言不重建引擎或连接池。不做应用内代理配置,沿用 reqwest 默认行为(尊重系统环境变量 `HTTP(S)_PROXY` / `NO_PROXY`)。构建失败回退默认 client。
+所有引擎共享管理器生命周期内的一个 `reqwest::Client`,以 `Lenz/{应用版本}` 作为 User-Agent,默认 30s,单次请求以引擎 `timeoutMs` 覆盖;修改目标语言不重建引擎或连接池。不做应用内代理配置,沿用 reqwest 默认行为(尊重系统环境变量 `HTTP(S)_PROXY` / `NO_PROXY`)。构建失败回退默认 client。
 
 ```rust
 fn build_http_client() -> reqwest::Client {
     reqwest::Client::builder()
+        .user_agent(concat!("Lenz/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(30))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new())

@@ -104,8 +104,11 @@ pub struct CaptureResult {
 |---|---|
 | 无权限(macOS 未授予 "屏幕录制") | 返回 `LenzError::Permission`,前端弹授权引导 |
 | xcap 抓取失败(驱动异常) | 返回 `LenzError::Internal`,toast 报错 |
+| 截图超过 10s | 返回阶段明确的 `LenzError::Timeout`;截图预算独立于 OCR 和窗口握手 |
 | 选区窗口创建超过 500ms | 视为异常,取消流程 |
 | 选区矩形宽或高 < 4px | 视为点击取消,emit `capture://region-cancelled` |
+
+F2/F3、`capture_screen_region` 和 `run_ocr` 共用 `capture_region_with_timeout`。日志记录截图开始、完成/失败、尺寸、缩放和耗时,不记录图像内容。
 
 ## 7. 验收标准
 

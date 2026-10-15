@@ -206,6 +206,13 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: tauri::menu::MenuEve
 
 /// 显示并聚焦 main 窗口(spec 10 §1.3)。
 pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
+    // 翻译蒙层置顶且接收键盘。切换到设置前先关闭,避免主窗口在蒙层后夺走焦点。
+    if app.get_webview_window("overlay").is_some() {
+        if let Err(error) = crate::core::overlay::close(app) {
+            log::warn!("close overlay before showing main window failed: {error}");
+            return;
+        }
+    }
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();

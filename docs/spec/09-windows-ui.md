@@ -11,7 +11,7 @@
 | `main` | 静态(tauri.conf) | 常驻可隐藏 | 托盘 / 快捷键 `Alt+Cmd+T` |
 | `popup` | 静态(tauri.conf) | 常驻可隐藏 | F1/F2 结果推送时 show |
 | `selection-{i}` | 运行时创建 | 一次性 | F2/F3 触发时**每块显示器各一个** |
-| `overlay` | 运行时创建 | 一次性 | F3 结果推送时创建 |
+| `overlay` | 运行时创建 | 一次性 | F3 截图完成即创建,后续更新 OCR/翻译进度与结果 |
 
 ## 2. main 窗口
 
@@ -169,10 +169,11 @@ macOS:`titleBarStyle: "overlay"`(隐藏标题栏,前端用 `data-tauri-drag-regi
 
 规格详见 [Spec 07 §5](./07-overlay-translation.md)。此处补充 UI 相关:
 
-- 不显示任何边框、背景或 UI chrome。
-- 每个译文块独立渲染(无全局背景色)。
-- 字体:`system-ui, sans-serif`(与目标应用接近)。
-- 不可交互(focusable: false,鼠标穿透)。
+- 蒙层覆盖来源显示器,半透明深色背景衬托选区截图。
+- 选区截图保留原位置,每个译文块按 bbox 覆盖。
+- 工具条提供标题、Esc 提示和 × 关闭按钮,支持中英与深浅主题。
+- 截图完成后立即显示截图和工具条,OCR/翻译期间显示旋转 loading 与“识别中/翻译中”;完成后原位渲染译文,失败在蒙层内提示。所有阶段均可 × / Esc 取消。
+- 可聚焦、可交互,窗口内 Esc 与 × 统一关闭;不注册全局 Escape。
 
 ## 6. 通用 UI 约定
 

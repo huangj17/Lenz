@@ -11,6 +11,51 @@
 
 ---
 
+## 2026-10-15 · 原图翻译即时反馈与 loading
+
+- [x] F3 在截图完成后立即创建可交互蒙层,与 OCR/翻译并行;选区截图始终保留,工具条按阶段显示“识别中/翻译中”及旋转 loading,完成后同窗覆盖译文。先抓屏再显示,避免把新工具条或 loading 抓进 OCR 输入。
+- [x] 增加 typed `OverlayProgress` 与定向 `overlay://updated` 事件;截图只在初始载荷传输。先订阅再读快照,按 generation/revision 合并,防止进度丢失或旧快照回退。首次 DOM 就绪显示/聚焦,更新阶段不反复抢焦点。
+- [x] 处理中 × / Esc 始终可取消;旧会话和关闭后的结果无法写回。失败在当前蒙层提示并停止 loading,截图前的失败仍回主窗口。工具条/错误提示使用实色主题底,保证任意桌面背景上的可读性。
+- [x] 新增 2 项前端回归与 3 项 Rust 回归:快照/事件竞态、卸载清理、慢请求保留截图/阶段、处理中取消及迟到结果、新选区隔离。前端 typecheck/build/23 项测试、Rust fmt/check/69 项测试(6 ignored)/全目标 clippy(`-D warnings`)、Windows GNU 全目标 check 通过。
+- [x] macOS QA 原生固定载荷/事件验证“识别中 → 翻译中 → 原位译文”、完成后 ×、翻译中 Esc、识别中 ×、OCR 超时提示与关闭;关闭后返回主窗口并确认载荷清空。截图见 `output/native-e2e/overlay-progress-{ocr,translate,complete,error}.png`。此验收不调用屏幕录制、实际 OCR 或远端服务,不作为完整业务链路/首次反馈延迟的实测。
+- [x] QA 已退出,配置 SHA256 与验收前一致;未变更系统权限或生产配置,默认开发构建已恢复。
+- [x] PRD、spec 07/09 同步显示时机、状态协议、取消行为及首次反馈/译文完成两个独立性能目标。
+- [ ] 新显示流程下的真实框选 → OCR → 远端翻译完整重跑与 ≤1s 首次反馈测量、Windows 原生窗口交互仍待实测。
+
+---
+
+## 2026-10-14 · 覆盖蒙层与 Esc 卡死修复
+
+- [x] 采样正在卡死的实际开发进程:macOS 主线程停在全局 Esc 回调 → `overlay::close` → `unregister` → shortcuts mutex。插件在持锁期间调用回调,注销自身导致重入死锁,菜单栏因此一起失去响应。
+- [x] 按用户要求改为可聚焦、可点击的翻译蒙层:保留选区截图,周围变暗,工具条提供 × 与 Esc 提示;删除临时全局 Escape 注册/注销及鼠标穿透。
+- [x] × 与窗口内 Esc 共用异步关闭入口,取消会话、清空截图/译文载荷并销毁窗口;原生关闭请求同样清理。菜单栏图标/打开设置先关闭蒙层再聚焦主窗口。
+- [x] 新增 `viewport` 与 `imageDataUrl` IPC 字段并生成 bindings;来源显示器选择、负坐标回映射及工具条屏内夹紧有回归覆盖,包括屏幕布局变化后选区已离屏的情况。
+- [x] macOS QA 原生交互验收(固定图像和译文,未重新运行 OCR/远端服务):深色中文 ×、深色中文 Esc、浅色中文真实鼠标 ×、浅色英文点击译文后 Esc 均关闭成功;关闭后可通过原生 Cmd+, 打开主窗口,并确认 ×/Esc 后 `get_overlay_payload` 返回 null。截图见 `output/native-e2e/overlay-modal-{dark,light}.png`。
+- [x] 前端 typecheck/build/21 项测试,Rust fmt/66 项测试(6 ignored)/全目标 clippy(`-D warnings`)、Windows GNU 全目标 check 通过。默认开发构建已恢复,QA 已退出,QA 配置按原始字节和 SHA256 恢复;本轮未启用屏幕录制权限。
+- [x] PRD、spec 07/09 与规格入口同步新的蒙层交互;保留此前超时修复记录作为历史验收范围。
+- [ ] 最后补入的“打开设置先关蒙层”联动、实际托盘点击及系统原生关闭请求未完成单独实测;末轮 QA 调试操作自动审批超时。默认 Cmd+W 没有触发窗口关闭,不将其列为已通过入口。Windows 实机及新蒙层下的完整 OCR/远端翻译重跑仍待验收。
+
+---
+
+## 2026-10-14 · 截图/OCR 超时修复
+
+- [x] 根因复现:640×220 合成文字图 Vision 首次识别 25.9s,重复运行 0.44s;不依赖截屏权限或翻译服务,原 10s 总预算会误报失败。
+- [x] F2/F3 与命令入口统一截图/OCR 阶段超时:截图独立 10s,Vision 按语言/模式配置首次成功前 60s、成功后 10s;popup 握手不扣减 OCR 预算。
+- [x] Vision 原生调用串行化,外层取消后并发槽持续持有到原生结束;日志记录阶段预算、尺寸和耗时,不记录截图或识别文字。
+- [x] 新增慢初始化、持续阻塞、语言/模式切换与取消后串行化回归测试;主窗口/弹窗提供中英阶段超时提示。
+- [x] 本地自动化:前端 typecheck/build/20 项测试,Rust fmt/check/全目标 clippy(`-D warnings`)、完整测试 65 通过、6 项原生服务/本地模型测试默认忽略;bindings 导出无契约变化。Windows GNU 全目标 check 通过。
+- [x] 修复后独立运行真实 Vision 合成图测试:中英双语言首次 25.4s 成功返回;系统缓存就绪后新引擎约 0.56s、同引擎再次约 29ms,并断言首次成功后恢复 10s 预算。
+- [x] Playwright 隔离 IPC fixture 检查 macOS/Windows 页面分支、中英深浅主题的主窗口提示及中英弹窗提示,20 项断言通过;截图无溢出。该验证不代替原生窗口验收。
+- [x] GUI 原生诊断:默认 Vision 加速路径长时间卡在 TextRecognition 同步等待;改为显式 CPU 后真实截图 OCR 57–176ms 完成。CPU 合成图首次 29.5s、同引擎再次 45ms,首次预算仍保留。
+- [x] 共享 HTTP client 添加 `Lenz/{版本}` User-Agent;QA 应用真实 Index-Translate 连接测试 299ms 返回中文。原无标识请求曾超时,独立请求曾返回 HTTP 412。
+- [x] 修复隐藏 WebView 等待动画帧导致覆盖层永不显示,改为 DOM 提交后直接通知 ready;macOS 先设置尺寸再定位,修复本机 90pt 纵向偏移。
+- [x] macOS QA 原生整链验收:调用真实 `start_selection` 后鼠标拖动框选固定测试页,700×390 截图 92ms、中英快速 OCR 79ms/4 块,真实 Index-Translate 中文译文显示。窗口可见,负坐标外接屏 1× 的位置/尺寸与载荷完全一致;下层按钮由 1→2 验证鼠标穿透。原生覆盖截图保存于 `output/native-e2e/overlay.png`。
+- [x] 最终前端 typecheck/build/20 项测试、Rust fmt/65 项测试(6 ignored)/全目标 clippy 通过。验收结束已退出 QA、撤销并移除临时屏幕录制授权,QA 配置按原始字节与 SHA256 恢复。
+- [ ] 真实远端连续翻译稳定性:第二次框选截图 76ms/OCR 56ms 正常,远端翻译未及时返回,已取消;不能把连接测试与首次整链成功视为连续服务稳定性通过。未完成本地固定响应的重复整链补验。
+- [ ] F2 原生弹窗整链、2×/跨屏缩放与 Windows 原生运行仍未实测。自动化按键没有触发 macOS 全局快捷键,F3 快捷键及覆盖层全局 Escape 不算通过;选区入口使用真实 IPC。
+
+---
+
 ## 2026-10-14 · v0.1.0 安装包发布
 
 - [x] 标签发布工作流:版本一致性检查、macOS arm64/x64 DMG、Windows x64 MSIX + 安装助手 ZIP、SHA256 与 GitHub Release 上传。
@@ -318,7 +363,7 @@
 - [x] 关键节点 emit `screenshot://progress { stage }`(→ spec 06 §5)
 - [x] per-session 取消;新触发取消旧会话(→ spec 06 §7) —— `ScreenshotSession` 自增代号,await 点检查 `is_current`
 - [x] ESC 取消(任意阶段)(→ spec 06 §6) —— 选区窗口 ESC + popup ESC→`cancel_screenshot`;焦点恒在我方窗口故覆盖全程
-- [x] 截图/OCR 共用 10s 预算;翻译使用引擎 `timeoutMs`,超时保留原文(2026-09-22 修订,→ spec 06 §4)。
+- [x] 截图独立 10s、OCR 常规 10s,Vision 首次语言/模式初始化允许 60s;翻译使用引擎 `timeoutMs`,超时保留原文(2026-10-14 修订,→ spec 03 §7、spec 06 §4)。
 
 ### 4.4 popup 弹框
 - [x] popup 窗口静态配置(常驻隐藏)(→ spec 09 §3.1) —— M1 已有

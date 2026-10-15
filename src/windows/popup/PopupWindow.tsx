@@ -585,7 +585,8 @@ export function PopupWindow() {
                     : view.code === "no_text"
                       ? t("popup.error.noText")
                       : view.code === "timeout"
-                        ? t("popup.error.timeout")
+                        ? t(view.stage === "capture" ? "popup.error.captureTimeout"
+                          : view.stage === "ocr" ? "popup.error.ocrTimeout" : "popup.error.timeout")
                         : view.stage === "translate"
                           ? t("popup.error.translateFailed", { msg: view.message })
                           : t("popup.error.generic")}

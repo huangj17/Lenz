@@ -203,6 +203,7 @@ fn build_engine(cfg: TranslatorEngine, client: reqwest::Client) -> Arc<dyn Trans
 /// 不做任何应用内代理配置:沿用 reqwest 默认行为(尊重系统环境变量代理)。
 pub fn build_http_client() -> reqwest::Client {
     reqwest::Client::builder()
+        .user_agent(concat!("Lenz/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(30))
         .build()
         .unwrap_or_else(|e| {

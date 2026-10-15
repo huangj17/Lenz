@@ -9,6 +9,7 @@
  * 后端命令在 M1 多为占位,本封装只负责把链路搭好。真实数据后续接入。
  */
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
   emit as tauriEmit,
   listen as tauriListen,
@@ -16,7 +17,7 @@ import {
   type UnlistenFn,
 } from "@tauri-apps/api/event";
 import type {
-  SystemInfo, SystemResource, UpdateInfo, OverlayPayload,
+  SystemInfo, SystemResource, UpdateInfo, OverlayPayload, OverlayUpdated,
   CaptureRegionSelectedPayload,
   CaptureResult,
   Config,
@@ -223,6 +224,8 @@ export const overlayApi = {
   close: () => invoke<void>("close_overlay"),
   payload: () => invoke<OverlayPayload | null>("get_overlay_payload"),
   ready: (generation: number) => invoke<void>("overlay_ready", { generation }),
+  onUpdated: (handler: EventCallback<OverlayUpdated>) =>
+    getCurrentWebviewWindow().listen<OverlayUpdated>(Events.OverlayUpdated, handler),
 };
 
 /** 划词监听(spec 05) */
@@ -265,6 +268,7 @@ export const Events = {
   ScreenshotResult: "screenshot://result",
   ScreenshotError: "screenshot://error",
   OverlayClosed: "overlay://closed",
+  OverlayUpdated: "overlay://updated",
   ConfigChanged: "config://changed",
   StartupWarning: "app://startup-warning",
 } as const;
@@ -285,6 +289,7 @@ export interface EventPayloadMap {
   [Events.ScreenshotResult]: ScreenshotResult;
   [Events.ScreenshotError]: ScreenshotErrorPayload;
   [Events.OverlayClosed]: OverlayClosedPayload;
+  [Events.OverlayUpdated]: OverlayUpdated;
   [Events.ConfigChanged]: ConfigChangedPayload;
   [Events.StartupWarning]: StartupWarningPayload;
 }

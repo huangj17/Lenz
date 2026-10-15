@@ -75,13 +75,19 @@ export function MainWindow() {
     subscribe(Events.SelectionPermissionRequired, () => { setTab("general"); void loadSystem(); void emit(Events.ShortcutOpenMain); });
     subscribe("ocr://language-missing", () => { setTab("services"); setServicesSection("ocr"); void loadSystem(); void emit(Events.ShortcutOpenMain); });
     subscribe("ocr://package-required", () => { setTab("services"); setServicesSection("ocr"); void loadSystem(); void emit(Events.ShortcutOpenMain); });
-    subscribe<string>("app://operation-error", setError);
+    subscribe<string>("app://operation-error", (message) => {
+      setError(message.startsWith("timeout: capture timed out")
+        ? t("popup.error.captureTimeout")
+        : message.startsWith("timeout: OCR timed out")
+          ? t("popup.error.ocrTimeout")
+          : message);
+    });
     void systemApi.updateState().then((value) => { if (active && value) setUpdate(value); }).catch(setError);
     const onFocus = () => { void loadSystem(); };
     window.addEventListener("focus", onFocus);
     const offError = onLenzError((err) => { setError(err); return true; });
     return () => { active = false; cleanups.forEach((fn) => fn()); offError(); window.removeEventListener("focus", onFocus); };
-  }, [setError, loadSystem, setUpdate]);
+  }, [setError, loadSystem, setUpdate, t]);
 
   const selectSetting = (item: SettingsSearchItem) => {
     if (item.section === "translate" || item.section === "ocr") {

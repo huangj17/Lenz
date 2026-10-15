@@ -69,7 +69,7 @@ export const commands = {
 	/**
 	 *  显示原图覆盖层。
 	 *
-	 *  运行时创建透明、鼠标穿透窗口;前端就绪后显示。
+	 *  运行时创建可交互蒙层;前端就绪后显示并聚焦。
 	 */
 	showOverlay: (payload: OverlayPayload) => typedError<null, LenzError>(__TAURI_INVOKE("show_overlay", { payload })),
 	/**  关闭原图覆盖层。 */
@@ -78,7 +78,10 @@ export const commands = {
 	generation: number,
 	scaleFactor: number | null,
 	region: Rect,
-	blocks: OverlayBlock[],
+	viewport: Rect,
+	/**  仅包含用户选区的截图,随蒙层关闭释放,不写入磁盘。 */
+	imageDataUrl: string,
+	progress: OverlayProgress,
 } | null>("get_overlay_payload"),
 	overlayReady: (generation: number) => typedError<null, LenzError>(__TAURI_INVOKE("overlay_ready", { generation })),
 	/**
@@ -249,7 +252,24 @@ export type OverlayPayload = {
 	generation: number,
 	scaleFactor: number | null,
 	region: Rect,
+	viewport: Rect,
+	/**  仅包含用户选区的截图,随蒙层关闭释放,不写入磁盘。 */
+	imageDataUrl: string,
+	progress: OverlayProgress,
+};
+
+export type OverlayPhase = "ocr" | "translate" | "complete" | "failed";
+
+export type OverlayProgress = {
+	revision: number,
+	phase: OverlayPhase,
 	blocks: OverlayBlock[],
+	error: LenzError | null,
+};
+
+export type OverlayUpdated = {
+	generation: number,
+	progress: OverlayProgress,
 };
 
 /**

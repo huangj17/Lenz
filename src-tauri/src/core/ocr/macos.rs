@@ -7,21 +7,27 @@
 //! (`Vec<u8>` 与 `OcrOptions`),在内部创建/使用/销毁全部 ObjC 对象,只把
 //! 纯 Rust 的 `Vec<OcrBlock>` 返回出来。
 
-use std::time::Instant;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 
 use objc2::rc::{autoreleasepool, Retained};
-use objc2::AnyThread; // 提供 `alloc()` 关联函数。
+use objc2::{AnyThread, ClassType}; // 提供 alloc() / class()。
 use objc2_core_foundation::CFData;
 use objc2_core_graphics::{CGColorRenderingIntent, CGDataProvider, CGImage};
-use objc2_foundation::{NSArray, NSDictionary, NSString};
+use objc2_core_ml::MLCPUComputeDevice;
+use objc2_foundation::{NSArray, NSDictionary, NSObjectProtocol, NSString};
 use objc2_vision::{
     VNImageRequestHandler, VNRecognizeTextRequest, VNRecognizedTextObservation, VNRequest,
     VNRequestTextRecognitionLevel,
 };
 
-use super::{map_normalized_bbox, OcrBlock, OcrEngine, OcrInput, OcrOptions, OcrResult};
+use super::{
+    map_normalized_bbox, OcrBlock, OcrEngine, OcrInput, OcrOptions, OcrResult,
+    OCR_INITIALIZATION_TIMEOUT, OCR_TIMEOUT,
+};
 use crate::error::LenzError;
 
 pub fn auto_detect_supported() -> bool {
@@ -31,11 +37,53 @@ pub fn auto_detect_supported() -> bool {
         >= 13
 }
 
-pub struct VisionOcr;
+#[derive(Clone, Hash, PartialEq, Eq)]
+struct RecognitionProfile {
+    languages: Vec<String>,
+    fast: bool,
+    auto_detect: bool,
+}
+
+impl From<&OcrOptions> for RecognitionProfile {
+    fn from(opts: &OcrOptions) -> Self {
+        Self {
+            languages: opts.preferred_languages.clone(),
+            fast: opts.fast_mode,
+            auto_detect: opts.auto_detect_language,
+        }
+    }
+}
+
+pub struct VisionOcr {
+    initialized: Arc<Mutex<HashSet<RecognitionProfile>>>,
+    serial: Arc<tokio::sync::Semaphore>,
+}
 
 impl VisionOcr {
     pub fn new() -> Self {
-        VisionOcr
+        Self {
+            initialized: Arc::default(),
+            serial: Arc::new(tokio::sync::Semaphore::new(1)),
+        }
+    }
+
+    async fn run_native<T: Send + 'static>(
+        &self,
+        work: impl FnOnce() -> Result<T, LenzError> + Send + 'static,
+    ) -> Result<T, LenzError> {
+        let permit = self
+            .serial
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|e| LenzError::internal(format!("Vision queue: {e}")))?;
+        tokio::task::spawn_blocking(move || {
+            // 原生调用启动后无法强制中止;即使外层 future 被取消,仍持有并发槽到结束。
+            let _permit = permit;
+            work()
+        })
+        .await
+        .map_err(|e| LenzError::OcrFailed(format!("spawn_blocking join error: {e}")))?
     }
 }
 
@@ -43,6 +91,19 @@ impl VisionOcr {
 impl OcrEngine for VisionOcr {
     fn name(&self) -> &'static str {
         "macos-vision"
+    }
+
+    fn recognition_timeout(&self, opts: &OcrOptions) -> Duration {
+        if self
+            .initialized
+            .lock()
+            .map(|profiles| profiles.contains(&RecognitionProfile::from(opts)))
+            .unwrap_or(false)
+        {
+            OCR_TIMEOUT
+        } else {
+            OCR_INITIALIZATION_TIMEOUT
+        }
     }
 
     fn supported_languages(&self) -> Vec<String> {
@@ -74,13 +135,28 @@ impl OcrEngine for VisionOcr {
 
         // 闭包只捕获纯 Rust 数据(png / opts / 尺寸 / 回映射参数),
         // 内部完成全部 ObjC 交互,返回纯 Rust 的 Vec<OcrBlock>。
-        let blocks = tokio::task::spawn_blocking(move || {
-            // Tokio 阻塞线程没有 Cocoa run loop 自动建立的 autorelease pool。Vision
-            // 内部会生成 autoreleased 对象,必须在同一线程及时回收。
-            autoreleasepool(|_| run_vision(&png, &opts, img_w, img_h, &pixel_rect, scale))
-        })
-        .await
-        .map_err(|e| LenzError::OcrFailed(format!("spawn_blocking join error: {e}")))??;
+        let profile = RecognitionProfile::from(&opts);
+        let initialized = self.initialized.clone();
+        let blocks = self
+            .run_native(move || {
+                let native_started = Instant::now();
+                // Tokio 阻塞线程没有 Cocoa run loop 自动建立的 autorelease pool。Vision
+                // 内部会生成 autoreleased 对象,必须在同一线程及时回收。
+                let result =
+                    autoreleasepool(|_| run_vision(&png, &opts, img_w, img_h, &pixel_rect, scale));
+                if result.is_ok() {
+                    if let Ok(mut profiles) = initialized.lock() {
+                        profiles.insert(profile);
+                    }
+                }
+                log::info!(
+                    "Vision native finished: elapsed_ms={} success={}",
+                    native_started.elapsed().as_millis(),
+                    result.is_ok()
+                );
+                result
+            })
+            .await?;
 
         Ok(OcrResult {
             blocks,
@@ -157,6 +233,8 @@ fn run_vision(
         request.setRecognitionLanguages(&lang_array);
     }
 
+    configure_compute_device(&request)?;
+
     // 4) 执行请求:把 request 作为 VNRequest 放进 NSArray<VNRequest>。
     //    VNRecognizeTextRequest 是 VNRequest 的子类,这里向上转型为 VNRequest。
     let request_as_vn: &VNRequest = &request;
@@ -213,6 +291,46 @@ fn run_vision(
     Ok(blocks)
 }
 
+/// GUI 进程中自动选择的加速设备可能卡在 TextRecognition 的同步等待。
+/// 为支持的阶段显式选 CPU,避免不可取消的硬件推理阻塞整个 OCR 队列。
+fn configure_compute_device(request: &VNRecognizeTextRequest) -> Result<(), LenzError> {
+    let major = objc2_foundation::NSProcessInfo::processInfo()
+        .operatingSystemVersion()
+        .majorVersion;
+    if major >= 14 {
+        // SAFETY: macOS 14+ 提供此 API;设备来自该请求自己的支持列表。
+        let stages = unsafe { request.supportedComputeStageDevicesAndReturnError() }
+            .map_err(|e| LenzError::OcrFailed(format!("Vision compute devices: {e}")))?;
+        let mut assigned = 0;
+        for stage in stages.allKeys() {
+            if let Some(devices) = stages.objectForKey(&stage) {
+                if let Some(cpu) = devices
+                    .iter()
+                    .find(|device| device.isKindOfClass(MLCPUComputeDevice::class()))
+                {
+                    unsafe {
+                        request.setComputeDevice_forComputeStage(Some(&cpu), &stage);
+                    }
+                    assigned += 1;
+                }
+            }
+        }
+        if assigned == 0 {
+            return Err(LenzError::OcrFailed(
+                "Vision CPU compute device is unavailable".into(),
+            ));
+        }
+        log::info!("Vision compute device: CPU stages={assigned}");
+    } else {
+        // macOS 12/13 尚无逐阶段设备 API。
+        #[allow(deprecated)]
+        unsafe {
+            request.setUsesCPUOnly(true);
+        }
+    }
+    Ok(())
+}
+
 /// 取 Vision 当前支持的识别语言列表(BCP-47/ISO)。
 fn vision_supported_languages() -> Result<Vec<String>, LenzError> {
     let request = VNRecognizeTextRequest::new();
@@ -228,6 +346,80 @@ mod tests {
     use super::*;
     use crate::core::ocr::{OcrInput, OcrOptions};
     use crate::types::Rect;
+
+    fn test_options() -> OcrOptions {
+        OcrOptions {
+            preferred_languages: vec!["en-US".into(), "zh-Hans".into()],
+            fast_mode: false,
+            auto_detect_language: true,
+            min_confidence: 0.3,
+        }
+    }
+
+    #[test]
+    fn language_and_mode_changes_receive_their_own_initialization_budget() {
+        let engine = VisionOcr::new();
+        let mut opts = test_options();
+        assert_eq!(
+            engine.recognition_timeout(&opts),
+            OCR_INITIALIZATION_TIMEOUT
+        );
+        engine
+            .initialized
+            .lock()
+            .unwrap()
+            .insert(RecognitionProfile::from(&opts));
+        assert_eq!(engine.recognition_timeout(&opts), OCR_TIMEOUT);
+        opts.min_confidence = 0.8; // 置信度只在识别后过滤,不重新加载模型。
+        assert_eq!(engine.recognition_timeout(&opts), OCR_TIMEOUT);
+        opts.fast_mode = true;
+        assert_eq!(
+            engine.recognition_timeout(&opts),
+            OCR_INITIALIZATION_TIMEOUT
+        );
+        opts.fast_mode = false;
+        opts.preferred_languages.push("ja-JP".into());
+        assert_eq!(
+            engine.recognition_timeout(&opts),
+            OCR_INITIALIZATION_TIMEOUT
+        );
+        opts.preferred_languages.pop();
+        opts.auto_detect_language = false;
+        assert_eq!(
+            engine.recognition_timeout(&opts),
+            OCR_INITIALIZATION_TIMEOUT
+        );
+    }
+
+    #[tokio::test]
+    async fn cancelling_native_waiter_keeps_vision_serial_until_native_work_finishes() {
+        let engine = Arc::new(VisionOcr::new());
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (finish_tx, finish_rx) = std::sync::mpsc::channel();
+        let first = {
+            let engine = engine.clone();
+            tokio::spawn(async move {
+                engine
+                    .run_native(move || {
+                        let _ = started_tx.send(());
+                        let _ = finish_rx.recv();
+                        Ok(())
+                    })
+                    .await
+            })
+        };
+        started_rx.await.unwrap();
+        first.abort();
+        assert!(first.await.unwrap_err().is_cancelled());
+        assert_eq!(engine.serial.available_permits(), 0);
+        let second = {
+            let engine = engine.clone();
+            tokio::spawn(async move { engine.run_native(|| Ok(42)).await })
+        };
+        finish_tx.send(()).unwrap();
+        assert_eq!(second.await.unwrap().unwrap(), 42);
+        assert_eq!(engine.serial.available_permits(), 1);
+    }
 
     /// 候选系统字体路径(挑第一个存在的)。
     const FONT_CANDIDATES: &[&str] = &[
@@ -294,18 +486,21 @@ mod tests {
             },
             scale_factor: 1.0,
         };
-        let opts = OcrOptions {
-            preferred_languages: vec!["en-US".into()],
-            fast_mode: false,
-            min_confidence: 0.0,
-            auto_detect_language: true,
-        };
+        let opts = test_options();
 
         // recognize 是 async;在测试里用一个临时 tokio 运行时跑它。
         let rt = tokio::runtime::Runtime::new().expect("create tokio runtime");
         let engine = VisionOcr::new();
+        assert_eq!(
+            engine.recognition_timeout(&opts),
+            OCR_INITIALIZATION_TIMEOUT
+        );
         let result = rt
-            .block_on(engine.recognize(input, opts))
+            .block_on(super::super::recognize_with_timeout(
+                &engine,
+                input.clone(),
+                opts.clone(),
+            ))
             .expect("vision recognize should succeed");
 
         eprintln!(
@@ -342,5 +537,14 @@ mod tests {
             joined.contains("vision"),
             "recognized text should contain 'vision', got: {joined:?}"
         );
+        assert_eq!(engine.recognition_timeout(&opts), OCR_TIMEOUT);
+        let warm = rt
+            .block_on(super::super::recognize_with_timeout(&engine, input, opts))
+            .expect("warm Vision recognize should succeed within the normal budget");
+        assert!(warm
+            .blocks
+            .iter()
+            .any(|block| block.text.to_lowercase().contains("hello")));
+        eprintln!("[vision-test] warm_cost_ms={}", warm.cost_ms);
     }
 }

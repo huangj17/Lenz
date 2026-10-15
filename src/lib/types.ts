@@ -39,7 +39,7 @@ import type {
   TriggerKind as RustTriggerKind,
   UiConfig as RustUiConfig,
 } from "./bindings";
-export type { SystemInfo, SystemResource, UpdateInfo, OverlayPayload, OverlayBlock } from "./bindings";
+export type { SystemInfo, SystemResource, UpdateInfo, OverlayPayload, OverlayBlock, OverlayProgress, OverlayUpdated } from "./bindings";
 
 // ──────────────────────────────────────────────────────────────────────────
 // 基础几何 / 触发类型

@@ -13,6 +13,7 @@ pub fn diagnose_windows_ocr(output: &std::path::Path) -> Result<bool, String> {
     core::ocr::write_install_diagnostic(output).map_err(|error| error.to_string())
 }
 
+use tauri::Manager;
 use tauri_plugin_log::{Target, TargetKind};
 use tauri_specta::{collect_commands, Builder as SpectaBuilder};
 
@@ -72,6 +73,7 @@ fn specta_builder() -> SpectaBuilder<tauri::Wry> {
         .typ::<types::SelectionDetected>()
         .typ::<types::PermissionRequired>()
         .typ::<core::overlay::OverlayClosed>()
+        .typ::<core::overlay::OverlayUpdated>()
 }
 
 #[cfg(any(debug_assertions, test))]
@@ -124,6 +126,13 @@ pub fn run() {
                 if window.label() == "main" {
                     api.prevent_close();
                     let _ = window.hide();
+                } else if window.label() == "overlay" {
+                    api.prevent_close();
+                    let app = window.app_handle().clone();
+                    // 原生关闭请求也统一清理会话,避免在窗口事件内递归销毁。
+                    tauri::async_runtime::spawn(async move {
+                        let _ = core::overlay::close(&app);
+                    });
                 }
             }
         })

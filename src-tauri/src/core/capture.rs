@@ -4,6 +4,7 @@
 //! M2 支持单屏区域;跨屏拼接见 TODO。
 
 use std::io::Cursor;
+use std::time::{Duration, Instant};
 
 use image::{DynamicImage, ImageFormat};
 use serde::{Deserialize, Serialize};
@@ -12,6 +13,36 @@ use xcap::Monitor;
 
 use crate::error::LenzError;
 use crate::types::Rect;
+
+const CAPTURE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// 截图独立计时,不消耗 OCR 的初始化预算。日志只记录尺寸和耗时。
+pub async fn capture_region_with_timeout(rect: Rect) -> Result<CaptureResult, LenzError> {
+    let started = Instant::now();
+    log::info!("capture started: logical_size={}x{}", rect.w, rect.h);
+    let result = tokio::time::timeout(
+        CAPTURE_TIMEOUT,
+        tokio::task::spawn_blocking(move || capture_region(rect)),
+    )
+    .await
+    .map_err(|_| LenzError::Timeout("capture timed out after 10s".into()))
+    .and_then(|result| result.map_err(|e| LenzError::internal(format!("capture join: {e}"))))
+    .and_then(|result| result);
+    match &result {
+        Ok(capture) => log::info!(
+            "capture finished: elapsed_ms={} pixel_size={}x{} scale={}",
+            started.elapsed().as_millis(),
+            capture.pixel_rect.w,
+            capture.pixel_rect.h,
+            capture.scale_factor
+        ),
+        Err(error) => log::warn!(
+            "capture failed: elapsed_ms={} error={error}",
+            started.elapsed().as_millis()
+        ),
+    }
+    result
+}
 
 /// 采集结果(spec 02 §4)。`png` 为裁剪区域;`pixel_rect` 为其在虚拟屏的物理像素位置(供 OCR 回映射)。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

@@ -74,6 +74,7 @@ pub fn default_engine() -> Arc<dyn OcrEngine> {
      - `setUsesLanguageCorrection: true`。
      - `setRecognitionLanguages: preferredLanguages`。
      - macOS 13+ 设置 `automaticallyDetectsLanguage`;macOS 12 不调用该 selector,设置页说明系统版本限制。
+     - 显式使用 CPU:macOS 14+ 从每个阶段的支持设备列表选择 `MLCPUComputeDevice`;macOS 12/13 使用 `usesCPUOnly`。本机 GUI 进程自动选择的加速路径曾长时间卡在 TextRecognition 同步等待,切换 CPU 后真实截图 OCR 在 57–176ms 内返回。
   5. 同步执行 `perform:error:`(在 tokio `spawn_blocking` 里)。
   6. 遍历 `VNRecognizedTextObservation`:
      - `topCandidates: 1` 取最高候选。
@@ -164,7 +165,11 @@ async fn run_ocr(
 ## 7. 性能
 
 - **目标**(对齐 PRD §5.1):1920×1080 区域 OCR ≤ 1s。
-- 实测基线(开发机,Apple M1):Vision `.accurate` 约 200~500ms;Windows 性能尚未实测。
+- 热状态基线(开发机,Apple M1):Vision `.accurate` 约 200~500ms;Windows 性能尚未实测。首次模型初始化不计入热状态目标。
+- 2026-10-14 本机合成图验证:640×220 英文图片首次 Vision 识别约 25.9s,重复调用约 0.44s;原先截图/OCR 共用 10s 会误报超时。
+- F2/F3 与 `run_ocr` 共用 `recognize_with_timeout`,OCR 独立限时 10s。Vision 按优先语言顺序、快速/精准模式和自动语言检测组成初始化配置;该配置首次成功前允许 60s,成功后恢复 10s。置信度只影响结果过滤,不重新计算初始化状态;识别失败不标记成功。
+- Vision 同时最多执行一个原生识别。取消/超时只停止等待和后续结果投递,并发槽仍由阻塞线程持有直到原生调用结束,避免连续重试堆积原生任务。
+- 日志记录引擎、尺寸、识别模式、语言数量、超时预算、块数和耗时,不记录识别文字或图像;原生结束日志在调用方取消后仍可用于诊断。
 - 优化:
   - OCR 调用用 `tokio::task::spawn_blocking`,避免阻塞异步 runtime。
   - 识别前不做无谓 PNG re-encode(capture 已经是 PNG 则直接传)。

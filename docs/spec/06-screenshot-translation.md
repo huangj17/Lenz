@@ -52,7 +52,7 @@ popup 窗口展示原文 + 译文                    [前端 popup 窗口]
 ### 2.3 截图
 
 - 调 `capture_screen_region(rect)`,逻辑见 [Spec 02](./02-capture.md)。
-- 截图与 OCR 共用 10s 预算,翻译另按引擎 `timeoutMs` 执行。失败 → emit `screenshot://error { stage: "capture", ... }`。
+- 截图独立限时 10s;OCR 的独立预算见 [Spec 03 §7](./03-ocr.md#7-性能),不扣减截图或 popup 握手耗时。翻译另按引擎 `timeoutMs` 执行。截图失败 → emit `screenshot://error { stage: "capture", ... }`。
 - 等选区蒙层离屏后抓取;拿到图片后才显示 popup,避免大选区截到自己的翻译框。
 
 ### 2.4 OCR
@@ -124,7 +124,7 @@ popup 窗口监听 `screenshot://progress`、`screenshot://translating`、`scree
 | capture 权限不足 | popup 展示"需要屏幕录制权限",含跳转系统设置按钮 |
 | ocr no_text | popup 展示"未识别到文字,请重新框选" |
 | translate 失败 | popup 展示 OCR 原文 + "翻译失败:{error}",含重试按钮 |
-| 截图/OCR 超过 10s 或引擎超过 `timeoutMs` | popup 展示"响应超时";翻译超时保留原文并允许重试 |
+| 截图/OCR 超过各自预算或引擎超过 `timeoutMs` | popup 区分"截图超时"、"文字识别超时"和翻译"响应超时";翻译超时保留原文并允许重试 |
 
 ## 5. 进度反馈
 

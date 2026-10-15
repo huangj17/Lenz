@@ -2755,6 +2755,7 @@ version = "0.1.0"
 dependencies = [
  "ab_glyph",
  "async-trait",
+ "base64 0.22.1",
  "image",
  "imageproc",
  "log",
@@ -2763,6 +2764,7 @@ dependencies = [
  "objc2-app-kit",
  "objc2-core-foundation",
  "objc2-core-graphics",
+ "objc2-core-ml",
  "objc2-foundation",
  "objc2-vision",
  "reqwest 0.12.28",

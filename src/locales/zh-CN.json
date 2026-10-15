@@ -174,6 +174,13 @@
     "openRelease": "打开发布页面",
     "viewUpdate": "查看更新详情"
   },
+  "overlay": {
+    "title": "原图覆盖翻译",
+    "capture": "选区截图与译文",
+    "close": "关闭覆盖翻译",
+    "closeFailed": "未能关闭，请再次点击关闭按钮。",
+    "failed": "处理失败，请关闭后重新框选，或检查翻译服务设置。"
+  },
   "capture": {
     "hint": "拖动以框选区域",
     "cancel": "取消"
@@ -204,6 +211,8 @@
       "noText": "未识别到文字,请重新框选。",
       "translateFailed": "翻译失败:{{msg}}",
       "timeout": "响应超时",
+      "captureTimeout": "截图超时，请检查屏幕录制权限后重试。",
+      "ocrTimeout": "文字识别超时，请缩小选区或稍后重试。",
       "generic": "发生错误",
       "package_required": "请安装 Windows MSIX 版本，并从开始菜单打开 Lenz，才能使用系统 OCR。"
     }

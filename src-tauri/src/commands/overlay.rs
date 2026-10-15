@@ -10,7 +10,7 @@ use crate::error::LenzError;
 
 /// 显示原图覆盖层。
 ///
-/// 运行时创建透明、鼠标穿透窗口;前端就绪后显示。
+/// 运行时创建可交互蒙层;前端就绪后显示并聚焦。
 #[tauri::command]
 #[specta::specta]
 pub async fn show_overlay(
@@ -23,6 +23,7 @@ pub async fn show_overlay(
         .state::<crate::core::overlay::OverlayState>()
         .session
         .begin();
+    payload.viewport = crate::core::overlay::viewport_for_region(&app, payload.region)?;
     *app.state::<crate::core::overlay::OverlayState>()
         .payload
         .lock()

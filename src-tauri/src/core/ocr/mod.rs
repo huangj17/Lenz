@@ -5,6 +5,7 @@
 //! `default_engine()` 工厂在启动阶段注入 `State<Arc<dyn OcrEngine>>`。
 
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -12,6 +13,10 @@ use specta::Type;
 
 use crate::error::LenzError;
 use crate::types::Rect;
+
+pub const OCR_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(any(target_os = "macos", test))]
+const OCR_INITIALIZATION_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -74,8 +79,55 @@ pub trait OcrEngine: Send + Sync {
     fn name(&self) -> &'static str;
     /// 支持的识别语言(BCP-47)。
     fn supported_languages(&self) -> Vec<String>;
+    /// Vision 首次加载一组语言/识别模式时需要更长的初始化预算。
+    fn recognition_timeout(&self, _opts: &OcrOptions) -> Duration {
+        OCR_TIMEOUT
+    }
     /// 识别一张位图。
     async fn recognize(&self, input: OcrInput, opts: OcrOptions) -> Result<OcrResult, LenzError>;
+}
+
+/// F2/F3 与命令入口共用阶段超时;截图和 popup 握手不扣减 OCR 预算。
+pub async fn recognize_with_timeout(
+    engine: &dyn OcrEngine,
+    input: OcrInput,
+    opts: OcrOptions,
+) -> Result<OcrResult, LenzError> {
+    let budget = engine.recognition_timeout(&opts);
+    let started = Instant::now();
+    log::info!(
+        "OCR started: engine={} pixel_size={}x{} fast={} auto_detect={} languages={} timeout_ms={}",
+        engine.name(),
+        input.pixel_rect.w,
+        input.pixel_rect.h,
+        opts.fast_mode,
+        opts.auto_detect_language,
+        opts.preferred_languages.len(),
+        budget.as_millis()
+    );
+    let result = tokio::time::timeout(budget, engine.recognize(input, opts))
+        .await
+        .unwrap_or_else(|_| {
+            Err(LenzError::Timeout(format!(
+                "OCR timed out after {}s ({})",
+                budget.as_secs(),
+                engine.name()
+            )))
+        });
+    match &result {
+        Ok(ocr) => log::info!(
+            "OCR finished: engine={} elapsed_ms={} blocks={}",
+            engine.name(),
+            started.elapsed().as_millis(),
+            ocr.blocks.len()
+        ),
+        Err(error) => log::warn!(
+            "OCR failed: engine={} elapsed_ms={} error={error}",
+            engine.name(),
+            started.elapsed().as_millis()
+        ),
+    }
+    result
 }
 
 /// 返回当前平台默认 OCR 引擎(spec 03 §2.1)。启动阶段构造一次。
@@ -163,8 +215,115 @@ impl OcrEngine for UnsupportedOcr {
 
 #[cfg(test)]
 mod tests {
-    use super::{map_normalized_bbox, map_pixel_bbox};
+    use super::*;
     use crate::types::Rect;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    struct SimulatedOcr {
+        ready: AtomicBool,
+        never_finishes: bool,
+    }
+
+    #[async_trait]
+    impl OcrEngine for SimulatedOcr {
+        fn name(&self) -> &'static str {
+            "simulated-ocr"
+        }
+        fn supported_languages(&self) -> Vec<String> {
+            Vec::new()
+        }
+        fn recognition_timeout(&self, _opts: &OcrOptions) -> Duration {
+            if self.ready.load(Ordering::SeqCst) {
+                OCR_TIMEOUT
+            } else {
+                OCR_INITIALIZATION_TIMEOUT
+            }
+        }
+        async fn recognize(
+            &self,
+            _input: OcrInput,
+            _opts: OcrOptions,
+        ) -> Result<OcrResult, LenzError> {
+            if self.never_finishes {
+                return std::future::pending().await;
+            }
+            let delay = if self.ready.load(Ordering::SeqCst) {
+                Duration::from_millis(500)
+            } else {
+                Duration::from_secs(26)
+            };
+            tokio::time::sleep(delay).await;
+            self.ready.store(true, Ordering::SeqCst);
+            Ok(OcrResult {
+                blocks: Vec::new(),
+                detected_language: None,
+                cost_ms: delay.as_millis() as u32,
+            })
+        }
+    }
+
+    fn test_input() -> (OcrInput, OcrOptions) {
+        (
+            OcrInput {
+                png: Vec::new(),
+                pixel_rect: Rect {
+                    x: 0,
+                    y: 0,
+                    w: 640,
+                    h: 220,
+                },
+                scale_factor: 1.0,
+            },
+            OcrOptions {
+                preferred_languages: vec!["en-US".into()],
+                fast_mode: false,
+                auto_detect_language: true,
+                min_confidence: 0.3,
+            },
+        )
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cold_ocr_can_finish_after_old_shared_deadline_then_uses_warm_budget() {
+        let engine = SimulatedOcr {
+            ready: AtomicBool::new(false),
+            never_finishes: false,
+        };
+        // 模拟截图及 popup 握手已用去 9 秒,它们不能扣减识别预算。
+        tokio::time::sleep(Duration::from_secs(9)).await;
+        let (input, opts) = test_input();
+        let result = recognize_with_timeout(&engine, input, opts).await.unwrap();
+        assert_eq!(result.cost_ms, 26_000);
+        let (input, opts) = test_input();
+        assert_eq!(engine.recognition_timeout(&opts), OCR_TIMEOUT);
+        assert_eq!(
+            recognize_with_timeout(&engine, input, opts)
+                .await
+                .unwrap()
+                .cost_ms,
+            500
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn hung_ocr_still_times_out_with_its_stage_and_budget() {
+        for ready in [false, true] {
+            let engine = SimulatedOcr {
+                ready: AtomicBool::new(ready),
+                never_finishes: true,
+            };
+            let (input, opts) = test_input();
+            let budget = engine.recognition_timeout(&opts);
+            let started = tokio::time::Instant::now();
+            let error = recognize_with_timeout(&engine, input, opts)
+                .await
+                .unwrap_err();
+            assert_eq!(started.elapsed(), budget);
+            assert!(
+                matches!(error, LenzError::Timeout(message) if message.contains("OCR timed out"))
+            );
+        }
+    }
 
     /// 整图 + 2× 缩放:物理 200×100 → 逻辑 100×50,原点不变。
     #[test]

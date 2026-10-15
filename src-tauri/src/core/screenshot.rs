@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager};
 
 use crate::config::ConfigStore;
-use crate::core::ocr::{OcrBlock, OcrEngine, OcrInput, OcrOptions};
+use crate::core::ocr::{recognize_with_timeout, OcrBlock, OcrEngine, OcrInput, OcrOptions};
 use crate::core::translator::TranslatorManager;
 use crate::core::{capture, keystroke, selection_window};
 use crate::error::LenzError;
@@ -42,8 +42,6 @@ pub fn popup_width(app: &AppHandle) -> f64 {
 const POPUP_INIT_HEIGHT: f64 = 150.0;
 /// 选区与 popup 的垂直间距(spec 06 §2.6)。
 const POPUP_GAP: f64 = 12.0;
-/// 截图 + OCR 的预算;翻译使用各引擎自身的 timeoutMs。
-const CAPTURE_OCR_TIMEOUT: Duration = Duration::from_millis(10_000);
 /// 抓屏前等待选区蒙层从屏幕消失的时延:覆盖「事件线程→主线程」派发 + 合成器出帧,
 /// 避免截到遮罩 / 销毁残帧导致 OCR 空结果(spec 02 §7)。
 const OVERLAY_CLEAR_DELAY_MS: u64 = 150;
@@ -273,38 +271,25 @@ async fn run_pipeline(app: &AppHandle, region: Rect, gen: u32) {
     // 立即抓屏会截到遮罩或销毁残帧,导致 OCR「未识别到文字」(spec 02 §7)。
     tokio::time::sleep(Duration::from_millis(OVERLAY_CLEAR_DELAY_MS)).await;
     let t0 = Instant::now();
-    let cap = tokio::time::timeout(
-        CAPTURE_OCR_TIMEOUT,
-        tokio::task::spawn_blocking(move || capture::capture_region(region)),
-    )
-    .await;
+    let cap = capture::capture_region_with_timeout(region).await;
+    let cost_capture = t0.elapsed().as_millis() as u32;
     if !is_current(app, gen) {
         return;
     }
-    let scale = cap
-        .as_ref()
-        .ok()
-        .and_then(|c| c.as_ref().ok())
-        .and_then(|c| c.as_ref().ok())
-        .map(|c| c.scale_factor as f64);
+    let scale = cap.as_ref().ok().map(|c| c.scale_factor as f64);
     position_and_show_popup(app, &region, scale);
     wait_popup_ready(app).await;
     if !is_current(app, gen) {
         return;
     }
     let cap = match cap {
-        Ok(cap) => cap,
-        Err(_) => return emit_error(app, gen, "capture", "timeout", "capture timed out", None),
-    };
-    let cap = match cap {
-        Ok(Ok(c)) => c,
-        Ok(Err(LenzError::Permission(m))) => {
+        Ok(c) => c,
+        Err(LenzError::Timeout(m)) => return emit_error(app, gen, "capture", "timeout", &m, None),
+        Err(LenzError::Permission(m)) => {
             return emit_error(app, gen, "capture", "permission", &m, None)
         }
-        Ok(Err(e)) => return emit_error(app, gen, "capture", "failed", &e.to_string(), None),
-        Err(e) => return emit_error(app, gen, "capture", "failed", &format!("join: {e}"), None),
+        Err(e) => return emit_error(app, gen, "capture", "failed", &e.to_string(), None),
     };
-    let cost_capture = t0.elapsed().as_millis() as u32;
 
     // ── OCR ──
     emit_progress(app, gen, "ocr");
@@ -321,20 +306,13 @@ async fn run_pipeline(app: &AppHandle, region: Rect, gen: u32) {
         pixel_rect: cap.pixel_rect,
         scale_factor: cap.scale_factor,
     };
-    let ocr = tokio::time::timeout(
-        CAPTURE_OCR_TIMEOUT.saturating_sub(t0.elapsed()),
-        engine.recognize(input, opts),
-    )
-    .await;
-    let ocr = match ocr {
-        Ok(result) => result,
-        Err(_) => return emit_error(app, gen, "ocr", "timeout", "OCR timed out", None),
-    };
+    let ocr = recognize_with_timeout(engine.as_ref(), input, opts).await;
     if !is_current(app, gen) {
         return;
     }
     let ocr = match ocr {
         Ok(r) => r,
+        Err(LenzError::Timeout(m)) => return emit_error(app, gen, "ocr", "timeout", &m, None),
         Err(LenzError::Permission(m)) => {
             return emit_error(app, gen, "ocr", "permission", &m, None)
         }

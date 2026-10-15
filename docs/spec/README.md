@@ -15,7 +15,7 @@
 | 04 | [翻译引擎](./04-translator.md) | Translator trait、OpenAI 兼容、传统 API、多引擎管理 | PRD §2.2 F4, §3.4 |
 | 05 | [划词翻译 (F1)](./05-selection-translation.md) | 选中监听、弹框触发、结果展示 | PRD §2.2 F1 |
 | 06 | [截图翻译 (F2)](./06-screenshot-translation.md) | 截图 → OCR → 翻译 → 弹框流程 | PRD §2.2 F2 |
-| 07 | [原图覆盖翻译 (F3)](./07-overlay-translation.md) | 透明悬浮窗、bbox 定位、颜色采样、字号自适应 | PRD §2.2 F3 |
+| 07 | [原图覆盖翻译 (F3)](./07-overlay-translation.md) | 交互蒙层、选区截图、bbox 定位、×/Esc 关闭 | PRD §2.2 F3 |
 | 09 | [窗口与 UI](./09-windows-ui.md) | 主窗口、弹框、选区、覆盖层四类窗口规格 | PRD §2.3, §4 |
 | 10 | [系统功能](./10-system-features.md) | 托盘、快捷键、自启、更新、i18n、主题 | PRD §2.3 |
 | 11 | [非功能需求](./11-nfr.md) | 性能、隐私、兼容性、打包签名 | PRD §5 |

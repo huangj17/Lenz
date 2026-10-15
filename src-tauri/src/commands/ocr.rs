@@ -5,8 +5,8 @@ use std::sync::Arc;
 use tauri::State;
 
 use crate::config::ConfigStore;
-use crate::core::capture::capture_region;
-use crate::core::ocr::{OcrEngine, OcrInput, OcrOptions, OcrResult};
+use crate::core::capture::capture_region_with_timeout;
+use crate::core::ocr::{recognize_with_timeout, OcrEngine, OcrInput, OcrOptions, OcrResult};
 use crate::error::LenzError;
 use crate::types::Rect;
 
@@ -28,15 +28,12 @@ pub async fn run_ocr(
         min_confidence: cfg.ocr.min_confidence,
     };
 
-    // 截图(阻塞)移出异步 runtime。
-    let capture = tokio::task::spawn_blocking(move || capture_region(rect))
-        .await
-        .map_err(|e| LenzError::Internal(format!("capture join: {e}")))??;
+    let capture = capture_region_with_timeout(rect).await?;
 
     let input = OcrInput {
         png: capture.png,
         pixel_rect: capture.pixel_rect,
         scale_factor: capture.scale_factor,
     };
-    ocr.recognize(input, opts).await
+    recognize_with_timeout(ocr.inner().as_ref(), input, opts).await
 }
