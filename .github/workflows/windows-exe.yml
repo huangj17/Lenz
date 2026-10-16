@@ -89,6 +89,9 @@ jobs:
           1..3 | ForEach-Object {
             ./scripts/windows/Test-ExeStartup.ps1 -BinaryPath "$env:LOCALAPPDATA/Programs/Lenz/lenz.exe" -LaunchArguments '--show-main' -ExpectMainWindow -ReportPath "artifacts/startup-visible-$_.json"
           }
+      - name: Check popup resizing in the installed application
+        shell: powershell
+        run: node scripts/windows/test-popup-resize.mjs --binary "$env:LOCALAPPDATA/Programs/Lenz/lenz.exe" --report artifacts/popup-resize.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

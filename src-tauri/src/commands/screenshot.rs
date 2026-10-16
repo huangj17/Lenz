@@ -25,10 +25,6 @@ fn popup_logical_size(popup: &tauri::WebviewWindow) -> (f64, f64) {
         .unwrap_or((POPUP_WIDTH, 0.0))
 }
 
-#[cfg(all(test, target_os = "windows"))]
-#[path = "popup_resize_tests.rs"]
-mod popup_resize_tests;
-
 /// 取消进行中的 F2 会话并隐藏 popup(spec 06 §6/§7)。
 #[tauri::command]
 #[specta::specta]
