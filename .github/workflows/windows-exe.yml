@@ -36,13 +36,25 @@ jobs:
         with:
           workspaces: src-tauri
           key: release-windows-msvc
+          cache-on-failure: true
       - if: inputs.source == 'current'
         run: pnpm install --frozen-lockfile
-      - if: inputs.source == 'current'
+      - name: Install NSIS
+        if: inputs.source == 'current'
         shell: powershell
-        run: |
-          choco install nsis --yes --no-progress
-          ./scripts/windows/Build-Exe.ps1 -OutputDirectory artifacts
+        run: choco install nsis --yes --no-progress
+      - name: Build application and standalone installer
+        if: inputs.source == 'current'
+        shell: powershell
+        run: ./scripts/windows/Build-Exe.ps1 -OutputDirectory artifacts
+      - name: Preserve compiled application for diagnosis
+        if: always() && inputs.source == 'current'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe-binary
+          path: src-tauri/target/x86_64-pc-windows-msvc/release/lenz.exe
+          if-no-files-found: warn
+          retention-days: 7
       - name: Download published installer
         if: inputs.source == 'published'
         shell: powershell

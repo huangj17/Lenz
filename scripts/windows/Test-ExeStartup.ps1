@@ -55,7 +55,7 @@ try {
         $report.processAlive = !$process.HasExited
         if (!$report.processAlive) { $process.WaitForExit(); $report.exitCode = $process.ExitCode; break }
         $report.mainWindowShown = [LenzStartupWindows]::HasVisibleMainWindow($process.Id)
-        $report.stdout = [string](Get-Content (Join-Path $work 'stdout.txt') -Raw -ErrorAction SilentlyContinue)
+        $report.stdout = [IO.File]::ReadAllText((Join-Path $work 'stdout.txt'))
         $report.setupComplete = [bool]($report.stdout -match 'Lenz setup complete')
         if ($report.setupComplete -and (!$ExpectMainWindow -or $report.mainWindowShown)) { break }
     } while ((Get-Date) -lt $deadline)
@@ -67,8 +67,10 @@ try {
 } finally {
     if ($process -and !$process.HasExited) { Stop-Process -Id $process.Id -Force; $process.WaitForExit() }
     $env:LENZ_STARTUP_NO_DIALOG = $previousNoDialog
-    $report.stdout = [string](Get-Content (Join-Path $work 'stdout.txt') -Raw -ErrorAction SilentlyContinue)
-    $report.stderr = [string](Get-Content (Join-Path $work 'stderr.txt') -Raw -ErrorAction SilentlyContinue)
+    foreach ($stream in @('stdout', 'stderr')) {
+        $path = Join-Path $work "$stream.txt"
+        if (Test-Path $path) { $report[$stream] = [IO.File]::ReadAllText($path) }
+    }
     $json = $report | ConvertTo-Json -Depth 5
     Set-Content $ReportPath $json -Encoding UTF8
     Write-Output $json

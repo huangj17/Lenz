@@ -26,7 +26,7 @@ Var PowerShell
 !define MUI_ABORTWARNING
 !define MUI_WELCOMEPAGE_TEXT "$(WelcomeText)"
 !insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_LICENSE "${PAYLOAD_DIR}/LICENSE"
+!insertmacro MUI_PAGE_LICENSE "${PAYLOAD_DIR}\LICENSE"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !define MUI_FINISHPAGE_TEXT "$(FinishedText)"
@@ -95,8 +95,8 @@ Section "Install Lenz"
   !insertmacro RequireClosedApp
   InitPluginsDir
   SetOutPath "$PLUGINSDIR"
-  File "${PAYLOAD_DIR}/Install-WebView2.ps1"
-  File "${PAYLOAD_DIR}/MsixTools.ps1"
+  File "${PAYLOAD_DIR}\Install-WebView2.ps1"
+  File "${PAYLOAD_DIR}\MsixTools.ps1"
   ; Only the shared WebView2 helper is invoked. No MSIX deployment, certificate or OCR step.
   nsExec::ExecToLog '"$PowerShell" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\Install-WebView2.ps1"'
   Pop $0
@@ -108,10 +108,10 @@ Section "Install Lenz"
   SetOutPath "$INSTDIR"
   ClearErrors
   SetOverwrite on
-  File "${PAYLOAD_DIR}/lenz.exe"
-  File "${PAYLOAD_DIR}/LICENSE"
+  File "${PAYLOAD_DIR}\lenz.exe"
+  File "${PAYLOAD_DIR}\LICENSE"
   !ifdef HAS_LOADER
-    File "${PAYLOAD_DIR}/WebView2Loader.dll"
+    File "${PAYLOAD_DIR}\WebView2Loader.dll"
   !endif
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   ${If} ${Errors}
