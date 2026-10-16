@@ -88,7 +88,7 @@ OCR 服务列表固定保留系统 OCR,可新增多个百度 OCR / 腾讯云 OCR
 }
 ```
 
-高度动态调整:内容渲染后通过 `window.setSize` 更新。
+高度动态调整:内容渲染后调用 `resize_popup` 更新。保持另一维时读取 `inner_size` 并按当前 DPI 转为逻辑尺寸,与 `set_size` 的内容区尺寸保持一致;禁止把包含 Windows 隐形边框/阴影的 `outer_size` 回填为内容尺寸,以免 ResizeObserver 反复触发后无限加宽或加高。窗口定位和屏幕边界计算仍使用外框尺寸。
 
 宽度可调 + 记忆:卡片右缘有一个宽度调节手柄,用户拖拽实时改变窗口宽度(命令 `resize_popup_width`,夹紧 300~720);拖拽结束时把最终宽度 `patch` 进 `ui.popup.width` 持久化,下次打开 popup 由后端按该宽度摆放(`core::screenshot::popup_width`)。故窗口配置的 `width: 360` 仅为默认/首次宽度,`resizable:false` 指不走系统原生缩放(改用自定义手柄)。
 

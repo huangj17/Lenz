@@ -12,17 +12,22 @@ use crate::core::screenshot::{
 };
 use crate::error::LenzError;
 
-/// 读 popup 当前逻辑尺寸 `(w, h)`;取不到时回退默认宽 + 0 高。
+/// 读取内容区的逻辑尺寸,与 `set_size` 的输入保持一致。
+/// Windows 无装饰但带阴影的窗口仍有外框;用 outer_size 回填会在每次测量后累加边框。
 fn popup_logical_size(popup: &tauri::WebviewWindow) -> (f64, f64) {
     let scale = popup.scale_factor().unwrap_or(1.0);
     popup
-        .outer_size()
+        .inner_size()
         .map(|s| {
             let l = s.to_logical::<f64>(scale);
             (l.width, l.height)
         })
         .unwrap_or((POPUP_WIDTH, 0.0))
 }
+
+#[cfg(all(test, target_os = "windows"))]
+#[path = "popup_resize_tests.rs"]
+mod popup_resize_tests;
 
 /// 取消进行中的 F2 会话并隐藏 popup(spec 06 §6/§7)。
 #[tauri::command]

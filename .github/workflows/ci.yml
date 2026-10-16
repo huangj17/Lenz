@@ -45,6 +45,9 @@ jobs:
       - name: Run Rust tests on macOS
         if: runner.os == 'macOS'
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked
-      - name: Compile Windows tests (runtime validation deferred)
+      - name: Compile Windows tests
         if: runner.os == 'Windows'
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked --no-run
+      - name: Check native Windows popup resizing
+        if: runner.os == 'Windows'
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked native_popup_resize -- --ignored --nocapture

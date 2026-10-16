@@ -11,6 +11,14 @@
 
 ---
 
+## 2026-10-16 · Windows 翻译弹框持续加宽
+
+- [x] 修复自动高度测量及右缘调宽时把外框尺寸回填为内容尺寸的问题;改为读取 `inner_size`,保留 DPI 换算与用户设置的宽度,避免 Windows 隐形边框反复累加。
+- [x] 增加使用生产 popup 窗口属性的 Windows 原生回归,连续执行 400 次高度更新和 100 次宽度更新,覆盖 300~720 宽度范围及上下限;空页面隔离翻译服务和用户配置,接入 Windows CI。
+- [x] macOS 本地 cargo fmt/check/Clippy（全目标、警告视为错误）及 96 项 Rust 测试通过,10 项原生验收默认忽略;IPC 类型未变,生成文件无差异。
+- [ ] Windows 原生回归与新版 EXE 安装/启动验收。
+- [ ] 发布新 EXE 与校验值;Windows 10/11 用户快捷键翻译、多屏混合 DPI 实测。
+
 ## 2026-10-16 · Windows 安装后启动失败
 
 - [x] 增加 Windows 原生 EXE 启动工作流;发布包在冷启动后的一次再次启动中复现 `state() called before manage() for SelectionListener` 并退出（运行 38870342117）。原因是自动创建的 WebView 在 setup 注入状态之前发送 IPC。
