@@ -1,0 +1,76 @@
+name: Windows EXE startup
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Check the published installer or build the current source
+        type: choice
+        options: [published, current]
+        default: published
+
+permissions:
+  contents: read
+
+jobs:
+  startup:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        if: inputs.source == 'current'
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        if: inputs.source == 'current'
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        if: inputs.source == 'current'
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        if: inputs.source == 'current'
+        with:
+          workspaces: src-tauri
+          key: release-windows-msvc
+      - if: inputs.source == 'current'
+        run: pnpm install --frozen-lockfile
+      - if: inputs.source == 'current'
+        shell: powershell
+        run: |
+          choco install nsis --yes --no-progress
+          ./scripts/windows/Build-Exe.ps1 -OutputDirectory artifacts
+      - name: Download published installer
+        if: inputs.source == 'published'
+        shell: powershell
+        run: |
+          New-Item artifacts -ItemType Directory -Force | Out-Null
+          Invoke-WebRequest https://github.com/huangj17/Lenz/releases/download/v0.1.2/Lenz_0.1.2_windows_x64_setup.exe -OutFile artifacts/Lenz_0.1.2_windows_x64_setup.exe
+      - name: Install ordinary EXE without MSIX or certificate trust
+        shell: powershell
+        run: |
+          $setup = (Get-ChildItem artifacts/*_setup.exe | Select-Object -First 1).FullName
+          $install = Start-Process $setup -ArgumentList '/S' -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Installer exit code: $($install.ExitCode)" }
+      - name: Check default startup
+        shell: powershell
+        run: ./scripts/windows/Test-ExeStartup.ps1 -BinaryPath "$env:LOCALAPPDATA/Programs/Lenz/lenz.exe" -ReportPath artifacts/startup-default.json
+      - name: Check visible main window
+        shell: powershell
+        run: |
+          # This job runs only on a disposable GitHub-hosted machine.
+          $path = Join-Path $env:APPDATA 'app.lenz.desktop/config.json'
+          $config = Get-Content $path -Raw | ConvertFrom-Json
+          $config.app.openOnLaunch = $true
+          $config | ConvertTo-Json -Depth 30 | Set-Content $path -Encoding UTF8
+          ./scripts/windows/Test-ExeStartup.ps1 -BinaryPath "$env:LOCALAPPDATA/Programs/Lenz/lenz.exe" -ExpectMainWindow -ReportPath artifacts/startup-visible.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-exe-startup
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 7
