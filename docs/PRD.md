@@ -182,7 +182,7 @@ Bob 是 macOS 上广受好评的翻译工具,但:
 
 **系统识别语言**:跟随系统 OCR 能力
 - macOS Vision:中英日韩等数十种
-- Windows OCR:需安装具有包身份的 MSIX 版本并通过开始菜单或包内登录启动入口运行;系统需安装对应 OCR 语言包。安装助手执行本地合成图片自检,区分缺包身份与缺语言包。
+- Windows OCR:需安装具有包身份的 MSIX 版本并通过开始菜单或包内登录启动入口运行;系统需安装对应 OCR 语言包。安装应用不要求本地 OCR 或语言包,不默认执行 OCR 自检;可直接在安装后配置腾讯云等服务。需要系统 OCR 时再从设置页添加 Windows OCR 语言包并测试;独立合成图片诊断区分缺包身份与缺语言包。
 
 **百度 OCR**:使用文字识别应用的 API Key + Secret Key,支持标准/高精度含位置版、识别语言与服务超时;支持截图翻译及原图覆盖翻译。
 
@@ -233,7 +233,7 @@ interface OCRResult {
 - 用户可在通用设置里开关
 - 实现:
   - macOS:`LSUIElement` + Launch Agent
-  - Windows MSIX:包内 `StartupTask`;无包开发版保留注册表 `Run` 键
+  - Windows MSIX:包内 `StartupTask`;普通 EXE 版和无包开发版使用注册表 `Run` 键
 
 #### 检查更新
 - 开启时启动 3s 后检查,每 24h 检查;重新开启立即检查,支持手动检查
@@ -429,6 +429,7 @@ pub struct TranslateRequest {
 ### 5.3 兼容性
 - macOS 12+(Vision 框架要求)
 - Windows 10 1809+(Windows.Media.Ocr 要求)
+- Windows 默认提供普通 EXE 安装包,无需手动导入证书,安装后可直接配置腾讯云等 OCR。另保留 MSIX + 安装助手 ZIP,供以后需要 Windows 系统 OCR 时可选安装;仅导入证书不会给普通 EXE 赋予包身份。MSIX 测试签名阶段需用户明确检查并信任证书。
 - 架构:x64 + ARM64
 
 ---

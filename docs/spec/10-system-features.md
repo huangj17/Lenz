@@ -99,7 +99,7 @@ fn register_shortcuts(app: &AppHandle, shortcuts: &ShortcutConfig) -> Result<(),
 
 - macOS:写用户 `~/Library/LaunchAgents/` plist,指向当前应用路径。
 - Windows MSIX:调用清单内 `LenzStartup` 的 `StartupTask.RequestEnableAsync` / `Disable`,保持登录启动的包身份。用户或组策略禁用时返回明确错误,不绕过系统设置。
-- Windows 无包开发版:保留 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 的 Lenz 值;该路径不提供系统 OCR 分发保证。
+- Windows 普通 EXE 安装版及无包开发版:使用 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 的 Lenz 值;该路径可使用腾讯云等第三方 OCR,不提供 Windows 系统 OCR。
 - 无需自启插件;重启系统后自动启动仍单列实机验收。
 
 ## 4. 检查更新

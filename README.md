@@ -12,11 +12,16 @@
 |---|---|---|
 | macOS Apple Silicon | [aarch64 DMG](https://github.com/huangj17/Lenz/releases/download/v0.1.2/Lenz_0.1.2_aarch64.dmg) | macOS 12 |
 | macOS Intel | [x64 DMG](https://github.com/huangj17/Lenz/releases/download/v0.1.2/Lenz_0.1.2_x64.dmg) | macOS 12 |
-| Windows x64 | [MSIX + 安装助手 ZIP](https://github.com/huangj17/Lenz/releases/download/v0.1.2/Lenz_0.1.2_windows_x64_test-signed.zip) | Windows 10 1809 |
+| Windows x64（推荐，腾讯云等 OCR） | [普通 EXE 安装包](https://github.com/huangj17/Lenz/releases/download/v0.1.2/Lenz_0.1.2_windows_x64_setup.exe) | Windows 10 1809 |
+| Windows x64（可选，系统 OCR） | [MSIX + 安装助手 ZIP](https://github.com/huangj17/Lenz/releases/download/v0.1.2/Lenz_0.1.2_windows_x64_test-signed.zip) | Windows 10 1809 |
 
 macOS 打开 DMG 后将 Lenz 拖入「应用程序」。本版使用 ad-hoc 签名，尚未完成 Developer ID 签名与公证；首次打开可能需要在系统「隐私与安全性」中确认。
 
-Windows ZIP 包含 MSIX、公开测试证书和安装助手。当前使用 365 天自签测试证书，安装前需检查并手动信任公开 `.cer`；安装助手不会自动修改证书信任。系统 OCR 需要 MSIX 包身份及对应 OCR 语言包，安装后从开始菜单启动。具体步骤见 [Windows 分发指南](docs/windows-distribution.md)。Windows 安装、OCR 和自启运行验收按本次发布安排推迟。
+Windows 推荐下载普通 **EXE 安装包**,无需手动导入证书。安装后在「设置 → 服务 → OCR」添加腾讯云并设为默认即可,无需本地 OCR 语言包。若缺少 WebView2,安装器会下载并验证微软官方运行环境。
+
+以后需要 Windows 系统 OCR 时,可选安装 **MSIX + 安装助手 ZIP**。此版本需要包身份及对应 OCR 语言包;当前使用 365 天自签测试证书,需用户检查后明确导入「本地计算机 → 受信任人」。仅导入证书不能让普通 EXE 启用系统 OCR。切换前请退出应用,按安装说明区分 EXE 与 MSIX 启动入口。详细步骤见 [Windows 分发指南](docs/windows-distribution.md)。
+
+普通 EXE 于 2026-10-16 替换原 MSIX 外壳安装器。EXE 尚无公开可信签名,Windows 可能显示未知发布者/SmartScreen 提示;Windows 原生安装、升级、卸载和腾讯云真实账号识别仍待实测。
 
 安装产物附带 [SHA256SUMS.txt](https://github.com/huangj17/Lenz/releases/download/v0.1.2/SHA256SUMS.txt)。功能和验证范围见 [发布说明](docs/releases/v0.1.2.md)。
 
@@ -59,11 +64,11 @@ v0.1.2 的功能实现与平台运行验收分别记录（详见 [`docs/TODO.md`
 | M6 原图覆盖 F3 | 流程、颜色采样、字体适应、取消和关闭已实现；多屏与原生窗口交互待验收 |
 | M7 设置页 | 现有设置控件已接通；macOS 设置快捷键与部分偏好重启保存已验证，系统自启和 Windows 运行验收待做 |
 | M8 完善 | 中英界面、主题、自启和更新检查已接通；日志轮转、原生毛玻璃与系统交互验收仍有待办 |
-| M9 打包发布 | 双架构 macOS DMG、Windows x64 MSIX 与安装助手已发布；正式可信签名、公证和运行验收待完成 |
+| M9 打包发布 | 双架构 macOS DMG、Windows x64 MSIX、安装助手和 EXE 安装向导已发布；正式可信签名、公证和运行验收待完成 |
 
 本地 macOS 已通过类型检查、37 项前端纯逻辑测试、生产构建和 84 项 Rust 测试。[主分支 CI](https://github.com/huangj17/Lenz/actions/workflows/ci.yml) 执行双平台构建与 Rust fmt/Clippy,macOS 运行 Rust 测试,Windows 编译测试。Windows 安装、OCR、自启和 GUI 验收仍需 Windows 客户端运行报告。
 
-`v*` 标签触发双架构 macOS DMG 和 Windows x64 MSIX 构建，成功后上传 [Releases](https://github.com/huangj17/Lenz/releases)。Windows 安装/OCR 验收工作流仅手动触发，默认只构建。
+`v*` 标签触发双架构 macOS DMG 和 Windows x64 MSIX、安装助手 ZIP、EXE 安装向导构建，成功后上传 [Releases](https://github.com/huangj17/Lenz/releases)。Windows 安装/OCR 验收工作流仅手动触发，默认只构建。
 
 ## 🚀 开发
 
@@ -90,7 +95,7 @@ python3 scripts/generate-notices.py                  # 依赖变更后刷新离�
 
 macOS 首次运行划词监听 / 截图相关功能时,需在系统设置中授予**辅助功能**与**屏幕录制**权限。
 
-Windows 开发机可用 `pnpm windows:msix:test` 构建测试签名包；直接运行开发 exe 缺少 MSIX 包身份，不能作为系统 OCR 验收方式。安装助手默认执行真实 OCR 识别自检，构建环境与安装步骤见 [Windows 分发指南](docs/windows-distribution.md)。
+Windows 开发机可用 `pnpm windows:msix:test` 构建测试签名包，也可直接用 `pnpm windows:exe` 构建普通 EXE 安装包（需 NSIS 3）,或加 `-BinaryPath <lenz.exe>` 复用已有 MSVC 构建；直接运行开发 exe 缺少 MSIX 包身份，不能作为系统 OCR 验收方式。安装助手默认不执行 OCR 自检；严格识别验收通过独立 `Test-InstalledOcr.ps1` 执行，构建环境与安装步骤见 [Windows 分发指南](docs/windows-distribution.md)。
 
 ### 目录结构
 

@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
     "windows:msix": "powershell -NoProfile -File scripts/windows/Build-Msix.ps1",
-    "windows:msix:test": "powershell -NoProfile -File scripts/windows/Build-TestMsix.ps1"
+    "windows:msix:test": "powershell -NoProfile -File scripts/windows/Build-TestMsix.ps1",
+    "windows:exe": "powershell -NoProfile -File scripts/windows/Build-Exe.ps1"
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.9",

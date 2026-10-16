@@ -194,7 +194,7 @@
     "autoDetect": "自动检测语言",
     "languages": "识别语言",
     "languagesDesc": "点击添加或移除语言，使用拖动或箭头调整优先顺序。",
-    "backendWindowsHint": "Windows 系统 OCR，需要对应的识别语言包",
+    "backendWindowsHint": "可选：使用系统 OCR 时才需要对应语言包；腾讯云等 OCR 服务无需安装本地语言包",
     "systemAccuracy": "识别策略由 Windows 系统 OCR 管理",
     "systemConfidence": "Windows OCR 不提供逐行置信度",
     "minConfidence": "最低识别置信度",
@@ -211,8 +211,8 @@
     "installLanguages": "安装语言包",
     "languageRequired": "关闭系统语言回退时，请至少选择一种已安装的识别语言。",
     "autoDetectRequires13": "自动语言检测需要 macOS 13 或更新版本；当前系统使用优先识别语言。",
-    "packageRequired": "请安装 Windows MSIX 版本，并从开始菜单打开 Lenz，才能使用系统 OCR。",
-    "downloadInstalledVersion": "下载 Windows 安装版本"
+    "packageRequired": "系统 OCR 为可选功能，需要安装并运行 MSIX 版本；仅导入证书不能启用此功能。普通 EXE 版本可直接使用腾讯云等 OCR 服务。",
+    "downloadInstalledVersion": "可选：下载系统 OCR 版（MSIX）"
   },
   "about": {
     "beta": "测试版",

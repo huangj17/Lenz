@@ -153,7 +153,9 @@ pub fn default_engine() -> Arc<dyn OcrEngine> {
 
 ### 4.2 桌面应用包身份与验证边界
 
-[Microsoft 文档](https://learn.microsoft.com/en-us/uwp/api/windows.media.ocr)限定本 API 在桌面应用中的官方支持范围为具有 package identity 的应用。Lenz 使用完整 MSIX 包,清单及构建入口见 [spec 11 §4.2](./11-nfr.md#42-windows)。开始菜单通过包入口启动 `lenz.exe`;登录启动使用包内 `LenzStartup`,保持相同身份。普通 exe/MSI 开发路径不承诺系统 OCR 可用。
+[Microsoft 文档](https://learn.microsoft.com/en-us/uwp/api/windows.media.ocr)限定本 API 在桌面应用中的官方支持范围为具有 package identity 的应用。Lenz 的系统 OCR 版使用完整 MSIX 包。普通 EXE 安装版不依赖 MSIX/证书信任,支持腾讯云、百度等 OCR,无包身份时系统 OCR 不可用;仅导入证书不能补足身份,需要另行安装并从 MSIX 包入口运行应用。清单及构建入口见 [spec 11 §4.2](./11-nfr.md#42-windows)。开始菜单通过包入口启动 `lenz.exe`;登录启动使用包内 `LenzStartup`,保持相同身份。普通 EXE 安装版和无包开发路径不提供 Windows 系统 OCR。
+
+本地 OCR 为可选能力:用户安装阶段不检测识别结果、不下载或强制要求语言包;安装后可直接选择腾讯云/百度 OCR。以后需要系统 OCR 时,通过设置页的 Windows 语言设置入口补齐语言包并测试。安装成功与 OCR 验收分别记录。
 
 识别前检查实际进程身份。缺身份与缺语言包分别返回 `OcrIdentityRequired`、`OcrUnavailable`;F2/F3 分别发 `ocr://package-required`、`ocr://language-missing`,设置页跳到 OCR 并展示对应安装或语言入口。`get_system_info.windowsPackageIdentity` 用于显示实际进程状态;不从配置推断身份。
 

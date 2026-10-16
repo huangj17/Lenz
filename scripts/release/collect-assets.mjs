@@ -10,7 +10,7 @@ export async function collectAssets(input, output) {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name);
       if (entry.isDirectory()) await walk(path);
-      else if (entry.isFile() && /\.(dmg|msix|zip)$/i.test(entry.name)) paths.push(path);
+      else if (entry.isFile() && (/\.(dmg|msix|zip)$/i.test(entry.name) || /^Lenz_[\d.]+_windows_(x64|arm64)_setup\.exe$/i.test(entry.name))) paths.push(path);
     }
   }
   await walk(input);

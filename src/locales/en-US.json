@@ -194,7 +194,7 @@
     "autoDetect": "Auto-detect language",
     "languages": "Recognition languages",
     "languagesDesc": "Add or remove languages, then drag or use the arrows to change their priority.",
-    "backendWindowsHint": "Windows system OCR requires the matching recognition language packs",
+    "backendWindowsHint": "Optional: language packs are only needed for system OCR. Tencent and other OCR services do not require local language packs.",
     "systemAccuracy": "Recognition strategy is managed by Windows OCR",
     "systemConfidence": "Windows OCR does not provide per-line confidence",
     "minConfidence": "Minimum recognition confidence",
@@ -211,8 +211,8 @@
     "installLanguages": "Install language packs",
     "languageRequired": "Choose at least one installed language when system fallback is disabled.",
     "autoDetectRequires13": "Automatic language detection requires macOS 13 or later. This system uses the preferred recognition languages.",
-    "packageRequired": "Install the Windows MSIX version and open Lenz from the Start menu to use system OCR.",
-    "downloadInstalledVersion": "Download the Windows installer"
+    "packageRequired": "System OCR is optional and requires running the MSIX version; importing a certificate alone is not sufficient. The ordinary EXE version can use Tencent and other OCR services directly.",
+    "downloadInstalledVersion": "Optional: get the system OCR version (MSIX)"
   },
   "about": {
     "beta": "Beta",

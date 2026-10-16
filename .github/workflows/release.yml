@@ -94,6 +94,12 @@ jobs:
       - name: Build test-signed MSIX (installation/OCR verification deferred)
         shell: powershell
         run: ./scripts/windows/Build-TestMsix.ps1 -CertificateValidityDays 365 -OutputDirectory src-tauri/target/msix/release
+      - name: Install NSIS
+        shell: powershell
+        run: choco install nsis --yes --no-progress
+      - name: Build standalone EXE installer without MSIX certificate requirement
+        shell: powershell
+        run: ./scripts/windows/Build-Exe.ps1 -BinaryPath src-tauri/target/x86_64-pc-windows-msvc/release/lenz.exe -OutputDirectory src-tauri/target/release-assets
       - name: Bundle public certificate and installation helpers
         shell: powershell
         env:

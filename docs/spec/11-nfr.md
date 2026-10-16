@@ -66,7 +66,7 @@ Tauri 前端沙箱限制:只允许访问 `app_config_dir` 和 `app_log_dir`。�
 | 平台 | 格式 |
 |---|---|
 | macOS | `.dmg`(含 `.app` bundle) |
-| Windows | 完整 `.msix` + 安装/识别验收 PowerShell 助手;开发用 exe/MSI 不作为系统 OCR 的正式分发产物 |
+| Windows | 普通 `.exe`（NSIS,无需导入证书,使用腾讯云等 OCR）;另提供完整 `.msix` 和安装助手 ZIP（系统 OCR 可选版本） |
 
 Windows 的构建和安装识别工作流已编写,实际运行结果独立验收。macOS 正式签名与发布 CI 尚待配置。
 
@@ -88,14 +88,15 @@ Windows 的构建和安装识别工作流已编写,实际运行结果独立验�
 
 - 包身份:`src-tauri/msix/identity.json`;完整包内 `lenz.exe`,`Windows.FullTrustApplication` + `runFullTrust`,支持 Windows 10 1809+。MSIX 名称、Publisher、版本必须在升级中保持兼容;Publisher 必须与签名证书 Subject 一致。默认 Publisher 是待正式证书确定的配置,不能当作已有公开可信签名。
 - 构建:`pnpm windows:msix -CertificateThumbprint <thumbprint>`;原生 MSVC、静态 CRT、Tauri `--no-bundle` 后生成清单/图标,Windows SDK MakeAppx 完整校验并打包,SignTool SHA256 签名。正式签名可指定 `-TimestampUrl` 使用证书提供商的 RFC 3161 时间戳服务。x64 默认,`-Architecture arm64` 支持生成 ARM64 包但仍待原生验收。PE 检查拒绝架构不符、遗漏动态 WebView2Loader 和外部 VC++ runtime 依赖。
+- 普通 EXE:`pnpm windows:exe` 在 Windows 原生 MSVC/静态 CRT 构建后,用 NSIS 3 生成当前用户安装器;也可用 `-BinaryPath <lenz.exe>` 复用已有构建,动态 Loader 需显式 `-LoaderPath`。PE 校验架构/运行时依赖,按白名单暂存应用、许可证和 WebView2 助手,不嵌入 MSIX/证书、不调用包部署或证书导入。默认安装到 `%LOCALAPPDATA%/Programs/Lenz`,提供开始菜单入口和 Windows 应用卸载项;升级/卸载要求先退出正在运行的应用,仅清理自身文件和匹配路径的自启项,保留用户配置。安装只要求 WebView2,不执行 OCR 自检;完成页提供以后使用系统 OCR 的 MSIX 下载链接。无包身份的普通 EXE 可用腾讯云/百度 OCR,使用注册表 Run 自启;系统 OCR 需切换到 MSIX,并非只导入证书就能原地启用。EXE 尚无公开可信签名,可能显示 SmartScreen/未知发布者,与手动导入 MSIX 测试证书不同。
 - WebView2:MSVC Loader 静态链接;若提供已有动态链接 exe,需 `-LoaderPath` 指定匹配架构 DLL。清单声明 `Microsoft.WebView2` ExternalDependency。双击 MSIX 由支持该功能的 Microsoft App Installer 处理;PowerShell 安装助手另行检查三处官方 runtime 注册项,缺少时下载官方 bootstrapper、验证 Microsoft 签名并安装,避免 `Add-AppxPackage` 忽略 ExternalDependency。
-- 安装:`Install-Lenz.ps1 -PackagePath <signed.msix>` 由标准 `Add-AppxPackage` 验证包哈希/签名/Publisher/证书信任并安装,随后保证 WebView2 可用,默认从已安装的 AUMID 运行 OCR 诊断。没有注册散装 manifest 或允许 unsigned 的旁路,不自动修改证书信任。识别失败返回错误和诊断路径,包已安装可修复语言能力后重试。`-SkipOcrCheck` 仅用于单独排查安装步骤,不能作为 OCR 验收。开始菜单和包内 StartupTask 保留身份;不要复制 exe 到包外启动。
+- 安装:`Install-Lenz.ps1 -PackagePath <signed.msix>` 由标准 `Add-AppxPackage` 验证包哈希/签名/Publisher/证书信任并安装,随后保证 WebView2 可用,默认不执行 OCR 诊断或安装 OCR 语言包。`-CheckOcr` 可选执行自检,失败仅警告并保留应用安装成功和启动;原 `-SkipOcrCheck` 兼容保留,与 `-CheckOcr` 互斥。严格验收使用独立 `Test-InstalledOcr.ps1`,失败仍返回非零状态,不把跳过视作 OCR 通过。没有注册散装 manifest 或允许 unsigned 的旁路,不自动修改证书信任。开始菜单和包内 StartupTask 保留身份;不要复制 exe 到包外启动。
 - 当前用户尚无正式证书。`pnpm windows:msix:test` 默认创建 14 天自签测试证书并导出公开 `.cer`,发布构建用 `-CertificateValidityDays 365`;签完删除构建机私钥,不导出 PFX、不自动修改信任。需明确检查并信任此测试证书才能安装。v0.1.0 按用户要求先公开分发测试签名包并推迟 Windows 运行验收;公开可信签名、稳定生产 Publisher 仍待正式证书/Store 配置。未签名 MSIX 仅能检查内容,不能绕过安装签名要求。
 - 详细命令和验收步骤见 [Windows 分发指南](../windows-distribution.md)。官方依据:[完整 MSIX 转换](https://learn.microsoft.com/en-us/windows/msix/desktop/desktop-to-uwp-manual-conversion)、[签名证书](https://learn.microsoft.com/en-us/windows/msix/package/create-certificate-package-signing)、[WebView2 分发](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)。
 
 ### 4.3 CI 流程
 
-`.github/workflows/release.yml` 在 `v*` 标签 push 后校验标签与 Rust/Tauri/npm 三处版本一致,并构建 macOS Apple Silicon/Intel DMG、Windows x64 MSIX。macOS 自动选择 Xcode 26+、最低系统 12、ad-hoc 签名;Windows 使用 365 天自签测试证书。全部构建成功后上传 GitHub Release 及 SHA256 校验值。分支上的手动运行只构建 artifacts,不发布 Release。Developer ID 公证和 Windows 公开可信签名仍待后续配置。
+`.github/workflows/release.yml` 在 `v*` 标签 push 后校验标签与 Rust/Tauri/npm 三处版本一致,并构建 macOS Apple Silicon/Intel DMG、Windows x64 MSIX、安装助手 ZIP 和 EXE 安装向导。两种安装器复用同一 MSVC 应用构建,EXE 直接安装应用文件,MSIX 独立封包签名。发布收集器只收录规范命名的 setup EXE,并将其加入 SHA256SUMS,不上传裸应用 exe。macOS 自动选择 Xcode 26+、最低系统 12、ad-hoc 签名;Windows MSIX 使用 365 天自签测试证书,普通 EXE 当前未做公开可信签名。全部构建成功后上传 GitHub Release 及 SHA256 校验值。分支上的手动运行只构建 artifacts,不发布 Release。Developer ID 公证和 Windows 公开可信签名仍待后续配置。
 
 `.github/workflows/windows-msix.yml` 保留为手动验收工作流,默认仅构建;选中 `verify_installed_ocr` 才执行安装识别。v0.1.0 按用户要求暂不运行此验收:
 

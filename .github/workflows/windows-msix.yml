@@ -38,9 +38,19 @@ jobs:
             [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors)
             if ($errors.Count) { throw ($errors | Out-String) }
           }
+      - name: Test installation without local OCR
+        # User installation skips OCR; this test isolates that policy from Windows APIs.
+        shell: powershell
+        run: ./scripts/windows/Test-Installer.ps1
       - name: Build and test-sign MSIX
         shell: powershell
         run: ./scripts/windows/Build-TestMsix.ps1 -CiIdentity
+      - name: Install NSIS
+        shell: powershell
+        run: choco install nsis --yes --no-progress
+      - name: Build standalone EXE installer
+        shell: powershell
+        run: ./scripts/windows/Build-Exe.ps1 -BinaryPath src-tauri/target/x86_64-pc-windows-msvc/release/lenz.exe -OutputDirectory src-tauri/target/exe
       - name: Save test package
         uses: actions/upload-artifact@v4
         with:
@@ -52,6 +62,13 @@ jobs:
             src-tauri/target/msix/test/*.txt
             src-tauri/target/msix/test/*.ps1
           if-no-files-found: warn
+          retention-days: 7
+      - name: Save standalone EXE separately
+        uses: actions/upload-artifact@v4
+        with:
+          name: lenz-exe-test-only
+          path: src-tauri/target/exe/*_setup.exe
+          if-no-files-found: error
           retention-days: 7
 
   install-and-recognize:
