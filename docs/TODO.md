@@ -15,14 +15,15 @@
 
 - [x] 应用、前端和 Rust 版本统一升为 0.1.4,MSIX 对应 0.1.4.0;README 保留 EXE/MSIX 双入口,更新下载链接、发布说明与安装示例。
 - [x] 本地版本一致性、Cargo check/fmt、前端生产构建与 41 项前端/打包测试通过;Cargo.lock 仅更新应用自身版本。
-- [ ] 全平台构建与 Windows 安装/启动检查。
-- [ ] 发布 v0.1.4 并回验公开下载校验值和包内版本。
+- [x] [macOS/Windows CI](https://github.com/huangj17/Lenz/actions/runs/38886581664)与[全部平台构建](https://github.com/huangj17/Lenz/actions/runs/38886581980)通过。Windows 普通 EXE 安装后的文件版本 `0.1.4.0`、卸载项版本 `0.1.4`;默认后台启动、连续三次显示主窗口检查通过,启动日志无托盘创建错误。
+- [x] [v0.1.4 Release](https://github.com/huangj17/Lenz/releases/tag/v0.1.4)已公开发布并设为 latest,保留 EXE 与 MSIX 双入口。公开直链重新下载五项安装附件,全部 SHA256 匹配;EXE/MSIX 内应用逐字节一致,MSIX 版本 `0.1.4.0`,两种 DMG 应用版本均为 `0.1.4`。EXE 无 MSIX/证书,为 3,995,724 字节,SHA256 `61011aa9c53628dc892a69ea9e9a7be59596434c4a15b061517107d8dbf7b4cd`。
 
 ## 2026-10-16 · Windows 托盘图标为黑色
 
 - [x] 确认 Windows 与 macOS 共用黑色模板 PNG;Windows 不支持模板重着色,深色任务栏上难以辨认。改为 Windows 使用现有彩色 `32x32.png`,仅 macOS 使用 `tray.png` 并启用模板标记(→ spec 10 §1.1、spec 09 §2.1)。
 - [x] macOS cargo fmt/check/全目标 Clippy（警告视为错误）与 Windows GNU 全目标交叉编译检查通过;复用现有彩色资源,未改变菜单及点击行为。
-- [ ] Windows 深浅色任务栏及隐藏图标区实机验收。当前 v0.1.3 发布包尚未包含本项改动。
+- [x] 修复已随 v0.1.4 的 EXE/MSIX 发布。
+- [ ] Windows 深浅色任务栏及隐藏图标区实机验收。
 
 ## 2026-10-16 · v0.1.3 独立版本发布
 
