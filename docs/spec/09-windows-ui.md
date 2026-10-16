@@ -33,7 +33,7 @@ macOS:`titleBarStyle: "overlay"`(隐藏标题栏,前端用 `data-tauri-drag-regi
 
 主题由 `<html>.dark` 统一控制,Tailwind `dark:` 用相同 class selector,避免手动深色主题下选中控件仍出现白底。
 
-应用图标按 PRD §4.4 使用冰蓝渐变圆角底板。`scripts/gen-icons.mjs` 复用透明的 `src/assets/lenz-logo.svg` 生成带底板的 `lenz-logo.png`(1024×1024),再执行 `pnpm tauri icon src/assets/lenz-logo.png` 同步 `src-tauri/icons/` 的 PNG、macOS ICNS 与 Windows ICO/MSIX 图标。窗口内 `LensMark` 仍直接使用透明 SVG,托盘模板使用独立的 `tray.svg`。
+应用图标按 PRD §4.4 使用冰蓝渐变圆角底板。`scripts/gen-icons.mjs` 复用透明的 `src/assets/lenz-logo.svg` 生成带底板的 `lenz-logo.png`(1024×1024),再执行 `pnpm tauri icon src/assets/lenz-logo.png` 同步 `src-tauri/icons/` 的 PNG、macOS ICNS 与 Windows ICO/MSIX 图标。窗口内 `LensMark` 仍直接使用透明 SVG;macOS 托盘模板使用独立的 `tray.svg`,Windows 托盘使用生成的彩色 `32x32.png`(见 spec 10 §1.1)。
 
 ### 2.2 Tab 结构
 

@@ -11,6 +11,12 @@
 
 ---
 
+## 2026-10-16 · Windows 托盘图标为黑色
+
+- [x] 确认 Windows 与 macOS 共用黑色模板 PNG;Windows 不支持模板重着色,深色任务栏上难以辨认。改为 Windows 使用现有彩色 `32x32.png`,仅 macOS 使用 `tray.png` 并启用模板标记(→ spec 10 §1.1、spec 09 §2.1)。
+- [x] macOS cargo fmt/check/全目标 Clippy（警告视为错误）与 Windows GNU 全目标交叉编译检查通过;复用现有彩色资源,未改变菜单及点击行为。
+- [ ] Windows 深浅色任务栏及隐藏图标区实机验收。当前 v0.1.3 发布包尚未包含本项改动。
+
 ## 2026-10-16 · v0.1.3 独立版本发布
 
 - [x] 将应用、前端和 Rust 版本统一升为 0.1.3,MSIX 对应 0.1.3.0;README 保留普通 EXE/MSIX 双入口并更新新版本下载及安装说明。

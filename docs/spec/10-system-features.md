@@ -8,9 +8,8 @@
 
 ### 1.1 图标
 
-- 文件:`src-tauri/icons/tray.png`(macOS:16×16 & 32×32,Windows:16×16 & 32×32)。
-- macOS:模板图标(黑白,系统自动适配深浅色)。
-- Windows:彩色图标。
+- macOS:使用 `src-tauri/icons/tray.png` 单色模板(64×64,由 `tray.svg` 生成),启用 `icon_as_template(true)`,系统自动适配菜单栏深浅色。
+- Windows:使用现有的 `src-tauri/icons/32x32.png` 彩色应用图标,关闭模板标记;由系统缩放到托盘尺寸。Windows 不会像 macOS 一样自动重着色,不能复用黑色模板,否则在深色任务栏上难以辨认。
 
 ### 1.2 托盘菜单
 
@@ -38,22 +37,7 @@
 
 ### 1.3 实现
 
-```rust
-// setup.rs
-fn build_tray(app: &AppHandle) -> Result<TrayIcon, LenzError> {
-    let menu = build_tray_menu(app);
-    TrayIconBuilder::new()
-        .icon(app.default_window_icon().unwrap().clone())
-        .menu(&menu)
-        .on_menu_event(handle_menu_event)
-        .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click { button: MouseButton::Left, .. } = event {
-                show_main_window(tray.app_handle());
-            }
-        })
-        .build(app)?
-}
-```
+实现位于 `src-tauri/src/tray.rs` 的 `build_tray`:按编译目标选取上述内嵌 PNG,仅在 macOS 启用模板标记,再注册菜单及左键点击事件。左键松开时调用 `show_main_window`,右键使用原生托盘菜单。
 
 配置变更后(快捷键/划词开关)重建菜单:`rebuild_tray_menu(app)`。
 
@@ -145,6 +129,7 @@ Windows 普通 EXE 的开始菜单与安装完成页通过 `--show-main` 明确�
 ## 8. 验收标准
 
 - [ ] 托盘图标在 macOS 深/浅色模式下均清晰。
+- [ ] Windows 托盘使用彩色图标,在深浅色任务栏及隐藏图标区均清晰。
 - [ ] 托盘菜单"划词监听"toggle 与实际监听状态同步。
 - [ ] 三项翻译快捷键与「设置...」统一在右侧显示,修改或清空快捷键后提示同步更新。
 - [ ] macOS 托盘「设置...」显示 `⌘,`,从 Lenz 窗口按 `Command+,` 可打开主设置窗口;配置变更重建托盘菜单后仍可用。

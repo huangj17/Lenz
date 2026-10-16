@@ -138,14 +138,18 @@ pub fn build_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), LenzError> {
         app_submenu.insert(&settings, 2)?;
         app_submenu.insert(&tauri::menu::PredefinedMenuItem::separator(app)?, 3)?;
     }
-    // 专用单色模板图标(icons/tray.svg → icons/tray.png,见 scripts/gen-icons.mjs),
-    // 编译期内嵌;不再复用应用窗口图标。
-    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))
+    // macOS 使用单色模板由系统适配深浅色;Windows 直接绘制位图,需使用彩色图标。
+    let icon_bytes: &[u8] = if cfg!(target_os = "macos") {
+        include_bytes!("../icons/tray.png")
+    } else {
+        include_bytes!("../icons/32x32.png")
+    };
+    let icon = tauri::image::Image::from_bytes(icon_bytes)
         .map_err(|e| LenzError::internal(format!("load tray icon: {e}")))?;
 
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
-        .icon_as_template(true) // macOS:黑白模板图标,系统自动适配深浅色。
+        .icon_as_template(cfg!(target_os = "macos"))
         .tooltip("Lenz")
         .menu(&menu)
         .show_menu_on_left_click(false)
