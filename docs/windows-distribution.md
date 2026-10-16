@@ -54,7 +54,7 @@ pnpm windows:msix:test
 保持安装助手文件在同一目录,运行:
 
 ```powershell
-powershell -NoProfile -File .\Install-Lenz.ps1 -PackagePath .\Lenz-0.1.3.0-x64.msix -Launch
+powershell -NoProfile -File .\Install-Lenz.ps1 -PackagePath .\Lenz-0.1.4.0-x64.msix -Launch
 ```
 
 助手通过标准 `Add-AppxPackage` 让 Windows 验证包签名/内容/Publisher/证书信任并安装,再检查 WebView2,缺少时下载官方 bootstrapper 并验证 Microsoft 签名后安装。默认仅安装应用和检查 WebView2,不执行 OCR 诊断;`-Launch` 从已安装的 AUMID 启动应用。助手没有允许 unsigned 或注册散装 manifest 的旁路,不代替测试证书的手动信任步骤。
@@ -95,7 +95,7 @@ pnpm windows:exe
 pnpm windows:exe -BinaryPath .\src-tauri\target\x86_64-pc-windows-msvc\release\lenz.exe
 ```
 
-输出为 `src-tauri/target/exe/Lenz_0.1.3_windows_x64_setup.exe`。支持 `-OutputDirectory`、`-MakeNsisPath`、`-Architecture arm64`;动态 Loader 需显式传入匹配架构的 `-LoaderPath`。生成前核对 PE 架构、静态运行时及 Loader,仅暂存明确列出的文件,不读取或嵌入 MSIX/证书。NSIS 创建当前用户安装器、开始菜单和卸载器;安装阶段仅调用 WebView2 助手。
+输出为 `src-tauri/target/exe/Lenz_0.1.4_windows_x64_setup.exe`。支持 `-OutputDirectory`、`-MakeNsisPath`、`-Architecture arm64`;动态 Loader 需显式传入匹配架构的 `-LoaderPath`。生成前核对 PE 架构、静态运行时及 Loader,仅暂存明确列出的文件,不读取或嵌入 MSIX/证书。NSIS 创建当前用户安装器、开始菜单和卸载器;安装阶段仅调用 WebView2 助手。
 
 ## 3. 正式签名
 
