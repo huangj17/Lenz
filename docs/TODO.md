@@ -16,7 +16,8 @@
 - [x] 增加 Windows 原生 EXE 启动工作流;发布包在冷启动后的一次再次启动中复现 `state() called before manage() for SelectionListener` 并退出（运行 38870342117）。原因是自动创建的 WebView 在 setup 注入状态之前发送 IPC。
 - [x] 通过启动插件在配置窗口创建前准备全部状态与事件,再使用 Tauri 原有的自动建窗流程。EXE 开始菜单/完成页增加 `--show-main`;托盘失败时显示主窗口。Windows 主线程致命错误写入独立启动日志并显示原生错误提示。
 - [x] 修复 Windows 原生 NSIS 构建的源文件分隔符,增加失败时缓存及编译产物保留。macOS 本地 cargo check/fmt/Clippy、96 项 Rust 测试（10 项原生验收忽略）、41 项前端/打包测试、NSIS 3.13 警告视为错误的编译及 PowerShell 语法检查通过;启动修复提交的 Windows/macOS CI（38870808696）均通过。Rust 的 localhost mock 测试需在允许回环监听的环境运行。
-- [ ] 修复构建的原生安装、连续启动和主窗口可见检查;替换 Release EXE 并更新校验值。
+- [x] [Windows Server 原生验收](https://github.com/huangj17/Lenz/actions/runs/38874364350)通过:普通 EXE 静默安装、默认后台启动完成初始化、连续三次 `--show-main` 显示主窗口且进程保持运行。最终应用构建来自 93e3474;检查脚本已修正运行中日志的共享读取,并支持复用已有安装包。安装器解包后与同次 MSVC 应用逐字节一致,无 MSIX/证书载荷。
+- [ ] 替换 Release EXE 并更新校验值:3,996,423 字节,SHA256 `363f78ae1883432de58ef0b471eb3e7f8e16b4a20888a4199ce098250c5ceb69`。MSIX/ZIP 和 macOS 附件保持原构建。
 - [ ] Windows 10/11 用户机器启动及腾讯云真实识别仍需验收。
 
 ## 2026-10-16 · 普通 EXE 分发与系统 OCR 可选安装

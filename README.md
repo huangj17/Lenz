@@ -17,11 +17,11 @@
 
 macOS 打开 DMG 后将 Lenz 拖入「应用程序」。本版使用 ad-hoc 签名，尚未完成 Developer ID 签名与公证；首次打开可能需要在系统「隐私与安全性」中确认。
 
-Windows 推荐下载普通 **EXE 安装包**,无需手动导入证书。安装后在「设置 → 服务 → OCR」添加腾讯云并设为默认即可,无需本地 OCR 语言包。若缺少 WebView2,安装器会下载并验证微软官方运行环境。
+Windows 推荐下载普通 **EXE 安装包**,无需手动导入证书。安装完成页与开始菜单会显示主窗口,在「设置 → 服务 → OCR」添加腾讯云并设为默认即可,无需本地 OCR 语言包。若缺少 WebView2,安装器会下载并验证微软官方运行环境。
 
 以后需要 Windows 系统 OCR 时,可选安装 **MSIX + 安装助手 ZIP**。此版本需要包身份及对应 OCR 语言包;当前使用 365 天自签测试证书,需用户检查后明确导入「本地计算机 → 受信任人」。仅导入证书不能让普通 EXE 启用系统 OCR。切换前请退出应用,按安装说明区分 EXE 与 MSIX 启动入口。详细步骤见 [Windows 分发指南](docs/windows-distribution.md)。
 
-普通 EXE 于 2026-10-16 替换原 MSIX 外壳安装器。EXE 尚无公开可信签名,Windows 可能显示未知发布者/SmartScreen 提示;Windows 原生安装、升级、卸载和腾讯云真实账号识别仍待实测。
+普通 EXE 于 2026-10-16 替换原 MSIX 外壳安装器,并重新编译修复启动时进程退出的问题。已通过 [Windows Server 自动安装与连续三次显示主窗口检查](https://github.com/huangj17/Lenz/actions/runs/38874364350);Windows 10/11 用户机器、升级/卸载及腾讯云真实账号识别仍待实测。EXE 尚无公开可信签名,Windows 可能显示未知发布者/SmartScreen 提示。
 
 安装产物附带 [SHA256SUMS.txt](https://github.com/huangj17/Lenz/releases/download/v0.1.2/SHA256SUMS.txt)。功能和验证范围见 [发布说明](docs/releases/v0.1.2.md)。
 
