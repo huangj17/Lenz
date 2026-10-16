@@ -182,11 +182,20 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         crate::core::indicator::hide(&h_dismiss);
     });
 
-    // Step 2:注册托盘。
-    if let Err(e) = tray::build_tray(handle) {
+    // WebView2 在创建后续窗口时会泵送消息,先创建的前端可能立即调用 IPC。
+    // 因此配置中的窗口均禁用自动创建,等全部 managed state 和监听器就绪再建窗。
+    for window_config in &app.config().app.windows {
+        tauri::WebviewWindowBuilder::from_config(handle, window_config)?.build()?;
+    }
+
+    // Step 2:注册托盘。托盘失败时显示主窗口,保留可见入口。
+    let tray_failed = if let Err(e) = tray::build_tray(handle) {
         log::warn!("build tray failed: {e}");
         warn(app, "tray", &format!("{e}"));
-    }
+        true
+    } else {
+        false
+    };
 
     // Step 3:注册全局快捷键。
     if let Err(e) = shortcut::register_shortcuts(handle, &config.shortcuts) {
@@ -198,8 +207,10 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     // (spec 05 §1/§2)。默认 enabled=false → 不自动开启(opt-in,无权限惊扰)。
     selection::sync(handle);
 
-    // Step 5:按 openOnLaunch 决定是否显示 main 窗口。
-    if config.app.open_on_launch {
+    // EXE 开始菜单/安装完成页的明确打开操作不应受后台启动偏好影响。
+    let explicitly_opened =
+        cfg!(target_os = "windows") && std::env::args_os().skip(1).any(|arg| arg == "--show-main");
+    if config.app.open_on_launch || explicitly_opened || tray_failed {
         if let Some(window) = handle.get_webview_window("main") {
             if let Err(e) = window.show() {
                 log::warn!("show main window failed: {e}");

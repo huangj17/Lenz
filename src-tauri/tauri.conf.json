@@ -14,6 +14,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "url": "index.html?window=main",
         "title": "Lenz",
         "width": 900,
@@ -27,6 +28,7 @@
       },
       {
         "label": "popup",
+        "create": false,
         "url": "index.html?window=popup",
         "title": "Lenz Popup",
         "width": 360,
@@ -42,6 +44,7 @@
       },
       {
         "label": "indicator",
+        "create": false,
         "url": "index.html?window=indicator",
         "title": "Lenz Indicator",
         "width": 36,

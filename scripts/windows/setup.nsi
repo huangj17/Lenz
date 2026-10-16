@@ -31,6 +31,7 @@ Var PowerShell
 !insertmacro MUI_PAGE_INSTFILES
 !define MUI_FINISHPAGE_TEXT "$(FinishedText)"
 !define MUI_FINISHPAGE_RUN "$INSTDIR\lenz.exe"
+!define MUI_FINISHPAGE_RUN_PARAMETERS "--show-main"
 !define MUI_FINISHPAGE_RUN_TEXT "$(LaunchText)"
 !define MUI_FINISHPAGE_LINK "$(SystemOcrLink)"
 !define MUI_FINISHPAGE_LINK_LOCATION "https://github.com/huangj17/Lenz/releases"
@@ -118,7 +119,7 @@ Section "Install Lenz"
     SetErrorLevel 1
     Abort
   ${EndIf}
-  CreateShortcut "$SMPROGRAMS\Lenz.lnk" "$INSTDIR\lenz.exe"
+  CreateShortcut "$SMPROGRAMS\Lenz.lnk" "$INSTDIR\lenz.exe" "--show-main"
   WriteRegStr HKCU "Software\LenzDesktop" "InstallDir" "$INSTDIR"
   WriteRegDWORD HKCU "Software\LenzDesktop" "InstallerLanguage" $LANGUAGE
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "Lenz (EXE)"

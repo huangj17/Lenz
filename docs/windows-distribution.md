@@ -41,6 +41,10 @@ pnpm windows:msix:test
 
 安装完成后打开 Lenz,进入「设置 → 服务 → OCR」添加腾讯云 SecretId/SecretKey,选择腾讯云并设为默认。无需安装系统 OCR 语言包。升级或卸载前,先从托盘菜单退出 Lenz。应用配置不因 EXE 重装或卸载而删除。
 
+开始菜单与安装完成页使用 `--show-main` 显示主窗口,即使「启动时打开主窗口」关闭也能进入设置。登录启动仍保留后台启动偏好。
+
+若点击后没有窗口和托盘,可通过 Win+R 打开 `%LOCALAPPDATA%\app.lenz.desktop\logs` 检查日志。新构建会在主线程致命错误时弹出原生提示,并额外写入 `startup-error.log`。反馈时提供错误文本和日志末尾即可,不要发送含服务密钥的 `config.json`。这类启动错误无需通过导入 OCR 证书解决。
+
 完成页提供以后需要系统 OCR 时的 MSIX 下载链接,该操作为可选项,不会自动导入证书。
 
 ### 方式二:MSIX + 安装助手 ZIP（系统 OCR 可选版本）
@@ -106,6 +110,8 @@ powershell -NoProfile -File scripts/windows/Build-Msix.ps1 -CertificateThumbprin
 构建会使用该证书的 Subject,MSVC 静态 CRT和 WebView2 Loader,拒绝缺失 DLL、外部 VC++ runtime 或架构不符的输入。支持 `-Architecture arm64`,原生 ARM64 包尚待 Windows 验收。已有 exe 可用 `-BinaryPath`;动态 Loader 必须提供匹配的 `-LoaderPath`。`-PackageVersion` 可显式指定四段整数版本,预发布 semver 不能直接当作 MSIX 版本。`-Unsigned` 只供内容检查,不会产出可正常安装的正式包。
 
 ## 4. CI 与发布前验收
+
+[Windows EXE 启动工作流](../.github/workflows/windows-exe.yml)可检查当前发布包或重新构建当前源码。在一次性 Windows Server runner 上静默安装普通 EXE,确认进程完成初始化,再连续三次验证 `--show-main` 后存在可见的 Lenz 主窗口并在前端首轮 IPC 后保持运行。保存 stdout/stderr 与状态报告;该测试不依赖 MSIX、证书或本地 OCR,不代替 Windows 10/11 用户机器、交互流程和腾讯云真实识别验收。
 
 [Windows MSIX 工作流](../.github/workflows/windows-msix.yml)在 Windows Server runner 原生 MSVC 构建测试包,再交给 Windows 11 ARM 客户端安装 x64 包并运行真实系统 OCR。临时信任仅限 GitHub-hosted 一次性机器;专用包名为 `app.lenz.desktop.ci`,测试结束清理包和证书。产物只包含公开证书、安装包、脚本与实际识别报告,没有 PFX/私钥。
 

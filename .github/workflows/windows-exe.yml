@@ -58,15 +58,12 @@ jobs:
       - name: Check default startup
         shell: powershell
         run: ./scripts/windows/Test-ExeStartup.ps1 -BinaryPath "$env:LOCALAPPDATA/Programs/Lenz/lenz.exe" -ReportPath artifacts/startup-default.json
-      - name: Check visible main window
+      - name: Check explicit open and repeated warm startup
         shell: powershell
         run: |
-          # This job runs only on a disposable GitHub-hosted machine.
-          $path = Join-Path $env:APPDATA 'app.lenz.desktop/config.json'
-          $config = Get-Content $path -Raw | ConvertFrom-Json
-          $config.app.openOnLaunch = $true
-          $config | ConvertTo-Json -Depth 30 | Set-Content $path -Encoding UTF8
-          ./scripts/windows/Test-ExeStartup.ps1 -BinaryPath "$env:LOCALAPPDATA/Programs/Lenz/lenz.exe" -ExpectMainWindow -ReportPath artifacts/startup-visible.json
+          1..3 | ForEach-Object {
+            ./scripts/windows/Test-ExeStartup.ps1 -BinaryPath "$env:LOCALAPPDATA/Programs/Lenz/lenz.exe" -LaunchArguments '--show-main' -ExpectMainWindow -ReportPath "artifacts/startup-visible-$_.json"
+          }
       - uses: actions/upload-artifact@v4
         if: always()
         with:

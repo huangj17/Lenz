@@ -95,6 +95,8 @@ fn register_shortcuts(app: &AppHandle, shortcuts: &ShortcutConfig) -> Result<(),
 
 ## 3. 自动启动
 
+Windows 普通 EXE 的开始菜单与安装完成页通过 `--show-main` 明确打开主窗口,不受 `app.openOnLaunch=false` 的后台启动偏好影响。登录启动仍遵循该偏好;托盘创建失败时显示主窗口以保留入口。
+
 `set_auto_start` 先更新系统注册项,成功后保存 `app.autoStart`;保存失败回滚系统项。启动及配置热更新时校准注册状态。
 
 - macOS:写用户 `~/Library/LaunchAgents/` plist,指向当前应用路径。

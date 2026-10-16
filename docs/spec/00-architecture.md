@@ -185,14 +185,18 @@ pub enum LenzError {
 ```
 app.setup():
   1. 加载 config(容错:损坏则备份 + 重建)
+     初始化全部 managed state、配置订阅及窗口事件监听
+     再从配置创建 main/popup/indicator WebView（create=false,禁止在 setup 前自动创建）
   2. 注册托盘图标与菜单
   3. 注册全局快捷键(config 驱动)
   4. 按 config.selection.autoDetect 启动划词监听
-  5. 创建 main 窗口(若 config.app.openOnLaunch)
+  5. 显示 main 窗口(若 config.app.openOnLaunch、Windows --show-main 或托盘创建失败)
   6. 异步触发 check_update(若 config.app.checkUpdate)
 ```
 
 失败 step 不阻断主流程:记录到日志并 emit `app://startup-warning`。
+
+WebView2 创建窗口时会泵送消息,已有前端可能立即发送 IPC。全部命令所需的状态必须在建窗前注入,避免 `state() called before manage()` 导致启动期进程退出。配置与建窗等致命失败无法继续时,Windows 记录独立启动日志并显示原生错误提示。
 
 ## 8. 验收标准
 

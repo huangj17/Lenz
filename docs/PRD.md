@@ -231,6 +231,7 @@ interface OCRResult {
 
 #### 自动启动
 - 用户可在通用设置里开关
+- Windows 普通 EXE 的开始菜单与安装完成页明确显示主窗口;后台启动仍遵循「启动时打开主窗口」设置。启动发生致命错误时显示提示并保留本地日志。
 - 实现:
   - macOS:`LSUIElement` + Launch Agent
   - Windows MSIX:包内 `StartupTask`;普通 EXE 版和无包开发版使用注册表 `Run` 键

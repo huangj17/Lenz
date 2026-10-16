@@ -1,6 +1,9 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg(target_os = "windows")]
+mod windows_startup;
+
 fn main() {
     #[cfg(target_os = "windows")]
     {
@@ -13,6 +16,7 @@ fn main() {
                 && lenz_lib::diagnose_windows_ocr(std::path::Path::new(&args[1])).unwrap_or(false);
             std::process::exit(if success { 0 } else { 1 });
         }
+        windows_startup::install_error_handler();
     }
     lenz_lib::run()
 }

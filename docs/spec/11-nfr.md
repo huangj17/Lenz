@@ -112,7 +112,8 @@ Windows 的构建和安装识别工作流已编写,实际运行结果独立验�
 - 级别:生产构建 `info` 及以上;debug 构建 `debug` 及以上。
 - 日志文件位置:
   - macOS:`~/Library/Logs/app.lenz.desktop/lenz.log`
-  - Windows:`%APPDATA%/Lenz/logs/lenz.log`
+  - Windows:`%LOCALAPPDATA%/app.lenz.desktop/logs/lenz.log`
+- Windows 主线程致命错误额外写入同目录的 `startup-error.log`,并显示原生错误提示,覆盖 Tauri/日志插件尚未就绪的阶段。无人值守启动测试设置 `LENZ_STARTUP_NO_DIALOG=1` 后只保留日志与 stderr。
 - 日志轮转:单文件最大 5MB,保留最近 3 个文件。
 - 禁止在日志中记录 API Key、用户剪贴板内容。
 
