@@ -14,11 +14,11 @@
 ## 2026-10-16 · Windows 翻译弹框持续加宽
 
 - [x] 修复自动高度测量及右缘调宽时把外框尺寸回填为内容尺寸的问题;改为读取 `inner_size`,保留 DPI 换算与用户设置的宽度,避免 Windows 隐形边框反复累加。
-- [x] 增加已安装 EXE 的原生弹框回归脚本,通过 WebView2 调试接口连续执行 400 次高度更新和 100 次宽度更新,覆盖 300~720 范围及上下限;保留真实 ResizeObserver,使用固定卡片高度隔离翻译服务,不写用户配置。仅测试子进程临时启用调试端口,安装器不设置调试选项。
 - [x] macOS 本地 cargo fmt/check/Clippy（全目标、警告视为错误）及 96 项 Rust 测试通过,10 项原生验收默认忽略;IPC 类型未变,生成文件无差异。
-- [x] 新 EXE [Windows Server 安装与连续三次显示主窗口检查](https://github.com/huangj17/Lenz/actions/runs/38878002864)通过;安装器载荷与同次 MSVC 应用逐字节一致。首次 Rust 原生测试进程在执行测试前遇到 `STATUS_ENTRYPOINT_NOT_FOUND`,改为直接测试已安装 EXE。
-- [ ] 已安装 EXE 的 Windows 原生尺寸回归。
-- [ ] 发布新 EXE 与校验值;Windows 10/11 用户快捷键翻译、多屏混合 DPI 实测。
+- [x] Windows GNU 全目标交叉编译检查与 [macOS/Windows CI](https://github.com/huangj17/Lenz/actions/runs/38878964756)通过。新 EXE [Windows Server 安装与连续三次显示主窗口检查](https://github.com/huangj17/Lenz/actions/runs/38878002864)通过;安装器载荷与同次 MSVC 应用逐字节一致,无 MSIX/证书。
+- [-] 原生尺寸自动化未能执行:Rust 测试宿主加载时遇到 `STATUS_ENTRYPOINT_NOT_FOUND`;已安装 EXE 的 WebView2 调试端口也拒绝连接（38879347052）。移除未验证的测试宿主、调试脚本及工作流步骤,不计为尺寸回归通过。
+- [ ] 发布新 EXE 与校验值。
+- [ ] Windows 10/11 用户快捷键翻译、拖拽调宽和多屏混合 DPI 实测。
 
 ## 2026-10-16 · Windows 安装后启动失败
 

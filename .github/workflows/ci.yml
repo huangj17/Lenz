@@ -1,7 +1,6 @@
 name: CI
 
 on:
-  workflow_dispatch:
   push:
     branches: ['**']
   pull_request:
@@ -46,6 +45,6 @@ jobs:
       - name: Run Rust tests on macOS
         if: runner.os == 'macOS'
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked
-      - name: Compile Windows tests
+      - name: Compile Windows tests (runtime validation deferred)
         if: runner.os == 'Windows'
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked --no-run

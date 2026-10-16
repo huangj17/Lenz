@@ -20,16 +20,17 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Require successful startup verification
+      - name: Require successful startup verification and CI
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          test "$(gh api repos/huangj17/Lenz/actions/runs/38874364350 --jq .conclusion)" = success
+          test "$(gh api repos/huangj17/Lenz/actions/runs/38878002864 --jq .conclusion)" = success
+          test "$(gh api repos/huangj17/Lenz/actions/runs/38878964756 --jq .conclusion)" = success
       - uses: actions/download-artifact@v4
         with:
           name: windows-exe-startup
-          run-id: 38874364350
+          run-id: 38878002864
           github-token: ${{ github.token }}
           path: verified-hotfix
       - name: Verify installer and preserve other release checksums
@@ -42,9 +43,9 @@ jobs:
           import { readFile, writeFile } from 'node:fs/promises';
           import { createHash } from 'node:crypto';
           const name = 'Lenz_0.1.2_windows_x64_setup.exe';
-          const expected = '363f78ae1883432de58ef0b471eb3e7f8e16b4a20888a4199ce098250c5ceb69';
+          const expected = '6a2fadfc047e26fbdce731d541c4a5310b35bb362b75fb72c917a79fb43e16e7';
           const binary = await readFile(`verified-hotfix/${name}`);
-          if (binary.length !== 3996423 || createHash('sha256').update(binary).digest('hex') !== expected) throw Error('Unexpected installer');
+          if (binary.length !== 3996615 || createHash('sha256').update(binary).digest('hex') !== expected) throw Error('Unexpected installer');
           const original = await readFile('previous-release/SHA256SUMS.txt', 'utf8');
           const lines = original.trim().split('\n');
           if (lines.filter(line => line.endsWith(`  ${name}`)).length !== 1) throw Error('Missing or duplicate EXE checksum');
