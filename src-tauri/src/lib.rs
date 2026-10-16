@@ -119,6 +119,11 @@ pub fn run() {
         )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry, ()>::new("lenz-startup")
+                .setup(|app, _| setup::prepare(app))
+                .build(),
+        )
         .manage(crate::core::ocr::default_engine())
         .invoke_handler(specta.invoke_handler())
         // 主窗口关闭(红灯 / Cmd+W)时隐藏而非销毁,保证托盘「打开主窗口 / 设置」

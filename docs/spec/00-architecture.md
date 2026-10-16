@@ -183,10 +183,11 @@ pub enum LenzError {
 ## 7. 启动时序
 
 ```
-app.setup():
+startup plugin（配置窗口创建前）:
   1. 加载 config(容错:损坏则备份 + 重建)
      初始化全部 managed state、配置订阅及窗口事件监听
-     再从配置创建 main/popup/indicator WebView（create=false,禁止在 setup 前自动创建）
+Tauri 从配置自动创建 main/popup/indicator WebView
+app.setup():
   2. 注册托盘图标与菜单
   3. 注册全局快捷键(config 驱动)
   4. 按 config.selection.autoDetect 启动划词监听

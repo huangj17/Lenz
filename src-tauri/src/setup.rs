@@ -24,38 +24,14 @@ use crate::types::{ConfigChangedPayload, SelectionDetected, StartupWarning, Trig
 /// `app://startup-warning` 事件名。
 const EVENT_STARTUP_WARNING: &str = "app://startup-warning";
 
-/// Tauri setup 钩子主体。
-pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
-    // macOS:菜单栏 app,不在 Dock 显示(spec 11 §4.1)。
-    #[cfg(target_os = "macos")]
-    app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-
-    let handle = app.handle();
-
-    // Step 1:加载配置(失败则整体失败——这是后续步骤的硬前置)。
-    let store = match ConfigStore::load(handle) {
-        Ok(s) => s,
-        Err(e) => {
-            // 极端情况:连默认配置都写不进去。用内存默认值兜底,保证应用能起。
-            log::error!("config load failed: {e}; falling back to in-memory default");
-            warn(app, "config", &format!("{e}"));
-            // 仍尝试 manage 一个默认 store,避免后续 state::<ConfigStore> panic。
-            // 这里直接返回错误更危险(应用起不来),故重试一次 load 的弱化版本不可行,
-            // 因此选择继续:用 ConfigStore::load 已尽力,e 多为 IO,记录后继续。
-            return Err(Box::new(e));
-        }
-    };
+/// 插件初始化先于 Tauri 的配置窗口创建,在这里准备前端 IPC 依赖。
+pub fn prepare(handle: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    let store = ConfigStore::load(handle)?;
 
     let config = store.get().unwrap_or_default();
-    app.manage(store);
-    app.manage(shortcut::ShortcutRegistry::default());
-    app.manage(crate::core::system::UpdateState::default());
-
-    // 旧版本仅保存了偏好但未注册系统登录项;启动时以配置为准补齐真实状态。
-    if let Err(e) = crate::commands::overlay::apply_auto_start(handle, config.app.auto_start) {
-        log::warn!("sync autostart at startup failed: {e}");
-        warn(app, "autostart", &e.to_string());
-    }
+    handle.manage(store);
+    handle.manage(shortcut::ShortcutRegistry::default());
+    handle.manage(crate::core::system::UpdateState::default());
 
     // 翻译引擎管理器:按配置构建引擎并注入(spec 04 §2)。
     let translator_manager = TranslatorManager::new();
@@ -63,7 +39,7 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         &config.translator.engines,
         &config.translator.default_engine_id,
     );
-    app.manage(translator_manager);
+    handle.manage(translator_manager);
 
     // 订阅 config://changed:translator.* 变更时热更新引擎(不重启,spec 01 §4.3)。
     let reload_handle = handle.clone();
@@ -101,19 +77,19 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // F2 截图翻译会话代号(取消机制,spec 06 §7)。
-    app.manage(ScreenshotSession::default());
-    app.manage(screenshot::SelectionPopupPosition::default());
-    app.manage(crate::core::overlay::OverlayState::default());
+    handle.manage(ScreenshotSession::default());
+    handle.manage(screenshot::SelectionPopupPosition::default());
+    handle.manage(crate::core::overlay::OverlayState::default());
     // 最近一次成功结果,只在当前选区原文/目标/引擎一致时复用。
     let last_result = LastResult::default();
     last_result.hydrate(handle);
-    app.manage(last_result);
+    handle.manage(last_result);
     // popup 就绪标志(冷启动首帧竞态,见 `screenshot::PopupReady`)。
-    app.manage(PopupReady::default());
+    handle.manage(PopupReady::default());
     // 划词监听器(spec 05 §2);按配置在 Step 4 启停。
-    app.manage(selection::SelectionListener::new());
+    handle.manage(selection::SelectionListener::new());
     // 划词指示图标的显示会话(自动隐藏代号,spec 05 §6)。
-    app.manage(crate::core::indicator::IndicatorSession::default());
+    handle.manage(crate::core::indicator::IndicatorSession::default());
 
     let h_main = handle.clone();
     handle.listen("shortcut://open-main", move |_| {
@@ -182,10 +158,21 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         crate::core::indicator::hide(&h_dismiss);
     });
 
-    // WebView2 在创建后续窗口时会泵送消息,先创建的前端可能立即调用 IPC。
-    // 因此配置中的窗口均禁用自动创建,等全部 managed state 和监听器就绪再建窗。
-    for window_config in &app.config().app.windows {
-        tauri::WebviewWindowBuilder::from_config(handle, window_config)?.build()?;
+    log::info!("Lenz backend ready");
+    Ok(())
+}
+
+/// 配置窗口由 Tauri 创建之后,注册系统入口并显示窗口。
+pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(target_os = "macos")]
+    app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
+    let handle = app.handle();
+    let config = handle.state::<ConfigStore>().get()?;
+    // 旧版本仅保存了偏好但未注册系统登录项;启动时以配置为准补齐真实状态。
+    if let Err(e) = crate::commands::overlay::apply_auto_start(handle, config.app.auto_start) {
+        log::warn!("sync autostart at startup failed: {e}");
+        warn(app, "autostart", &e.to_string());
     }
 
     // Step 2:注册托盘。托盘失败时显示主窗口,保留可见入口。
