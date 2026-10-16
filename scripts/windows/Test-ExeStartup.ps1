@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory = $true)][string]$BinaryPath,
     [string[]]$LaunchArguments = @(),
     [switch]$ExpectMainWindow,
+    [ValidateRange(5, 180)][int]$StartupTimeoutSeconds = 90,
     [string]$ReportPath = (Join-Path ([IO.Path]::GetTempPath()) 'lenz-exe-startup.json')
 )
 $ErrorActionPreference = 'Stop'
@@ -12,6 +13,7 @@ if (!('LenzStartupWindows' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
 using System.Text;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 public static class LenzStartupWindows {
     delegate bool Callback(IntPtr window, IntPtr data);
@@ -30,6 +32,17 @@ public static class LenzStartupWindows {
         }, IntPtr.Zero);
         return found;
     }
+    public static string[] DescribeWindows(int processId) {
+        var names = new List<string>();
+        EnumWindows((window, data) => {
+            uint owner; GetWindowThreadProcessId(window, out owner);
+            if (owner != processId) return true;
+            var title = new StringBuilder(256); GetWindowText(window, title, title.Capacity);
+            if (title.Length > 0) names.Add(title.ToString() + " visible=" + IsWindowVisible(window));
+            return true;
+        }, IntPtr.Zero);
+        return names.ToArray();
+    }
 }
 '@
 }
@@ -38,7 +51,7 @@ $work = Join-Path ([IO.Path]::GetTempPath()) ('lenz-startup-' + [guid]::NewGuid(
 [void](New-Item $work -ItemType Directory)
 $process = $null
 $previousNoDialog = $env:LENZ_STARTUP_NO_DIALOG
-$report = [ordered]@{ processAlive = $false; setupComplete = $false; mainWindowShown = $false; exitCode = $null; stdout = ''; stderr = '' }
+$report = [ordered]@{ processAlive = $false; setupComplete = $false; mainWindowShown = $false; windows = @(); durationSeconds = 0; exitCode = $null; stdout = ''; stderr = '' }
 try {
     $started = Get-Date
     $env:LENZ_STARTUP_NO_DIALOG = '1'
@@ -48,7 +61,7 @@ try {
     }
     if ($LaunchArguments.Count) { $startOptions.ArgumentList = $LaunchArguments }
     $process = Start-Process @startOptions
-    $deadline = $started.AddSeconds(30)
+    $deadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
     do {
         Start-Sleep -Milliseconds 500
         $process.Refresh()
@@ -65,6 +78,8 @@ try {
         throw 'The installed EXE did not finish startup. See the startup report.'
     }
 } finally {
+    $report.durationSeconds = [math]::Round(((Get-Date) - $started).TotalSeconds, 1)
+    if ($process -and !$process.HasExited) { $report.windows = [LenzStartupWindows]::DescribeWindows($process.Id) }
     if ($process -and !$process.HasExited) { Stop-Process -Id $process.Id -Force; $process.WaitForExit() }
     $env:LENZ_STARTUP_NO_DIALOG = $previousNoDialog
     foreach ($stream in @('stdout', 'stderr')) {
