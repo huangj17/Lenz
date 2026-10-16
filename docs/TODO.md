@@ -16,7 +16,8 @@
 - [x] 将应用、前端和 Rust 版本统一升为 0.1.3,MSIX 对应 0.1.3.0;README 保留普通 EXE/MSIX 双入口并更新新版本下载及安装说明。
 - [x] 发布流水线增加普通 EXE 安装后的文件版本/卸载项版本核对及默认启动、连续三次显示主窗口检查;独立 EXE 检查工作流按当前版本下载。
 - [x] 本地版本一致性、Cargo check/fmt、前端生产构建和 41 项前端/打包测试、工作流 YAML 与 PowerShell 语法检查通过;Cargo.lock 仅更新 Lenz 自身版本。
-- [ ] 全平台构建、Windows 安装启动验收及 v0.1.3 Release 发布和公开下载校验。
+- [x] [macOS/Windows CI](https://github.com/huangj17/Lenz/actions/runs/38881036088)与[全部平台发布构建](https://github.com/huangj17/Lenz/actions/runs/38881035859)通过。Windows 普通 EXE 安装后文件版本 `0.1.3.0`、卸载项版本 `0.1.3`;默认启动和连续三次显示主窗口检查通过。
+- [x] [v0.1.3 Release](https://github.com/huangj17/Lenz/releases/tag/v0.1.3)已公开发布并设为 latest。重新下载五项安装附件,全部 SHA256 匹配;EXE/MSIX 内应用逐字节一致,MSIX 包版本 `0.1.3.0`,两种 DMG 的应用版本均为 `0.1.3`,普通 EXE 无 MSIX/证书。EXE 为 3,996,362 字节,SHA256 `f754e0a62a298ae8a492262b002aee94c3982124cfd8b72727826b8866657491`。
 
 ## 2026-10-16 · Windows 翻译弹框持续加宽
 
