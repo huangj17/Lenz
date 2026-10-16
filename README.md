@@ -6,14 +6,14 @@
 
 ## 📦 下载与安装
 
-最新版本 [v0.1.2](https://github.com/huangj17/Lenz/releases/tag/v0.1.2)：腾讯云高精度 OCR、macOS 快捷键取词与选区弹窗定位修复、权限提示和渐变应用图标。
+最新版本 [v0.1.3](https://github.com/huangj17/Lenz/releases/tag/v0.1.3)：修复 Windows 翻译弹框持续加宽和启动时退出的问题,提供无需导入证书的普通 EXE 安装包;保留可选 MSIX 和腾讯云 OCR。
 
 | 平台 | 安装包 | 最低系统版本 |
 |---|---|---|
-| macOS Apple Silicon | [aarch64 DMG](https://github.com/huangj17/Lenz/releases/download/v0.1.2/Lenz_0.1.2_aarch64.dmg) | macOS 12 |
-| macOS Intel | [x64 DMG](https://github.com/huangj17/Lenz/releases/download/v0.1.2/Lenz_0.1.2_x64.dmg) | macOS 12 |
-| Windows x64（推荐，腾讯云等 OCR） | [普通 EXE 安装包](https://github.com/huangj17/Lenz/releases/download/v0.1.2/Lenz_0.1.2_windows_x64_setup.exe) | Windows 10 1809 |
-| Windows x64（可选，系统 OCR） | [MSIX + 安装助手 ZIP](https://github.com/huangj17/Lenz/releases/download/v0.1.2/Lenz_0.1.2_windows_x64_test-signed.zip) | Windows 10 1809 |
+| macOS Apple Silicon | [aarch64 DMG](https://github.com/huangj17/Lenz/releases/download/v0.1.3/Lenz_0.1.3_aarch64.dmg) | macOS 12 |
+| macOS Intel | [x64 DMG](https://github.com/huangj17/Lenz/releases/download/v0.1.3/Lenz_0.1.3_x64.dmg) | macOS 12 |
+| Windows x64（推荐，腾讯云等 OCR） | [普通 EXE 安装包](https://github.com/huangj17/Lenz/releases/download/v0.1.3/Lenz_0.1.3_windows_x64_setup.exe) | Windows 10 1809 |
+| Windows x64（可选，系统 OCR） | [MSIX + 安装助手 ZIP](https://github.com/huangj17/Lenz/releases/download/v0.1.3/Lenz_0.1.3_windows_x64_test-signed.zip) | Windows 10 1809 |
 
 macOS 打开 DMG 后将 Lenz 拖入「应用程序」。本版使用 ad-hoc 签名，尚未完成 Developer ID 签名与公证；首次打开可能需要在系统「隐私与安全性」中确认。
 
@@ -21,9 +21,9 @@ Windows 推荐下载普通 **EXE 安装包**,无需手动导入证书。安装�
 
 以后需要 Windows 系统 OCR 时,可选安装 **MSIX + 安装助手 ZIP**。此版本需要包身份及对应 OCR 语言包;当前使用 365 天自签测试证书,需用户检查后明确导入「本地计算机 → 受信任人」。仅导入证书不能让普通 EXE 启用系统 OCR。切换前请退出应用,按安装说明区分 EXE 与 MSIX 启动入口。详细步骤见 [Windows 分发指南](docs/windows-distribution.md)。
 
-普通 EXE 于 2026-10-16 更新,修复启动时进程退出及翻译弹框持续加宽的问题。已安装旧版的用户请完全退出 Lenz,重新下载 EXE 后覆盖安装,本机配置会保留。安装与启动检查见 [Windows Server 验证记录](https://github.com/huangj17/Lenz/actions/runs/38878002864);Windows 10/11 用户机器、升级/卸载及腾讯云真实账号识别仍待实测。EXE 尚无公开可信签名,Windows 可能显示未知发布者/SmartScreen 提示。
+v0.1.3 的应用版本、安装器版本和文件名均已升级,便于与之前的 v0.1.2 热修复包区分。已安装旧版的用户请完全退出 Lenz,下载新版 EXE 后覆盖安装,本机配置会保留;安装后可在「关于」查看 0.1.3。Windows 10/11 用户机器上的快捷键翻译、混合 DPI、升级/卸载及腾讯云真实账号识别仍待实测。EXE 尚无公开可信签名,Windows 可能显示未知发布者/SmartScreen 提示。
 
-安装产物附带 [SHA256SUMS.txt](https://github.com/huangj17/Lenz/releases/download/v0.1.2/SHA256SUMS.txt)。功能和验证范围见 [发布说明](docs/releases/v0.1.2.md)。
+安装产物附带 [SHA256SUMS.txt](https://github.com/huangj17/Lenz/releases/download/v0.1.3/SHA256SUMS.txt)。功能和验证范围见 [发布说明](docs/releases/v0.1.3.md)。
 
 ## ✨ 核心功能
 
@@ -52,7 +52,7 @@ Bob 是 macOS 上广受好评的翻译工具，但仅支持 macOS、订阅制收
 
 ## 🚧 项目状态
 
-v0.1.2 的功能实现与平台运行验收分别记录（详见 [`docs/TODO.md`](docs/TODO.md)）：
+v0.1.3 的功能实现与平台运行验收分别记录（详见 [`docs/TODO.md`](docs/TODO.md)）：
 
 | 里程碑 | 当前状态 |
 |---|---|

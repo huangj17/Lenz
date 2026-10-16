@@ -100,6 +100,34 @@ jobs:
       - name: Build standalone EXE installer without MSIX certificate requirement
         shell: powershell
         run: ./scripts/windows/Build-Exe.ps1 -BinaryPath src-tauri/target/x86_64-pc-windows-msvc/release/lenz.exe -OutputDirectory src-tauri/target/release-assets
+      - name: Verify installed EXE version and startup
+        shell: powershell
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = "src-tauri/target/release-assets/Lenz_$($env:RELEASE_VERSION)_windows_x64_setup.exe"
+          $install = Start-Process $setup -ArgumentList '/S' -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Installer exit code: $($install.ExitCode)" }
+          $binary = "$env:LOCALAPPDATA/Programs/Lenz/lenz.exe"
+          $versionInfo = (Get-Item $binary).VersionInfo
+          $fileVersion = "$($versionInfo.FileMajorPart).$($versionInfo.FileMinorPart).$($versionInfo.FileBuildPart).$($versionInfo.FilePrivatePart)"
+          if ($fileVersion -ne "$($env:RELEASE_VERSION).0") { throw "Unexpected application version: $fileVersion" }
+          $displayVersion = (Get-ItemProperty 'HKCU:/Software/Microsoft/Windows/CurrentVersion/Uninstall/LenzDesktop').DisplayVersion
+          if ($displayVersion -ne $env:RELEASE_VERSION) { throw "Unexpected installed version: $displayVersion" }
+          New-Item startup-reports -ItemType Directory -Force | Out-Null
+          @{ fileVersion = $fileVersion; displayVersion = $displayVersion } | ConvertTo-Json | Set-Content startup-reports/version.json -Encoding UTF8
+          ./scripts/windows/Test-ExeStartup.ps1 -BinaryPath $binary -ReportPath startup-reports/default.json
+          1..3 | ForEach-Object {
+            ./scripts/windows/Test-ExeStartup.ps1 -BinaryPath $binary -LaunchArguments '--show-main' -ExpectMainWindow -ReportPath "startup-reports/visible-$_.json"
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-release-startup-reports
+          path: startup-reports/*
+          if-no-files-found: warn
+          retention-days: 14
       - name: Bundle public certificate and installation helpers
         shell: powershell
         env:

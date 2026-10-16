@@ -65,7 +65,9 @@ jobs:
         shell: powershell
         run: |
           New-Item artifacts -ItemType Directory -Force | Out-Null
-          Invoke-WebRequest https://github.com/huangj17/Lenz/releases/download/v0.1.2/Lenz_0.1.2_windows_x64_setup.exe -OutFile artifacts/Lenz_0.1.2_windows_x64_setup.exe
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $name = "Lenz_$($version)_windows_x64_setup.exe"
+          Invoke-WebRequest "https://github.com/huangj17/Lenz/releases/download/v$version/$name" -OutFile "artifacts/$name"
       - name: Reuse an existing installer for diagnosis
         if: inputs.source == 'artifact'
         uses: actions/download-artifact@v4

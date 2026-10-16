@@ -1,6 +1,6 @@
 [package]
 name = "lenz"
-version = "0.1.2"
+version = "0.1.3"
 description = "Lenz — 跨平台截图翻译桌面工具"
 authors = ["Lenz contributors"]
 edition = "2021"
