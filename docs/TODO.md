@@ -17,7 +17,7 @@
 - [x] macOS 本地 cargo fmt/check/Clippy（全目标、警告视为错误）及 96 项 Rust 测试通过,10 项原生验收默认忽略;IPC 类型未变,生成文件无差异。
 - [x] Windows GNU 全目标交叉编译检查与 [macOS/Windows CI](https://github.com/huangj17/Lenz/actions/runs/38878964756)通过。新 EXE [Windows Server 安装与连续三次显示主窗口检查](https://github.com/huangj17/Lenz/actions/runs/38878002864)通过;安装器载荷与同次 MSVC 应用逐字节一致,无 MSIX/证书。
 - [-] 原生尺寸自动化未能执行:Rust 测试宿主加载时遇到 `STATUS_ENTRYPOINT_NOT_FOUND`;已安装 EXE 的 WebView2 调试端口也拒绝连接（38879347052）。移除未验证的测试宿主、调试脚本及工作流步骤,不计为尺寸回归通过。
-- [ ] 发布新 EXE 与校验值。
+- [x] 已替换 Release EXE 与校验值,[云端发布及公开下载回验](https://github.com/huangj17/Lenz/actions/runs/38879895048)通过。新 EXE 为 3,996,615 字节,SHA256 `6a2fadfc047e26fbdce731d541c4a5310b35bb362b75fb72c917a79fb43e16e7`;MSIX/ZIP 和 macOS 附件保持原构建。README 保留两种 Windows 下载入口并说明旧版覆盖安装。
 - [ ] Windows 10/11 用户快捷键翻译、拖拽调宽和多屏混合 DPI 实测。
 
 ## 2026-10-16 · Windows 安装后启动失败
