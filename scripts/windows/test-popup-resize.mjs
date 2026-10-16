@@ -1,8 +1,10 @@
 // Windows CI only. Debugging is enabled in this child process, never in the installer.
 // https://learn.microsoft.com/microsoft-edge/webview2/how-to/debug-visual-studio-code
 import { spawn, execFileSync } from "node:child_process";
-import { writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -16,10 +18,12 @@ const listener = createServer();
 await new Promise((resolve) => listener.listen(0, "127.0.0.1", resolve));
 const port = listener.address().port;
 await new Promise((resolve) => listener.close(resolve));
+const browserData = await mkdtemp(join(tmpdir(), "lenz-popup-webview-"));
 const child = spawn(values.binary, ["--show-main"], { env: {
   ...process.env,
   LENZ_STARTUP_NO_DIALOG: "1",
   WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-address=127.0.0.1 --remote-debugging-port=${port}`,
+  WEBVIEW2_USER_DATA_FOLDER: browserData,
 } });
 const report = { passed: false };
 let socket;
@@ -36,8 +40,10 @@ try {
     if (child.exitCode !== null) throw new Error(`Application exited: ${child.exitCode}`);
     try {
       const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(2000) });
-      page = (await response.json()).find((target) => target.url.includes("window=popup"));
-    } catch { /* WebView2 is still starting. */ }
+      const targets = await response.json();
+      report.targets = targets.map(({ type, url }) => ({ type, url }));
+      page = targets.find((target) => target.url.includes("window=popup"));
+    } catch (error) { report.endpointError = String(error.cause || error); }
     if (!page) await delay(250);
   }
   if (!page) throw new Error("Popup WebView2 target did not become available");
@@ -136,6 +142,7 @@ try {
     try { execFileSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" }); }
     catch { child.kill(); }
   }
+  await rm(browserData, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 }).catch(() => {});
   await writeFile(values.report, JSON.stringify(report, null, 2) + "\n");
   console.log(JSON.stringify(report, null, 2));
 }
