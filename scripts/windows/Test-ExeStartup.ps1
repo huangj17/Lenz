@@ -8,6 +8,12 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+function Read-LenzStartupText([string]$Path) {
+    # Start-Process keeps a write handle open while the child is running.
+    $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+    $reader = [IO.StreamReader]::new($stream)
+    try { return $reader.ReadToEnd() } finally { $reader.Dispose() }
+}
 if ($env:OS -ne 'Windows_NT') { throw 'Run this startup check on Windows.' }
 if (!('LenzStartupWindows' -as [type])) {
     Add-Type -TypeDefinition @'
@@ -51,7 +57,7 @@ $work = Join-Path ([IO.Path]::GetTempPath()) ('lenz-startup-' + [guid]::NewGuid(
 [void](New-Item $work -ItemType Directory)
 $process = $null
 $previousNoDialog = $env:LENZ_STARTUP_NO_DIALOG
-$report = [ordered]@{ processAlive = $false; setupComplete = $false; mainWindowShown = $false; windows = @(); durationSeconds = 0; exitCode = $null; stdout = ''; stderr = '' }
+$report = [ordered]@{ processAlive = $false; setupComplete = $false; mainWindowShown = $false; windows = @(); durationSeconds = 0; exitCode = $null; scriptError = ''; stdout = ''; stderr = '' }
 try {
     $started = Get-Date
     $env:LENZ_STARTUP_NO_DIALOG = '1'
@@ -68,7 +74,7 @@ try {
         $report.processAlive = !$process.HasExited
         if (!$report.processAlive) { $process.WaitForExit(); $report.exitCode = $process.ExitCode; break }
         $report.mainWindowShown = [LenzStartupWindows]::HasVisibleMainWindow($process.Id)
-        $report.stdout = [IO.File]::ReadAllText((Join-Path $work 'stdout.txt'))
+        $report.stdout = Read-LenzStartupText (Join-Path $work 'stdout.txt')
         $report.setupComplete = [bool]($report.stdout -match 'Lenz setup complete')
         if ($report.setupComplete -and (!$ExpectMainWindow -or $report.mainWindowShown)) { break }
     } while ((Get-Date) -lt $deadline)
@@ -77,6 +83,9 @@ try {
     if (!$report.processAlive -or !$report.setupComplete -or ($ExpectMainWindow -and !$report.mainWindowShown)) {
         throw 'The installed EXE did not finish startup. See the startup report.'
     }
+} catch {
+    $report.scriptError = $_.Exception.Message
+    throw
 } finally {
     $report.durationSeconds = [math]::Round(((Get-Date) - $started).TotalSeconds, 1)
     if ($process -and !$process.HasExited) { $report.windows = [LenzStartupWindows]::DescribeWindows($process.Id) }
@@ -84,7 +93,7 @@ try {
     $env:LENZ_STARTUP_NO_DIALOG = $previousNoDialog
     foreach ($stream in @('stdout', 'stderr')) {
         $path = Join-Path $work "$stream.txt"
-        if (Test-Path $path) { $report[$stream] = [IO.File]::ReadAllText($path) }
+        if (Test-Path $path) { $report[$stream] = Read-LenzStartupText $path }
     }
     $json = $report | ConvertTo-Json -Depth 5
     Set-Content $ReportPath $json -Encoding UTF8
