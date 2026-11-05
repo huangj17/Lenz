@@ -73,6 +73,7 @@ fn specta_builder() -> SpectaBuilder<tauri::Wry> {
         .typ::<types::ScreenshotError>()
         .typ::<types::ScreenshotProgress>()
         .typ::<types::SelectionDetected>()
+        .typ::<types::SelectionInput>()
         .typ::<types::PermissionRequired>()
         .typ::<core::overlay::OverlayClosed>()
         .typ::<core::overlay::OverlayUpdated>()

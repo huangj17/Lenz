@@ -24,7 +24,8 @@ use crate::core::{capture, keystroke, selection_window};
 use crate::error::LenzError;
 use crate::types::{
     Rect, RegionSelectedPayload, ScreenshotCost, ScreenshotError, ScreenshotProgress,
-    ScreenshotResult, ScreenshotTranslating, TranslateRequest, TriggerKind,
+    ScreenshotResult, ScreenshotTranslating, SelectionInput, SelectionInputNotice,
+    TranslateRequest, TriggerKind,
 };
 
 const POPUP_LABEL: &str = "popup";
@@ -703,13 +704,13 @@ pub fn clamp_popup_into_monitor(
 
 /// 合成 Cmd+C 前等待触发快捷键的修饰键松开的轮询间隔与上限(spec 05 §3)。
 const MOD_WAIT_INTERVAL: Duration = Duration::from_millis(10);
-const MOD_WAIT_TIMEOUT: Duration = Duration::from_millis(400);
+const MOD_WAIT_TIMEOUT: Duration = Duration::from_millis(1500);
 
 /// 划词翻译(快捷键模式):自动复制前台选中文本 → 翻译 → popup。
 ///
 /// 流程(spec 05 §3):
 /// 优先读取前台应用的系统选区,失败才等待修饰键松开并复制当前选区。
-/// 选区和触发位置在显示 popup 前捕获;取词失败显示原因,不回显无关旧结果。
+/// 选区和触发位置在显示 popup 前捕获;未取得选区时打开手动输入,不回显无关旧结果。
 pub fn on_selection_shortcut(app: &AppHandle) {
     let gen = app.state::<ScreenshotSession>().begin();
     let anchor = selection_cursor_anchor();
@@ -737,10 +738,10 @@ async fn handle_selection_shortcut(
     source: Option<u64>,
 ) {
     if !crate::core::selection::permission_granted() {
-        return selection_error(&app, gen, anchor, "selection_permission").await;
+        return selection_input(&app, gen, anchor, Some(SelectionInputNotice::Permission)).await;
     }
     let Some(source_id) = source else {
-        return selection_error(&app, gen, anchor, "selection_empty").await;
+        return selection_input(&app, gen, anchor, None).await;
     };
     // ① 首选 Accessibility API 直读选中文本:不碰剪贴板、不合成按键,规避修饰键污染 /
     //    同文字重复 / 焦点时序 / 剪贴板被覆盖等一系列问题(spec 05 §3)。AX 调用可能对
@@ -769,7 +770,7 @@ async fn handle_selection_shortcut(
     //    Alt+D 触发时 Option 等修饰键往往仍按着,会并入合成的 Cmd+C(→ ⌘⌥C,前台不复制),
     //    先等其松开;原生剪贴板版本号可识别重复复制的相同文字。
     if !wait_modifiers_released().await {
-        return selection_error(&app, gen, anchor, "selection_modifiers").await;
+        return selection_input(&app, gen, anchor, Some(SelectionInputNotice::Modifiers)).await;
     }
     if !is_current(&app, gen) || foreground_id() != source {
         return;
@@ -793,7 +794,7 @@ async fn handle_selection_shortcut(
         )
         .await;
     }
-    selection_error(&app, gen, anchor, "selection_empty").await;
+    selection_input(&app, gen, anchor, None).await;
 }
 
 /// 拿到选中文本后的统一收尾(F1 各路径——AX 直读 / 剪贴板兜底 / 图标预读——的唯一汇聚点)。
@@ -885,13 +886,26 @@ async fn wait_modifiers_released() -> bool {
     true
 }
 
-async fn selection_error(app: &AppHandle, gen: u32, anchor: Option<ScreenRect>, code: &str) {
+async fn selection_input(
+    app: &AppHandle,
+    gen: u32,
+    anchor: Option<ScreenRect>,
+    notice: Option<SelectionInputNotice>,
+) {
     if !is_current(app, gen) {
         return;
     }
     position_selection_popup(app, anchor);
     wait_popup_ready(app).await;
-    emit_error(app, gen, "selection", code, code, None);
+    if is_current(app, gen) {
+        let _ = app.emit(
+            "selection://input",
+            SelectionInput {
+                session_id: gen,
+                notice,
+            },
+        );
+    }
 }
 
 /// 原生剪贴板事务必须跑完恢复阶段,不能被翻译会话取消中断。

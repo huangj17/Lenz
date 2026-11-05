@@ -6,7 +6,7 @@
 //!
 //! - macOS:`CGEvent` 合成键盘事件。**需「辅助功能(Accessibility)」权限**,
 //!   未授权时系统会静默丢弃事件(函数仍返回 Ok);调用方据「复制前后剪贴板是否
-//!   变化」判断是否真有选中文本,故权限缺失会自然退化为「回显上次结果」。
+//!   变化」判断是否真有选中文本,不会回显无关旧结果。
 //! - Windows:`SendInput` 合成 `Ctrl+C`。
 
 use crate::error::LenzError;
@@ -57,9 +57,9 @@ mod macos {
     /// `kVK_ANSI_C` —— 字母 C 的虚拟键码。
     const KEY_C: u16 = 8;
 
-    /// 读取「会话合并态」修饰键标志,判断是否有 ⇧⌃⌥⌘/Fn 仍被按下。
+    /// 读取硬件修饰键标志,判断是否有 ⇧⌃⌥⌘/Fn 仍被按下。
     pub fn modifiers_held() -> bool {
-        let cur = CGEventSource::flags_state(CGEventSourceStateID::CombinedSessionState);
+        let cur = CGEventSource::flags_state(CGEventSourceStateID::HIDSystemState);
         let mods = CGEventFlags::MaskShift
             | CGEventFlags::MaskControl
             | CGEventFlags::MaskAlternate
@@ -69,19 +69,19 @@ mod macos {
     }
 
     pub fn copy() -> Result<(), LenzError> {
-        // HID 系统态事件源;构造失败也允许以 None 源发送。
-        let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState);
-        let src = source.as_deref();
+        // 私有事件源不继承物理 Option 等状态,也不污染用于检查用户输入的 HID 计数。
+        let source = CGEventSource::new(CGEventSourceStateID::Private)
+            .ok_or_else(|| LenzError::internal("create copy event source failed"))?;
+        let src = Some(&*source);
 
         let down = CGEvent::new_keyboard_event(src, KEY_C, true)
             .ok_or_else(|| LenzError::internal("create Cmd+C key-down failed"))?;
         CGEvent::set_flags(Some(&down), CGEventFlags::MaskCommand);
-        CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&down));
-
         let up = CGEvent::new_keyboard_event(src, KEY_C, false)
             .ok_or_else(|| LenzError::internal("create Cmd+C key-up failed"))?;
         CGEvent::set_flags(Some(&up), CGEventFlags::MaskCommand);
-        CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&up));
+        CGEvent::post(CGEventTapLocation::SessionEventTap, Some(&down));
+        CGEvent::post(CGEventTapLocation::SessionEventTap, Some(&up));
         Ok(())
     }
 }

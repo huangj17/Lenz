@@ -243,6 +243,10 @@
     "cancel": "cancel"
   },
   "popup": {
+    "inputLabel": "Text to translate",
+    "inputPlaceholder": "Type or paste text to translate…",
+    "inputHint": "Enter to translate · Shift+Enter for a new line",
+    "translate": "Translate",
     "stage": {
       "capture": "Capturing…",
       "ocr": "Recognizing…",

@@ -1,7 +1,7 @@
 {
   "name": "lenz",
   "private": true,
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
+    "macos:local": "node scripts/release/build-local-macos.mjs",
     "windows:msix": "powershell -NoProfile -File scripts/windows/Build-Msix.ps1",
     "windows:msix:test": "powershell -NoProfile -File scripts/windows/Build-TestMsix.ps1",
     "windows:exe": "powershell -NoProfile -File scripts/windows/Build-Exe.ps1"

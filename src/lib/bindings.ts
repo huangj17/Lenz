@@ -441,6 +441,14 @@ export type SelectionDetected = {
 	y: number | null,
 };
 
+/**  `selection://input`:未取得选区时打开手动输入,不发起空文本翻译。 */
+export type SelectionInput = {
+	sessionId: number,
+	notice: SelectionInputNotice | null,
+};
+
+export type SelectionInputNotice = "permission" | "modifiers";
+
 /**  全局快捷键。`None` 表示禁用对应功能。 */
 export type ShortcutConfig = {
 	/**  划词翻译快捷键,如 "Alt+D"。 */

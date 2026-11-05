@@ -32,7 +32,7 @@ mod platform {
             CGEventType::RightMouseDown,
         ]
         .map(|kind| {
-            CGEventSource::counter_for_event_type(CGEventSourceStateID::CombinedSessionState, kind)
+            CGEventSource::counter_for_event_type(CGEventSourceStateID::HIDSystemState, kind)
         })
     }
 
@@ -66,7 +66,7 @@ mod platform {
             }
             let input_before = inputs();
             crate::core::keystroke::copy_selection().ok()?;
-            let deadline = Instant::now() + Duration::from_millis(800);
+            let deadline = Instant::now() + Duration::from_millis(1500);
             let mut copied_version = before;
             let mut changed_at = Instant::now();
             loop {
@@ -75,10 +75,14 @@ mod platform {
                     copied_version = version;
                     changed_at = Instant::now();
                 }
-                if copied_version != before && changed_at.elapsed() >= Duration::from_millis(30) {
+                // Rich text applications may clear, then publish multiple formats.
+                if copied_version != before && changed_at.elapsed() >= Duration::from_millis(80) {
                     break;
                 }
-                if Instant::now() >= deadline {
+                if Instant::now() >= deadline
+                    || inputs() != input_before
+                    || crate::core::selection_text::foreground_id() != Some(source)
+                {
                     return None;
                 }
                 std::thread::sleep(Duration::from_millis(10));
@@ -87,8 +91,9 @@ mod platform {
                 .stringForType(unsafe { NSPasteboardTypeString })
                 .map(|s| s.to_string());
             let input_after = inputs();
-            let only_our_key = input_after[0].wrapping_sub(input_before[0]) == 1
-                && input_after[1..] == input_before[1..]
+            // Synthetic Copy uses a private source at the session tap. Hardware
+            // counts must stay unchanged; don't assume our injected C is counted once.
+            let only_our_key = input_before == input_after
                 && crate::core::selection_text::foreground_id() == Some(source);
             if !super::may_restore(
                 before as u64,
@@ -354,6 +359,34 @@ mod tests {
             let before = board.stringForType(unsafe { NSPasteboardTypeString });
             let source = crate::core::selection_text::foreground_id().expect("fixture source");
             let selected = read(source).expect("copy must return the current fixture selection");
+            assert!(selected == include_str!("../../../tests/fixtures/selection.txt"));
+            assert!(board.stringForType(unsafe { NSPasteboardTypeString }) == before);
+        });
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "requires Sublime Text in the foreground with only tests/fixtures/selection.txt text selected and Accessibility permission; preserves the clipboard"]
+    fn native_fixture_copy_from_app_without_accessibility_text() {
+        use objc2_app_kit::{NSPasteboard, NSPasteboardTypeString, NSWorkspace};
+        objc2::rc::autoreleasepool(|_| {
+            let foreground = NSWorkspace::sharedWorkspace()
+                .frontmostApplication()
+                .and_then(|app| app.bundleIdentifier())
+                .map(|id| id.to_string());
+            assert_eq!(
+                foreground.as_deref(),
+                Some("com.sublimetext.4"),
+                "activate the controlled Sublime Text fixture before running this test"
+            );
+            assert!(
+                crate::core::selection_text::read_selected_text().is_none(),
+                "fixture must exercise clipboard fallback rather than AX text"
+            );
+            let board = NSPasteboard::generalPasteboard();
+            let before = board.stringForType(unsafe { NSPasteboardTypeString });
+            let source = crate::core::selection_text::foreground_id().expect("fixture source");
+            let selected = read(source).expect("copy fallback must read the controlled fixture");
             assert!(selected == include_str!("../../../tests/fixtures/selection.txt"));
             assert!(board.stringForType(unsafe { NSPasteboardTypeString }) == before);
         });

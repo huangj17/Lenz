@@ -59,8 +59,47 @@ mod macos {
             value: *mut *const c_void,
         ) -> i32;
         fn AXUIElementSetMessagingTimeout(element: *const c_void, timeout: f32) -> i32;
+        fn AXUIElementGetTypeID() -> usize;
         fn AXValueGetTypeID() -> usize;
         fn AXValueGetValue(value: *const c_void, kind: u32, output: *mut c_void) -> bool;
+    }
+
+    unsafe fn parameterized(element: &Owned, name: &str, parameter: &Owned) -> Option<Owned> {
+        let name = CFString::from_str(name);
+        let mut value = ptr::null();
+        let error =
+            AXUIElementCopyParameterizedAttributeValue(element.0, &*name, parameter.0, &mut value);
+        let owned = (!value.is_null()).then(|| Owned(value));
+        if error == 0 {
+            owned
+        } else {
+            None
+        }
+    }
+
+    unsafe fn string(value: &Owned) -> Option<String> {
+        if CFGetTypeID(value.0) != CFStringGetTypeID() {
+            return None;
+        }
+        let text = (&*(value.0 as *const CFString)).to_string();
+        (!text.trim().is_empty()).then(|| text.trim().to_string())
+    }
+
+    unsafe fn selected_text(element: &Owned) -> Option<String> {
+        attribute(element, "AXSelectedText")
+            .and_then(|value| string(&value))
+            // Some native controls expose a range but omit AXSelectedText.
+            .or_else(|| {
+                let range = attribute(element, "AXSelectedTextRange")?;
+                let value = parameterized(element, "AXStringForRange", &range)?;
+                string(&value)
+            })
+            // WebKit-based mail/readers expose text marker ranges instead of CFRange.
+            .or_else(|| {
+                let range = attribute(element, "AXSelectedTextMarkerRange")?;
+                let value = parameterized(element, "AXStringForTextMarkerRange", &range)?;
+                string(&value)
+            })
     }
     #[link(name = "CoreFoundation", kind = "framework")]
     extern "C" {
@@ -127,21 +166,36 @@ mod macos {
             }
             let app = Owned(raw);
             AXUIElementSetMessagingTimeout(app.0, 0.3);
-            let focused = attribute(&app, "AXFocusedUIElement")?;
-            AXUIElementSetMessagingTimeout(focused.0, 0.3);
-            let value = attribute(&focused, "AXSelectedText")?;
-            if CFGetTypeID(value.0) != CFStringGetTypeID() {
-                return None;
+            let mut focused = attribute(&app, "AXFocusedUIElement")?;
+            // A focused inline child may delegate selection to its containing text
+            // control/web area. Walk only its ancestors, never unrelated windows.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(600);
+            for _ in 0..5 {
+                if CFGetTypeID(focused.0) != AXUIElementGetTypeID()
+                    || foreground_id() != Some(source)
+                    || std::time::Instant::now() >= deadline
+                {
+                    break;
+                }
+                AXUIElementSetMessagingTimeout(focused.0, 0.1);
+                if attribute(&focused, "AXSubrole")
+                    .and_then(|value| string(&value))
+                    .as_deref()
+                    == Some("AXSecureTextField")
+                {
+                    return None;
+                }
+                if let Some(text) = selected_text(&focused) {
+                    let bounds = bounds(&focused);
+                    return (foreground_id() == Some(source))
+                        .then_some(SelectedText { text, bounds });
+                }
+                let Some(parent) = attribute(&focused, "AXParent") else {
+                    break;
+                };
+                focused = parent;
             }
-            let text = (&*(value.0 as *const CFString))
-                .to_string()
-                .trim()
-                .to_string();
-            let bounds = bounds(&focused);
-            if text.is_empty() || foreground_id() != Some(source) {
-                return None;
-            }
-            Some(SelectedText { text, bounds })
+            None
         }
     }
 }

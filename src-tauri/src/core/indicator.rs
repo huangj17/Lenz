@@ -150,10 +150,12 @@ pub fn show_at(app: &AppHandle, x: f64, y: f64) -> u64 {
         log::warn!("indicator window not found");
         return 0;
     };
+    // Clicking the indicator must leave the source selection focused so the
+    // clipboard fallback can read apps without AXSelectedText support.
+    let _ = win.set_focusable(false);
     #[cfg(target_os = "windows")]
     {
         let _ = (x, y);
-        let _ = win.set_focusable(false);
     }
 
     #[cfg(not(target_os = "windows"))]

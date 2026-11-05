@@ -36,6 +36,7 @@ import type {
   ScreenshotResult,
   ScreenshotTranslatingPayload,
   SelectionDetectedPayload,
+  SelectionInput,
   SelectionTextChangedPayload,
   StartupWarningPayload,
   TestEngineResult,
@@ -265,6 +266,7 @@ export const Events = {
   ShortcutOverlay: "shortcut://overlay",
   SelectionTextChanged: "selection://text-changed",
   SelectionDetected: "selection://detected",
+  SelectionInput: "selection://input",
   SelectionPermissionRequired: "selection://permission-required",
   CaptureRegionSelected: "capture://region-selected",
   CaptureRegionCancelled: "capture://region-cancelled",
@@ -286,6 +288,7 @@ export interface EventPayloadMap {
   [Events.ShortcutOverlay]: void;
   [Events.SelectionTextChanged]: SelectionTextChangedPayload;
   [Events.SelectionDetected]: SelectionDetectedPayload;
+  [Events.SelectionInput]: SelectionInput;
   [Events.SelectionPermissionRequired]: PermissionRequiredPayload;
   [Events.CaptureRegionSelected]: CaptureRegionSelectedPayload;
   [Events.CaptureRegionCancelled]: void;

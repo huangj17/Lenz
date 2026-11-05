@@ -42,6 +42,9 @@ jobs:
     timeout-minutes: 60
     env:
       MACOSX_DEPLOYMENT_TARGET: '12.0'
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -51,6 +54,8 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - name: Select macOS signing identity
+        run: node scripts/release/macos-signing.mjs
       - name: Select Xcode 26 or newer
         run: python3 scripts/release/select-xcode.py
       - uses: dtolnay/rust-toolchain@stable
@@ -61,8 +66,16 @@ jobs:
           workspaces: src-tauri
           key: release-${{ matrix.target }}
       - run: pnpm install --frozen-lockfile
-      - name: Build ad-hoc signed DMG
-        run: pnpm tauri build --target "${{ matrix.target }}" --bundles dmg --config src-tauri/tauri.release.macos.conf.json
+      - name: Build signed DMG
+        shell: bash
+        run: |
+          if [[ "$APPLE_SIGNING_IDENTITY" == '-' ]]; then
+            # Tauri imports a PKCS#12 whenever both variables are set, even if empty.
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
+          fi
+          pnpm tauri build --target "${{ matrix.target }}" --bundles app,dmg --config src-tauri/tauri.release.macos.conf.json
+      - name: Verify application signature and update identity
+        run: node scripts/release/macos-signing.mjs --verify "src-tauri/target/${{ matrix.target }}/release/bundle/macos/Lenz.app"
       - uses: actions/upload-artifact@v4
         with:
           name: release-macos-${{ matrix.architecture }}

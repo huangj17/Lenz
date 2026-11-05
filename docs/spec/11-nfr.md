@@ -68,21 +68,18 @@ Tauri 前端沙箱限制:只允许访问 `app_config_dir` 和 `app_log_dir`。�
 | macOS | `.dmg`(含 `.app` bundle) |
 | Windows | 普通 `.exe`（NSIS,无需导入证书,使用腾讯云等 OCR）;另提供完整 `.msix` 和安装助手 ZIP（系统 OCR 可选版本） |
 
-Windows 的构建和安装识别工作流已编写,实际运行结果独立验收。macOS 正式签名与发布 CI 尚待配置。
+Windows 的构建和安装识别工作流已编写,实际运行结果独立验收。macOS 发布 CI 支持可选的 Developer ID 凭据,未配置时继续生成 ad-hoc 测试包并明确警告;正式证书、公证与升级授权保持仍需验收。
 
 ## 4. 打包与签名
 
 ### 4.1 macOS
 
-- 开发者证书:需要 Apple Developer Program 账号。
-- 签名:`codesign --deep --force --verify --sign "Developer ID Application: ..."`.
+- 公开 Developer ID 分发需要 Apple Developer Program;仅本机使用可免费创建固定自签代码签名证书,无需付费账号。固定证书与 bundle ID 才有稳定代码身份;ad-hoc 的 designated requirement 绑定构建哈希,每次更新可能使隐私授权失效。
+- 发布 CI 配置 `APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_SIGNING_IDENTITY` 三个 secrets 后由 Tauri 签名;缺失全部时保留 ad-hoc 测试发布,配置不完整则失败而不静默降级。构建后检查签名与 designated requirement。
+- 本机自签入口:`pnpm macos:local`,优先复用本机 Signing 记录中的证书指纹,使用现有钥匙串身份,构建 `.app` 并校验签名基于指定证书而非本次构建哈希;也支持显式传证书名称/指纹。不自动创建证书、修改信任或系统授权。首次从 ad-hoc 切换需重新授权一次,后续复用同一证书。本机 macOS 27.2 已通过两份不同构建往返替换的设备控制/录屏授权保持验证,范围见 [macOS 本机签名指南](../macos-signing.md)。
 - 公证(Notarization):提交 Apple Notary Service,等待通过后 `xcrun stapler staple`.
 - `LSUIElement = true`(Info.plist):不在 Dock 显示,仅驻菜单栏。
-- 权限声明(entitlements):
-  - `com.apple.security.automation.apple-events`(CGEventTap)
-  - `com.apple.security.device.camera`(不需要)
-  - 屏幕录制:通过 `NSScreenCaptureUsageDescription`。
-  - 辅助功能:通过 `NSAppleEventsUsageDescription`。
+- 辅助功能通过 `AXIsProcessTrusted` 检查,截图通过屏幕录制授权检查;CGEventTap/AX 取词不依赖 Apple Events entitlement,也不请求相机。签名、公证与用户授予隐私权限是不同步骤。
 
 ### 4.2 Windows
 

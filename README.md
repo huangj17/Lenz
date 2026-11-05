@@ -6,30 +6,32 @@
 
 ## 📦 下载与安装
 
-最新版本 [v0.1.4](https://github.com/huangj17/Lenz/releases/tag/v0.1.4)：修复 Windows 托盘图标为黑色的问题,改用彩色应用图标;包含此前的弹框宽度和启动修复,保留普通 EXE、可选 MSIX 与腾讯云 OCR。
+v0.1.5 改善了 macOS 桌面应用的划词取词，无选区时也可以打开弹框输入文字。下载与验证范围见 [v0.1.5 发布说明](https://github.com/huangj17/Lenz/releases/tag/v0.1.5)。
 
 | 平台 | 安装包 | 最低系统版本 |
 |---|---|---|
-| macOS Apple Silicon | [aarch64 DMG](https://github.com/huangj17/Lenz/releases/download/v0.1.4/Lenz_0.1.4_aarch64.dmg) | macOS 12 |
-| macOS Intel | [x64 DMG](https://github.com/huangj17/Lenz/releases/download/v0.1.4/Lenz_0.1.4_x64.dmg) | macOS 12 |
-| Windows x64（推荐，腾讯云等 OCR） | [普通 EXE 安装包](https://github.com/huangj17/Lenz/releases/download/v0.1.4/Lenz_0.1.4_windows_x64_setup.exe) | Windows 10 1809 |
-| Windows x64（可选，系统 OCR） | [MSIX + 安装助手 ZIP](https://github.com/huangj17/Lenz/releases/download/v0.1.4/Lenz_0.1.4_windows_x64_test-signed.zip) | Windows 10 1809 |
+| macOS Apple Silicon | [aarch64 DMG](https://github.com/huangj17/Lenz/releases/download/v0.1.5/Lenz_0.1.5_aarch64.dmg) | macOS 12 |
+| macOS Intel | [x64 DMG](https://github.com/huangj17/Lenz/releases/download/v0.1.5/Lenz_0.1.5_x64.dmg) | macOS 12 |
+| Windows x64（推荐，腾讯云等 OCR） | [普通 EXE 安装包](https://github.com/huangj17/Lenz/releases/download/v0.1.5/Lenz_0.1.5_windows_x64_setup.exe) | Windows 10 1809 |
+| Windows x64（可选，系统 OCR） | [MSIX + 安装助手 ZIP](https://github.com/huangj17/Lenz/releases/download/v0.1.5/Lenz_0.1.5_windows_x64_test-signed.zip) | Windows 10 1809 |
 
 macOS 打开 DMG 后将 Lenz 拖入「应用程序」。本版使用 ad-hoc 签名，尚未完成 Developer ID 签名与公证；首次打开可能需要在系统「隐私与安全性」中确认。
+
+源码本机自用可免费采用固定自签证书构建,减少每次替换后身份变化造成的重复授权;入口与验证限制见 [macOS 本机签名指南](docs/macos-signing.md)。
 
 Windows 推荐下载普通 **EXE 安装包**,无需手动导入证书。安装完成页与开始菜单会显示主窗口,在「设置 → 服务 → OCR」添加腾讯云并设为默认即可,无需本地 OCR 语言包。若缺少 WebView2,安装器会下载并验证微软官方运行环境。
 
 以后需要 Windows 系统 OCR 时,可选安装 **MSIX + 安装助手 ZIP**。此版本需要包身份及对应 OCR 语言包;当前使用 365 天自签测试证书,需用户检查后明确导入「本地计算机 → 受信任人」。仅导入证书不能让普通 EXE 启用系统 OCR。切换前请退出应用,按安装说明区分 EXE 与 MSIX 启动入口。详细步骤见 [Windows 分发指南](docs/windows-distribution.md)。
 
-v0.1.4 的应用版本、安装器版本和文件名均已升级,并包含 Windows 彩色托盘图标修复。已安装旧版的用户请完全退出 Lenz,下载新版 EXE 后覆盖安装,本机配置会保留;安装后可在「关于」查看 0.1.4。Windows 10/11 用户机器上的托盘深浅色外观、快捷键翻译、混合 DPI、升级/卸载及腾讯云真实账号识别仍待实测。EXE 尚无公开可信签名,Windows 可能显示未知发布者/SmartScreen 提示。
+已安装旧版的 Windows 用户请先完全退出 Lenz，再覆盖安装新版 EXE。安装后可在「关于」查看 0.1.5，本机配置会保留。Windows 客户端的快捷键翻译、混合 DPI、升级和卸载仍待实测。普通 EXE 可能显示未知发布者或 SmartScreen 提示。
 
-安装产物附带 [SHA256SUMS.txt](https://github.com/huangj17/Lenz/releases/download/v0.1.4/SHA256SUMS.txt)。功能和验证范围见 [发布说明](docs/releases/v0.1.4.md)。
+安装产物附带 [SHA256SUMS.txt](https://github.com/huangj17/Lenz/releases/download/v0.1.5/SHA256SUMS.txt)。
 
 ## ✨ 核心功能
 
 | 功能 | 快捷键（默认） | 说明 |
 |---|---|---|
-| 划词翻译（F1） | `⌥ D` / `Alt+D` | 选中文本 → 快捷键或指示图标触发，光标处弹框显示译文 |
+| 划词翻译（F1） | `⌥ D` / `Alt+D` | 选中文本后按快捷键或点击指示图标翻译，未取得选区时可在弹框中输入 |
 | 截图翻译（F2） | `⌥ S` / `Alt+S` | 框选区域 → 所选 OCR 服务 → 翻译 → 弹框显示原文 + 译文 |
 | 原图覆盖翻译（F3） | `⌥ F` / `Alt+F` | 框选区域 → OCR + 翻译 → 译文按原文位置覆盖在屏幕上（核心差异化） |
 | 设置 | `⌘ ,` / `Ctrl+,` | 打开并聚焦设置窗口，托盘菜单同步展示快捷键 |
@@ -52,7 +54,7 @@ Bob 是 macOS 上广受好评的翻译工具，但仅支持 macOS、订阅制收
 
 ## 🚧 项目状态
 
-v0.1.4 的功能实现与平台运行验收分别记录（详见 [`docs/TODO.md`](docs/TODO.md)）：
+v0.1.5 的功能实现与平台运行验收见 [`docs/TODO.md`](docs/TODO.md)。
 
 | 里程碑 | 当前状态 |
 |---|---|
@@ -60,13 +62,13 @@ v0.1.4 的功能实现与平台运行验收分别记录（详见 [`docs/TODO.md`
 | M2 OCR 桥接 | macOS Vision 已识别验证；Windows.Media.Ocr、包身份与安装自检已实现，原生 MSVC 构建通过，安装识别待验收 |
 | M3 翻译引擎 | OpenAI 兼容、本地 LLM 与传统 API 已接入；Apple 英中翻译及缺语言包提示已验证，Intel 与旧系统运行待验收 |
 | M4 截图翻译 F2 | macOS 开发版全流程已跑通；发布版权限回归与 Windows 运行验收待做 |
-| M5 划词翻译 F1 | macOS AX / Windows UIA、剪贴板兜底与指示图标已实现；源应用覆盖与权限验收待做 |
+| M5 划词翻译 F1 | macOS 已实测 Sublime Text 选区翻译、空白输入和同证书替换后保留权限。其他源应用和 Windows 运行待验收 |
 | M6 原图覆盖 F3 | 流程、颜色采样、字体适应、取消和关闭已实现；多屏与原生窗口交互待验收 |
 | M7 设置页 | 现有设置控件已接通；macOS 设置快捷键与部分偏好重启保存已验证，系统自启和 Windows 运行验收待做 |
 | M8 完善 | 中英界面、主题、自启和更新检查已接通；日志轮转、原生毛玻璃与系统交互验收仍有待办 |
 | M9 打包发布 | 双架构 macOS DMG、Windows x64 MSIX、安装助手和 EXE 安装向导已发布；正式可信签名、公证和运行验收待完成 |
 
-本地 macOS 已通过类型检查、37 项前端纯逻辑测试、生产构建和 84 项 Rust 测试。[主分支 CI](https://github.com/huangj17/Lenz/actions/workflows/ci.yml) 执行双平台构建与 Rust fmt/Clippy,macOS 运行 Rust 测试,Windows 编译测试。Windows 安装、OCR、自启和 GUI 验收仍需 Windows 客户端运行报告。
+本地 macOS 已通过类型检查、45 项前端和打包测试、生产构建与 96 项 Rust 测试。CI 执行双平台构建与 Rust fmt/Clippy，在 macOS 上运行 Rust 测试，在 Windows 上编译测试。Windows 安装、OCR、自启和 GUI 验收仍需客户端运行报告。[主分支 CI](https://github.com/huangj17/Lenz/actions/workflows/ci.yml)
 
 `v*` 标签触发双架构 macOS DMG 和 Windows x64 MSIX、安装助手 ZIP、EXE 安装向导构建，成功后上传 [Releases](https://github.com/huangj17/Lenz/releases)。Windows 安装/OCR 验收工作流仅手动触发，默认只构建。
 

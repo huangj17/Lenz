@@ -179,6 +179,21 @@ pub struct ScreenshotProgress {
 // 划词监听 F1 事件载荷(spec 05 §2 / §5)
 // ──────────────────────────────────────────────────────────────────────────
 
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum SelectionInputNotice {
+    Permission,
+    Modifiers,
+}
+
+/// `selection://input`:未取得选区时打开手动输入,不发起空文本翻译。
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectionInput {
+    pub session_id: u32,
+    pub notice: Option<SelectionInputNotice>,
+}
+
 /// `selection://detected` 事件载荷:监听到一次「划词/双击选中」手势。
 /// 坐标为光标松开处的全局显示逻辑坐标(top-left 原点,单位 point),供前端在该处
 /// 浮出划词指示图标(spec 05 §2.1 / §7)。此时**尚未**读取选中文本——只有用户

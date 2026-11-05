@@ -22,7 +22,7 @@ import { Select, type SelectOption } from "@/components/Select";
 import { isLenzError, emit, Events, listenEvent, screenshotApi, selectionApi, translateApi } from "@/lib/ipc";
 import { TRANSLATE_LANGUAGES } from "@/lib/languages";
 import { useConfigStore } from "@/stores/config";
-import type { PopupServiceUiConfig, ScreenshotErrorPayload } from "@/lib/types";
+import type { PopupServiceUiConfig, ScreenshotErrorPayload, SelectionInput } from "@/lib/types";
 
 /** 弹框可拖拽宽度上/下限(逻辑像素),与后端 `POPUP_MIN/MAX_WIDTH` 一致。 */
 const POPUP_MIN_WIDTH = 300;
@@ -30,6 +30,7 @@ const POPUP_MAX_WIDTH = 720;
 
 type View =
   | { kind: "loading"; stage: "capture" | "ocr" | "translate" }
+  | (Omit<PopupTranslationPanel, "kind"> & { kind: "input"; notice: SelectionInput["notice"] })
   | PopupTranslationPanel
   | ({ kind: "error" } & ScreenshotErrorPayload);
 
@@ -175,10 +176,15 @@ export function PopupWindow() {
 
   // 新结果/翻译中到达时,把可编辑原文重置为该原文(loading/error 不覆盖用户草稿)。
   const incomingOriginal =
-    view.kind === "translations" ? view.original : null;
+    view.kind === "translations" || view.kind === "input" ? view.original : null;
   useEffect(() => {
     if (incomingOriginal !== null) setDraft(incomingOriginal);
   }, [incomingOriginal]);
+
+  const inputSessionId = view.kind === "input" ? view.sessionId : null;
+  useEffect(() => {
+    if (inputSessionId !== null) originalRef.current?.focus();
+  }, [inputSessionId]);
 
   // ── 订阅 F2 / F1 事件 ─────────────────────────────────────────────────
   useEffect(() => {
@@ -189,6 +195,16 @@ export function PopupWindow() {
     const enabledIds = () => useConfigStore.getState().config.translator.engines
       .filter((engine) => engine.enabled).map((engine) => engine.id);
     const subs = [
+      listenEvent(Events.SelectionInput, (e) => sessions.current.event(e.payload.sessionId, () => {
+        translateGenerationRef.current += 1;
+        translations.current.clear();
+        setDraft("");
+        setCopiedId(null);
+        const config = useConfigStore.getState().config.translator;
+        setView({ kind: "input", sessionId: e.payload.sessionId, notice: e.payload.notice,
+          original: "", sourceLang: null, targetLang: config.targetLang,
+          primaryEngineId: config.defaultEngineId, rows: [] });
+      })),
       listenEvent(Events.ScreenshotProgress, (e) => sessions.current.event(e.payload.sessionId ?? 0, () => {
         translateGenerationRef.current += 1;
         translations.current.clear();
@@ -225,7 +241,7 @@ export function PopupWindow() {
         setView({ kind: "error", ...p });
       })),
     ];
-    // 四个监听全部挂上后,通知后端 popup 可接收事件——关闭冷启动首帧竞态:
+    // 监听全部挂上后,通知后端 popup 可接收事件——关闭冷启动首帧竞态:
     // 首次划词/截图时后端会先等这个 `popup://ready` 再投递 progress/result(方案 A)。
     void Promise.all(subs).then(() => { if (active) void emit("popup://ready"); });
     return () => {
@@ -349,6 +365,8 @@ export function PopupWindow() {
   // 引擎行转圈)而非整块骨架,切换语言时原文与语言条不闪。
   const runTranslate = useCallback(
     async (original: string, src: string | null = null, tgt: string = targetLang) => {
+      original = original.trim();
+      if (!original) return;
       const requestGeneration = ++translateGenerationRef.current;
       translations.current.clear();
       const ids = useConfigStore.getState().config.translator.engines
@@ -387,7 +405,7 @@ export function PopupWindow() {
 
   const engineName = (id: string) => engines.find((e) => e.id === id)?.name ?? id;
 
-  const panel = view.kind === "translations" ? view : null;
+  const panel = view.kind === "translations" || view.kind === "input" ? view : null;
   const ocrServiceErrorKey = view.kind === "error" && view.stage === "ocr" ? tencentOcrErrorKey(view.message) : null;
   const successes = panel?.rows.filter((row) => row.status === "success");
   const succ = successes?.find((row) => row.engineId === panel?.primaryEngineId) ?? successes?.[0];
@@ -418,11 +436,19 @@ export function PopupWindow() {
   const curOriginal = () => (panel ? draft.trim() || panel.original : "");
   const onChangeSource = (v: string) => {
     if (!panel) return;
+    if (panel.kind === "input") {
+      setView({ ...panel, sourceLang: v === "auto" ? null : v });
+      return;
+    }
     void runTranslate(curOriginal(), v === "auto" ? null : v, panel.targetLang);
   };
   const onChangeTarget = (v: string) => {
     if (!panel) return;
     void patch({ translator: { targetLang: v } }); // 记住偏好,后续翻译沿用
+    if (panel.kind === "input") {
+      setView({ ...panel, targetLang: v });
+      return;
+    }
     void runTranslate(curOriginal(), panel.sourceLang, v);
   };
   // 互换源/目标:源已知才有意义;源为「自动检测」(未知)时保持不变(安全 no-op)。
@@ -470,45 +496,56 @@ export function PopupWindow() {
 
         {panel && (
           <>
-            {/* 原文块(可编辑;回车重译,Shift+回车换行) */}
-            {panel.original.trim() && (
-              <div className="shrink-0 border-b border-line bg-field/60 px-3 py-2.5">
-                <textarea
-                  ref={originalRef}
-                  value={draft}
-                  spellCheck={false}
-                  rows={1}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      const text = draft.trim();
-                      if (text) void runTranslate(text, panel.sourceLang, panel.targetLang);
-                    }
-                  }}
-                  className="block max-h-24 w-full resize-none select-text overflow-y-auto whitespace-pre-wrap rounded-[7px] border border-line bg-card px-2.5 py-2 text-[13px] leading-snug text-fg outline-none focus:border-accent"
-                />
-                <div className="mt-2 flex items-center gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => void onCopy("original", draft)}
-                    className={copiedId === "original" ? "text-accent-ink" : "text-sub hover:text-fg"}
-                    aria-label={copiedId === "original" ? t("popup.copied") : t("popup.copy")}
-                  >
-                    <Icon name={copiedId === "original" ? "check" : "copy"} size={13} />
-                  </button>
-                  <span className="inline-flex items-center gap-1 rounded-[5px] bg-field px-2 py-0.5 text-[11px] text-sub">
-                    {t("popup.detected")}{" "}
-                    <span className="font-semibold text-accent-ink">
-                      {langName(panel.sourceLang, i18n.language) || t("popup.auto")}
-                    </span>
-                  </span>
-                  <span className="ml-auto font-mono text-[10px] text-sub">
-                    {draft.length} {t("popup.chars")}
-                  </span>
-                </div>
+            {panel.kind === "input" && panel.notice && (
+              <div className="border-b border-line px-3 py-2 text-[12px] text-sub" role="status">
+                <p>{t(panel.notice === "permission" ? "popup.error.selectionPermission" : "popup.error.selectionModifiers")}</p>
+                {panel.notice === "permission" && (
+                  <button type="button" className="mt-1 text-accent-ink"
+                    onClick={() => void selectionApi.openAccessibilitySettings()}>{t("popup.error.openSettings")}</button>
+                )}
               </div>
             )}
+            {/* 原文块(可编辑;回车重译,Shift+回车换行) */}
+            <div className="shrink-0 border-b border-line bg-field/60 px-3 py-2.5">
+              <textarea
+                ref={originalRef}
+                value={draft}
+                spellCheck={false}
+                rows={panel.kind === "input" ? 3 : 1}
+                maxLength={5000}
+                aria-label={t("popup.inputLabel")}
+                placeholder={t("popup.inputPlaceholder")}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    const text = draft.trim();
+                    if (text) void runTranslate(text, panel.sourceLang, panel.targetLang);
+                  }
+                }}
+                className="block max-h-24 w-full resize-none select-text overflow-y-auto whitespace-pre-wrap rounded-[7px] border border-line bg-card px-2.5 py-2 text-[13px] leading-snug text-fg outline-none focus:border-accent"
+              />
+              <div className="mt-2 flex items-center gap-2.5">
+                <button
+                  type="button"
+                  disabled={!draft.trim()}
+                  onClick={() => void onCopy("original", draft)}
+                  className={copiedId === "original" ? "text-accent-ink" : "text-sub hover:text-fg"}
+                  aria-label={copiedId === "original" ? t("popup.copied") : t("popup.copy")}
+                >
+                  <Icon name={copiedId === "original" ? "check" : "copy"} size={13} />
+                </button>
+                <span className="inline-flex items-center gap-1 rounded-[5px] bg-field px-2 py-0.5 text-[11px] text-sub">
+                  {t("popup.detected")}{" "}
+                  <span className="font-semibold text-accent-ink">
+                    {langName(panel.sourceLang, i18n.language) || t("popup.auto")}
+                  </span>
+                </span>
+                <span className="ml-auto font-mono text-[10px] text-sub">
+                  {draft.length} {t("popup.chars")}
+                </span>
+              </div>
+            </div>
 
             {/* 语言切换条:源(含自动检测)/ 目标 均为样式化下拉,切换即时重译 */}
             <div className="flex shrink-0 items-center border-b border-line bg-field/30 px-2 py-1.5">
@@ -541,7 +578,7 @@ export function PopupWindow() {
 
             {/* All enabled services share a scrollable list; each row settles independently. */}
             <div className="min-h-0 flex-1 overflow-y-auto" aria-label={t("popup.results")}>
-              {panel.rows.length === 0 && (
+              {panel.kind === "translations" && panel.rows.length === 0 && (
                 <p className="p-3 text-xs text-sub">{t("popup.error.noEngines")}</p>
               )}
               {panel.rows.map((row) => (
@@ -565,7 +602,15 @@ export function PopupWindow() {
 
             {/* 底部 */}
             <div className="flex shrink-0 items-center gap-2 border-t border-line bg-field/40 px-3 py-1.5 text-[10px] text-sub">
-              <span>{panel.rows.length === 1 ? t("popup.via", { engine: engineName(panel.rows[0].engineId) }) : t("popup.serviceCount", { count: panel.rows.length })}</span>
+              <span>{panel.kind === "input" ? t("popup.inputHint")
+                : panel.rows.length === 1 ? t("popup.via", { engine: engineName(panel.rows[0].engineId) }) : t("popup.serviceCount", { count: panel.rows.length })}</span>
+              {panel.kind === "input" && (
+                <button type="button" disabled={!draft.trim()}
+                  onClick={() => void runTranslate(draft, panel.sourceLang, panel.targetLang)}
+                  className="ml-auto rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-accent-fg hover:opacity-90 disabled:opacity-40">
+                  {t("popup.translate")}
+                </button>
+              )}
               <span className="ml-auto">
                 <Kbd keys={["esc"]} />
               </span>

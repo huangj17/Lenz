@@ -243,6 +243,10 @@
     "cancel": "取消"
   },
   "popup": {
+    "inputLabel": "待翻译文本",
+    "inputPlaceholder": "输入或粘贴需要翻译的文字…",
+    "inputHint": "回车翻译 · Shift+回车换行",
+    "translate": "翻译",
     "stage": {
       "capture": "截图中…",
       "ocr": "识别中…",
