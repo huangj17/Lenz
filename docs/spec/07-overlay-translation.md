@@ -11,13 +11,13 @@ Alt+F
   │
   ▼
 start_selection(trigger="overlay")          [Rust]
-  │
+  │  定格全部屏幕,见 Spec 02 §2.3
   ▼
 用户框选区域                                 [前端 selection 窗口]
   │  emit capture://region-selected { trigger="overlay" }
   ▼
-capture_screen_region(rect)                  [Rust]
-  │  先保证选区蒙层离屏;抓屏前不显示新覆盖层
+crop_frozen(frames, rect)                    [Rust]
+  │  无定格图时等选区蒙层离屏后 capture_screen_region;截图前不显示新覆盖层
   ▼
 create_overlay_window(image, progress="ocr") [Rust → React]
   │  立即显示截图、loading 和 × / Esc;不等待识别与翻译

@@ -40,10 +40,12 @@ export const commands = {
 	testOcrService: (service: OcrService) => typedError<TestOcrResult, LenzError>(__TAURI_INVOKE("test_ocr_service", { service })),
 	/**  采集指定屏幕区域(逻辑坐标),返回 PNG + 物理像素信息。 */
 	captureScreenRegion: (rect: Rect) => typedError<CaptureResult, LenzError>(__TAURI_INVOKE("capture_screen_region", { rect })),
-	/**  进入选区模式:为每块显示器各创建一个 selection 蒙层窗口(spec 02 §4)。 */
+	/**  进入选区模式:定格整屏后为每块显示器各创建一个 selection 蒙层窗口(spec 02 §4)。 */
 	startSelection: (trigger: TriggerKind) => typedError<null, LenzError>(__TAURI_INVOKE("start_selection", { trigger })),
-	/**  取消选区模式:销毁 selection 窗口(spec 02 §4)。 */
+	/**  取消选区模式:销毁 selection 窗口并丢弃定格图(spec 02 §4)。 */
 	cancelSelection: () => typedError<null, LenzError>(__TAURI_INVOKE("cancel_selection")),
+	/**  选区窗口已画好定格背景:显示调用方窗口(spec 02 §3.1)。 */
+	selectionReady: () => __TAURI_INVOKE<void>("selection_ready"),
 	/**  取消进行中的 F2 会话并隐藏 popup(spec 06 §6/§7)。 */
 	cancelScreenshot: () => typedError<null, LenzError>(__TAURI_INVOKE("cancel_screenshot")),
 	/**

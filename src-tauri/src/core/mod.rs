@@ -9,6 +9,7 @@
 
 pub mod capture;
 pub mod cursor;
+pub mod freeze;
 pub mod indicator;
 pub mod keystroke;
 pub mod ocr;

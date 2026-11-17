@@ -2,23 +2,33 @@ import { frameScheduler } from "@/lib/frameScheduler";
 /**
  * 截图选区蒙层窗口(spec 02 §3 / spec 09 §4)。
  *
- * 全屏 canvas:半透遮罩 + 选区镂空 + 边框 + 角 handle + 尺寸提示。
+ * 定格背景(`?frame=`,按下快捷键瞬间的整屏截图)+ 全屏 canvas:半透遮罩 + 选区镂空 +
+ * 边框 + 角 handle + 尺寸提示。定格图解码完成后通知后端显示窗口;无定格图时退回
+ * 透明实时蒙层,由后端直接显示。
  * 鼠标 down/move/up 绘制;ESC 取消。框选完成时把 CSS 坐标 + 窗口逻辑原点换算为
  * 虚拟屏逻辑坐标,emit `capture://region-selected`;过小或 ESC 则 emit
  * `capture://region-cancelled`,均由 Rust 侧销毁本窗口。
  */
 import { useEffect, useRef } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
 import { Kbd } from "@/components/Icon";
 import { LensMark } from "@/components/LensMark";
-import { emit, Events } from "@/lib/ipc";
+import { captureApi, emit, Events, FRAME_SCHEME } from "@/lib/ipc";
 import type { TriggerKind } from "@/lib/types";
 
 function readTrigger(): TriggerKind {
   const t = new URLSearchParams(window.location.search).get("trigger");
   return t === "overlay" ? "overlay" : "screenshot";
 }
+
+function readFrameSrc(): string | null {
+  const key = new URLSearchParams(window.location.search).get("frame");
+  return key ? convertFileSrc(key, FRAME_SCHEME) : null;
+}
+
+const frameSrc = readFrameSrc();
 
 interface DragState {
   dragging: boolean;
@@ -31,6 +41,23 @@ interface DragState {
 export function SelectionWindow() {
   const { t } = useTranslation();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const frameRef = useRef<HTMLImageElement>(null);
+
+  useEffect(() => {
+    const img = frameRef.current;
+    if (!img) return;
+    let active = true;
+    // 解码失败也要显示窗口,保证用户能框选或 ESC 退出。
+    void img
+      .decode()
+      .catch(() => undefined)
+      .then(() => {
+        if (active) void captureApi.selectionReady();
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -176,7 +203,16 @@ export function SelectionWindow() {
 
   return (
     <>
-      <canvas ref={canvasRef} className="block h-screen w-screen cursor-crosshair" />
+      {frameSrc && (
+        <img
+          ref={frameRef}
+          src={frameSrc}
+          alt=""
+          draggable={false}
+          className="pointer-events-none fixed inset-0 h-screen w-screen select-none"
+        />
+      )}
+      <canvas ref={canvasRef} className="relative block h-screen w-screen cursor-crosshair" />
       {/* 顶部指示条(对齐设计 capture-f2);pointer-events-none 不拦截框选。 */}
       <div className="pointer-events-none fixed left-1/2 top-4 -translate-x-1/2">
         <div

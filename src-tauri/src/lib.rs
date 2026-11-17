@@ -42,6 +42,7 @@ fn specta_builder() -> SpectaBuilder<tauri::Wry> {
             commands::capture::capture_screen_region,
             commands::capture::start_selection,
             commands::capture::cancel_selection,
+            commands::capture::selection_ready,
             // screenshot (F2)
             commands::screenshot::cancel_screenshot,
             commands::screenshot::open_screen_settings,
@@ -126,6 +127,16 @@ pub fn run() {
                 .build(),
         )
         .manage(crate::core::ocr::default_engine())
+        .manage(crate::core::freeze::FreezeState::default())
+        .register_asynchronous_uri_scheme_protocol(
+            crate::core::freeze::FRAME_SCHEME,
+            |ctx, request, responder| {
+                let app = ctx.app_handle().clone();
+                std::thread::spawn(move || {
+                    responder.respond(crate::core::freeze::serve(&app, &request));
+                });
+            },
+        )
         .invoke_handler(specta.invoke_handler())
         // 主窗口关闭(红灯 / Cmd+W)时隐藏而非销毁,保证托盘「打开主窗口 / 设置」
         // 仍能找到并重新显示它(spec 10 §1.3)。

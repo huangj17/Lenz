@@ -14,13 +14,14 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager};
 
 use crate::config::{Config, ConfigStore};
+use crate::core::freeze::{self, FreezeState, FrozenScreen};
 use crate::core::ocr::{
     recognize_with_timeout, resolve_engine, OcrBlock, OcrEngine, OcrInput, OcrOptions, OcrPurpose,
 };
 use crate::core::popup_position::{below_selection, ScreenRect, SelectionPlacement};
 use crate::core::selection_text::{foreground_id, SelectedText};
 use crate::core::translator::{Translator, TranslatorManager};
-use crate::core::{capture, keystroke, selection_window};
+use crate::core::{keystroke, selection_window};
 use crate::error::LenzError;
 use crate::types::{
     Rect, RegionSelectedPayload, ScreenshotCost, ScreenshotError, ScreenshotProgress,
@@ -50,9 +51,6 @@ const POPUP_GAP: f64 = 12.0;
 
 #[derive(Default)]
 pub struct SelectionPopupPosition(Mutex<Option<SelectionPlacement>>);
-/// 抓屏前等待选区蒙层从屏幕消失的时延:覆盖「事件线程→主线程」派发 + 合成器出帧,
-/// 避免截到遮罩 / 销毁残帧导致 OCR 空结果(spec 02 §7)。
-const OVERLAY_CLEAR_DELAY_MS: u64 = 150;
 
 const EVT_PROGRESS: &str = "screenshot://progress";
 const EVT_TRANSLATING: &str = "screenshot://translating";
@@ -303,6 +301,8 @@ pub fn on_region_selected(app: &AppHandle, payload: &str) {
     if let Err(e) = selection_window::close(app) {
         log::warn!("close selection window after select: {e}");
     }
+    // 取走本次定格图:无论后续是否截图,选区结束后都不再保留。
+    let frozen = app.state::<FreezeState>().take();
 
     let region = Rect {
         x: parsed.x,
@@ -312,9 +312,9 @@ pub fn on_region_selected(app: &AppHandle, payload: &str) {
     };
 
     match parsed.trigger {
-        TriggerKind::Screenshot => start_f2(app.clone(), region),
+        TriggerKind::Screenshot => start_f2(app.clone(), region, frozen),
         // 原图覆盖采用独立会话,保留各 OCR block 的位置。
-        TriggerKind::Overlay => super::overlay::start(app.clone(), region),
+        TriggerKind::Overlay => super::overlay::start(app.clone(), region, frozen),
         TriggerKind::Selection => {}
     }
 }
@@ -329,8 +329,8 @@ pub fn hide_for_capture(app: &AppHandle) {
     }
 }
 
-/// 启动 F2:校验选区 → 隐藏浮层 → 抓屏 → 显示 popup 并继续 OCR/翻译。
-fn start_f2(app: AppHandle, region: Rect) {
+/// 启动 F2:校验选区 → 隐藏浮层 → 裁剪定格图(或实时抓屏)→ 显示 popup 并继续 OCR/翻译。
+fn start_f2(app: AppHandle, region: Rect, frozen: Option<Arc<FrozenScreen>>) {
     // w<4 || h<4 视为点击取消(spec 06 §2.2)。
     if region.w < 4 || region.h < 4 {
         log::debug!(
@@ -346,25 +346,21 @@ fn start_f2(app: AppHandle, region: Rect) {
 
     tauri::async_runtime::spawn(async move {
         app.state::<ScreenshotSession>()
-            .run(gen, run_pipeline(&app, region, gen))
+            .run(gen, run_pipeline(&app, region, gen, frozen))
             .await;
     });
 }
 
 /// 截图 → OCR → 翻译,逐阶段 emit 进度 / 结果 / 错误。
-async fn run_pipeline(app: &AppHandle, region: Rect, gen: u32) {
+async fn run_pipeline(app: &AppHandle, region: Rect, gen: u32, frozen: Option<Arc<FrozenScreen>>) {
     let cfg = match app.state::<ConfigStore>().get() {
         Ok(c) => c,
         Err(e) => return emit_error(app, gen, "capture", "failed", &e.to_string(), None),
     };
 
     // ── 截图 ──
-
-    // 等待选区蒙层真正从屏幕消失再抓屏:close/hide 是投递到主线程的异步操作,
-    // 立即抓屏会截到遮罩或销毁残帧,导致 OCR「未识别到文字」(spec 02 §7)。
-    tokio::time::sleep(Duration::from_millis(OVERLAY_CLEAR_DELAY_MS)).await;
     let t0 = Instant::now();
-    let cap = capture::capture_region_with_timeout(region).await;
+    let cap = freeze::capture_selection(frozen, region).await;
     let cost_capture = t0.elapsed().as_millis() as u32;
     if !is_current(app, gen) {
         return;

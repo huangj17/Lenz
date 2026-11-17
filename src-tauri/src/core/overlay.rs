@@ -1,6 +1,6 @@
 //! 原图覆盖翻译:共用截图与 OCR 坐标契约,独立取消作用域。
 use super::{
-    capture,
+    freeze::{self, FrozenScreen},
     ocr::{recognize_with_timeout, resolve_engine, OcrEngine, OcrInput, OcrOptions, OcrPurpose},
     screenshot::ScreenshotSession,
     translator::TranslatorManager,
@@ -14,7 +14,6 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 #[cfg(not(target_os = "windows"))]
 use tauri::{LogicalPosition, LogicalSize};
@@ -153,7 +152,7 @@ pub fn close<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<(), LenzError> {
     Ok(())
 }
 
-pub fn start(app: AppHandle, region: Rect) {
+pub fn start(app: AppHandle, region: Rect, frozen: Option<Arc<FrozenScreen>>) {
     if region.w < 4 || region.h < 4 {
         return;
     }
@@ -161,7 +160,10 @@ pub fn start(app: AppHandle, region: Rect) {
     let gen = app.state::<OverlayState>().session.begin();
     tauri::async_runtime::spawn(async move {
         let state = app.state::<OverlayState>();
-        let result = state.session.run(gen, pipeline(&app, region, gen)).await;
+        let result = state
+            .session
+            .run(gen, pipeline(&app, region, gen, frozen))
+            .await;
         if let Some(Err(error)) = result {
             if state.session.is_current(gen) {
                 if matches!(error, LenzError::OcrUnavailable(_)) {
@@ -189,10 +191,14 @@ pub fn start(app: AppHandle, region: Rect) {
     });
 }
 
-async fn pipeline(app: &AppHandle, region: Rect, gen: u32) -> Result<(), LenzError> {
+async fn pipeline(
+    app: &AppHandle,
+    region: Rect,
+    gen: u32,
+    frozen: Option<Arc<FrozenScreen>>,
+) -> Result<(), LenzError> {
     let cfg = app.state::<ConfigStore>().get()?;
-    tokio::time::sleep(Duration::from_millis(150)).await;
-    let cap = capture::capture_region_with_timeout(region).await?;
+    let cap = freeze::capture_selection(frozen, region).await?;
     let scale = cap.scale_factor as f64;
     let clipped = Rect {
         x: (cap.pixel_rect.x as f64 / scale).round() as i32,

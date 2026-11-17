@@ -204,7 +204,12 @@ export const captureApi = {
   startSelection: (trigger: TriggerKind) =>
     invoke<void>("start_selection", { trigger }),
   cancelSelection: () => invoke<void>("cancel_selection"),
+  /** 选区窗口已画好定格背景,请求后端显示本窗口 */
+  selectionReady: () => invoke<void>("selection_ready"),
 };
+
+/** 选区窗口读取定格图的自定义协议(与后端 `freeze::FRAME_SCHEME` 一致) */
+export const FRAME_SCHEME = "lenz-frame";
 
 /** 截图翻译 F2 命令(spec 06) */
 export const screenshotApi = {

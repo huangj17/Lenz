@@ -10,6 +10,8 @@
 //! ```
 //! 失败 step 不阻断主流程:记录日志并 emit `app://startup-warning`。
 
+use std::time::Duration;
+
 use tauri::{App, AppHandle, Emitter, Listener, Manager};
 
 use crate::config::{ConfigStore, EVENT_CONFIG_CHANGED};
@@ -96,29 +98,44 @@ pub fn prepare(handle: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         tray::show_main_window(&h_main);
     });
 
-    // F2 接线(spec 06):
-    //  - Alt+S(shortcut://screenshot)→ 打开选区蒙层;
-    //  - 框选完成(capture://region-selected)→ 销毁选区 + 跑 截图/OCR/翻译;
-    //  - 取消(capture://region-cancelled)→ 销毁选区。
-    let h_shot = handle.clone();
-    let h_overlay = handle.clone();
-    handle.listen("shortcut://overlay", move |_| {
-        if let Err(error) = selection_window::open(&h_overlay, TriggerKind::Overlay) {
-            let _ = h_overlay.emit("app://operation-error", error.to_string());
-        }
-    });
-    handle.listen("shortcut://screenshot", move |_| {
-        if let Err(e) = selection_window::open(&h_shot, TriggerKind::Screenshot) {
-            log::warn!("open selection on Alt+S failed: {e}");
-        }
-    });
+    // F2/F3 接线(spec 02/06):
+    //  - Alt+S / Alt+F(shortcut://screenshot|overlay)→ 定格整屏 + 打开选区蒙层;
+    //  - 托盘入口(tray://screenshot|overlay)同上,但先等托盘菜单收起再定格;
+    //  - 框选完成(capture://region-selected)→ 销毁选区 + 从定格图裁剪 → OCR/翻译;
+    //  - 取消(capture://region-cancelled)→ 销毁选区并丢弃定格图。
+    for (event, trigger, delay) in [
+        (
+            "shortcut://screenshot",
+            TriggerKind::Screenshot,
+            Duration::ZERO,
+        ),
+        ("shortcut://overlay", TriggerKind::Overlay, Duration::ZERO),
+        (
+            "tray://screenshot",
+            TriggerKind::Screenshot,
+            selection_window::TRAY_MENU_CLEAR_DELAY,
+        ),
+        (
+            "tray://overlay",
+            TriggerKind::Overlay,
+            selection_window::TRAY_MENU_CLEAR_DELAY,
+        ),
+    ] {
+        let h = handle.clone();
+        handle.listen(event, move |_| {
+            if let Err(error) = selection_window::open_after(&h, trigger, delay) {
+                log::warn!("open selection on {event} failed: {error}");
+                let _ = h.emit("app://operation-error", error.to_string());
+            }
+        });
+    }
     let h_sel = handle.clone();
     handle.listen("capture://region-selected", move |event| {
         screenshot::on_region_selected(&h_sel, event.payload());
     });
     let h_cancel = handle.clone();
     handle.listen("capture://region-cancelled", move |_| {
-        if let Err(e) = selection_window::close(&h_cancel) {
+        if let Err(e) = selection_window::cancel(&h_cancel) {
             log::warn!("close selection on cancel failed: {e}");
         }
     });

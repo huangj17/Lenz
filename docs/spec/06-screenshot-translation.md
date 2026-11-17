@@ -11,13 +11,13 @@ Alt+S
   │
   ▼
 start_selection(trigger="screenshot")       [Rust]
-  │  创建全屏选区蒙层窗口
+  │  定格全部屏幕,再创建以定格图为背景的选区蒙层窗口
   ▼
 用户框选区域                                 [前端 selection 窗口]
   │  emit capture://region-selected { x,y,w,h }
   ▼
-capture_screen_region(rect)                  [Rust core/capture]
-  │  返回 CaptureResult { png, pixel_rect, scale_factor }
+crop_frozen(frames, rect)                    [Rust core/capture]
+  │  返回 CaptureResult { png, pixel_rect, scale_factor };无定格图时实时截屏
   ▼
 run_ocr(input, opts)                         [Rust core/ocr]
   │  返回 OcrResult { blocks, detected_language }
@@ -43,19 +43,19 @@ OCR 使用配置中的默认服务(系统/百度/视觉模型),见 [Spec 03 §2.
 ### 2.1 快捷键响应
 
 - Tauri 全局快捷键注册:`Alt+S`(macOS:`Option+S`)。
-- handler 中直接调 `start_selection(TriggerKind::Screenshot)`,此为异步,不阻塞 UI。
+- handler 中直接调 `start_selection(TriggerKind::Screenshot)`,此为异步,不阻塞 UI;先定格屏幕再显示蒙层,见 [Spec 02 §2.3](./02-capture.md#23-截图定格)。托盘入口等菜单收起后再定格。
 
 ### 2.2 选区完成
 
 - 监听 `capture://region-selected` event,payload 含 `trigger = "screenshot"`。
 - 若 `w < 4 || h < 4` → 视为点击取消,关闭选区窗口,流程结束。
-- 关闭选区窗口(销毁),保持 popup 和划词图标隐藏;抓屏完成前不显示翻译浮层。
+- 关闭选区窗口(销毁)并取走定格图,保持 popup 和划词图标隐藏;抓屏完成前不显示翻译浮层。
 
 ### 2.3 截图
 
-- 调 `capture_screen_region(rect)`,逻辑见 [Spec 02](./02-capture.md)。
-- 截图独立限时 10s;OCR 的独立预算见 [Spec 03 §7](./03-ocr.md#7-性能),不扣减截图或 popup 握手耗时。翻译另按引擎 `timeoutMs` 执行。截图失败 → emit `screenshot://error { stage: "capture", ... }`。
-- 等选区蒙层离屏后抓取;拿到图片后才显示 popup,避免大选区截到自己的翻译框。
+- 从定格图裁剪选区,逻辑见 [Spec 02 §2.3](./02-capture.md#23-截图定格);无可用定格图时调 `capture_screen_region(rect)` 实时截屏。
+- 实时截屏独立限时 10s;OCR 的独立预算见 [Spec 03 §7](./03-ocr.md#7-性能),不扣减截图或 popup 握手耗时。翻译另按引擎 `timeoutMs` 执行。截图失败 → emit `screenshot://error { stage: "capture", ... }`。
+- 裁剪定格图无需等待蒙层离屏;实时截屏时先等蒙层离屏再抓取。拿到图片后才显示 popup,避免大选区截到自己的翻译框。
 
 ### 2.4 OCR
 
@@ -174,6 +174,7 @@ popup 或选区窗口聚焦时按 ESC → 回 IDLE,取消会话;抓屏期间浮�
 ## 8. 验收标准
 
 - [ ] Alt+S → 进入截图模式 ≤ 300ms。
+- [ ] 按 Alt+S 时可见的 tooltip / 菜单 / 下拉框能被框选并识别翻译。
 - [ ] 框选完成 → 抓屏结束后弹框出现(识别进度),通常 ≤ 500ms。
 - [ ] 框选完成 → 完整结果显示 ≤ 3s(本地 OCR + 本地 LLM)。
 - [ ] popup / 选区的 ESC 能取消;连续触发会取消旧流程,不残留窗口。

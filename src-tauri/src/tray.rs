@@ -195,8 +195,8 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: tauri::menu::MenuEve
     match event.id().as_ref() {
         ID_OPEN_MAIN | ID_SETTINGS => show_main_window(app),
         ID_SELECTION => emit_shortcut(app, "shortcut://selection"),
-        ID_SCREENSHOT => emit_shortcut(app, "shortcut://screenshot"),
-        ID_OVERLAY => emit_shortcut(app, "shortcut://overlay"),
+        ID_SCREENSHOT => emit_shortcut(app, "tray://screenshot"),
+        ID_OVERLAY => emit_shortcut(app, "tray://overlay"),
         ID_CLOSE_OVERLAY => {
             let _ = crate::core::overlay::close(app);
         }
