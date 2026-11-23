@@ -53,6 +53,44 @@ pub struct CaptureResult {
     pub scale_factor: f32,
 }
 
+/// macOS「屏幕录制」是否已授权;其它平台恒为 true。
+pub fn screen_capture_granted() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        unsafe { macos_access::CGPreflightScreenCaptureAccess() }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+
+/// 采集前的授权预检。
+///
+/// 不能靠 xcap 的错误文案识别缺权限:未授权时它只返回 "Failed to copy data" 一类
+/// 通用错误,甚至可能「成功」返回一张只有桌面壁纸的图。首次未授权时向系统发起请求,
+/// 让 macOS 弹出授权框并把 Lenz 加入「屏幕录制」列表;之后系统只返回当前状态。
+pub fn ensure_screen_capture_access() -> Result<(), LenzError> {
+    #[cfg(target_os = "macos")]
+    {
+        if !screen_capture_granted() && !unsafe { macos_access::CGRequestScreenCaptureAccess() } {
+            return Err(LenzError::Permission(
+                "screen recording permission not granted".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+mod macos_access {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        pub fn CGPreflightScreenCaptureAccess() -> bool;
+        pub fn CGRequestScreenCaptureAccess() -> bool;
+    }
+}
+
 /// 采集指定逻辑区域(相对虚拟屏左上)。
 ///
 /// 多屏:选择**与选区重叠面积最大**的显示器(而非仅起点所在),更稳健地区分
@@ -62,6 +100,7 @@ pub fn capture_region(rect: Rect) -> Result<CaptureResult, LenzError> {
     if rect.w < 1 || rect.h < 1 {
         return Err(LenzError::Internal("capture rect too small".into()));
     }
+    ensure_screen_capture_access()?;
     let monitors = Monitor::all().map_err(map_xcap_err)?;
     let monitor = pick_monitor(&monitors, rect)?;
     let scale = monitor.scale_factor().map_err(map_xcap_err)?;
@@ -155,6 +194,8 @@ pub async fn freeze_all_with_timeout() -> Result<Vec<FrozenFrame>, LenzError> {
 }
 
 fn freeze_all() -> Result<Vec<FrozenFrame>, LenzError> {
+    // 未授权时定格失败 → 退回实时蒙层,框选后的截屏再以 Permission 报给 popup 引导授权。
+    ensure_screen_capture_access()?;
     let monitors = Monitor::all().map_err(map_xcap_err)?;
     let mut frames = Vec::with_capacity(monitors.len());
     let mut first_error = None;
@@ -368,7 +409,8 @@ fn pick_monitor(monitors: &[Monitor], rect: Rect) -> Result<&Monitor, LenzError>
     }
 }
 
-/// xcap 错误映射:macOS 未授予「屏幕录制」时采集失败 → Permission。
+/// xcap 错误映射。权限识别以 [`ensure_screen_capture_access`] 预检为准,这里的文案
+/// 匹配只是兜底。
 fn map_xcap_err(e: xcap::XCapError) -> LenzError {
     let msg = e.to_string();
     let low = msg.to_lowercase();

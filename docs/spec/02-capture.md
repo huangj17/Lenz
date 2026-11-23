@@ -120,7 +120,7 @@ pub struct CaptureResult {
 
 | 场景 | 行为 |
 |---|---|
-| 无权限(macOS 未授予 "屏幕录制") | 返回 `LenzError::Permission`,前端弹授权引导 |
+| 无权限(macOS 未授予 "屏幕录制") | 定格与截屏前先用 `CGPreflightScreenCaptureAccess` 预检(xcap 的错误文案不含权限信息,未授权时还可能返回只有壁纸的图);未授权时调用一次 `CGRequestScreenCaptureAccess` 触发系统授权框,并返回 `LenzError::Permission`,前端弹授权引导 |
 | xcap 抓取失败(驱动异常) | 返回 `LenzError::Internal`,toast 报错 |
 | 截图超过 10s | 返回阶段明确的 `LenzError::Timeout`;截图预算独立于 OCR 和窗口握手 |
 | 定格失败或超过 10s | 记日志,选区退回透明实时蒙层,框选后实时截屏(沿用上述权限/失败提示) |

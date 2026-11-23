@@ -112,28 +112,13 @@ pub fn info(app: &AppHandle) -> SystemInfo {
             }
         },
         accessibility_granted: selection::permission_granted(),
-        screen_recording_granted: screen_recording_granted(),
+        screen_recording_granted: crate::core::capture::screen_capture_granted(),
         selection_running: app.state::<selection::SelectionListener>().is_running(),
         apple_translation_available: crate::core::translator::apple_available(),
         active_engine_id: app
             .state::<TranslatorManager>()
             .get(None)
             .map(|e| e.id().into()),
-    }
-}
-
-fn screen_recording_granted() -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        #[link(name = "CoreGraphics", kind = "framework")]
-        extern "C" {
-            fn CGPreflightScreenCaptureAccess() -> bool;
-        }
-        unsafe { CGPreflightScreenCaptureAccess() }
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        true
     }
 }
 
