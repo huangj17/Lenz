@@ -15,13 +15,18 @@ use crate::error::LenzError;
 ///
 /// 划词快捷键(Alt+D)触发时,用户的 Option 往往仍按着;若此刻合成 Cmd+C,被按住的
 /// 修饰键会并入合成事件 → 前台应用收到的是 `⌘⌥C` 而非 `⌘C`,复制不会发生。调用方据此
-/// 先等触发键松开再合成(spec 05 §3)。非 macOS 恒返回 false。
+/// 先等触发键松开再合成(spec 05 §3)。Windows 同理:Alt 未松开时注入的 Ctrl+C 会变成
+/// Ctrl+Alt+C,不仅复制失败,在 AltGr 布局下还会输入字符替换选中文本。
 pub fn modifiers_held() -> bool {
     #[cfg(target_os = "macos")]
     {
         macos::modifiers_held()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        windows_impl::modifiers_held()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         false
     }
@@ -89,10 +94,31 @@ mod macos {
 #[cfg(target_os = "windows")]
 mod windows_impl {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_C, VK_CONTROL,
+        GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
+        VIRTUAL_KEY, VK_C, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
     };
 
     use crate::error::LenzError;
+
+    /// 物理修饰键状态(`GetAsyncKeyState` 最高位 = 当前按下)。
+    pub fn modifiers_held() -> bool {
+        [VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN]
+            .into_iter()
+            .any(|vk| unsafe { GetAsyncKeyState(i32::from(vk.0)) } < 0)
+    }
+
+    /// `SendInput` 只注入了前 `sent` 个事件时,需要补发的抬起事件。
+    ///
+    /// 序列为 Ctrl↓ C↓ C↑ Ctrl↑:已按下但尚未抬起的键必须补发抬起,否则 Ctrl 会保持
+    /// 按下状态,用户后续的每次按键都会变成 Ctrl 组合键。
+    pub(super) fn pending_releases(sent: usize) -> &'static [VIRTUAL_KEY] {
+        match sent {
+            1 => &[VK_CONTROL],
+            2 => &[VK_C, VK_CONTROL],
+            3 => &[VK_CONTROL],
+            _ => &[],
+        }
+    }
 
     pub fn copy() -> Result<u32, LenzError> {
         #[link(name = "kernel32")]
@@ -125,10 +151,32 @@ mod windows_impl {
             key(VK_C, true),
             key(VK_CONTROL, true),
         ];
-        let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
-        if sent as usize != inputs.len() {
+        let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) } as usize;
+        if sent != inputs.len() {
+            let releases: Vec<INPUT> = pending_releases(sent)
+                .iter()
+                .map(|vk| key(*vk, true))
+                .collect();
+            if !releases.is_empty() {
+                unsafe { SendInput(&releases, std::mem::size_of::<INPUT>() as i32) };
+            }
             return Err(LenzError::internal("SendInput Ctrl+C partially failed"));
         }
         Ok(stamp)
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use super::windows_impl::pending_releases;
+    use windows::Win32::UI::Input::KeyboardAndMouse::{VK_C, VK_CONTROL};
+
+    #[test]
+    fn partial_send_input_releases_every_pressed_key() {
+        assert!(pending_releases(0).is_empty());
+        assert_eq!(pending_releases(1), &[VK_CONTROL]);
+        assert_eq!(pending_releases(2), &[VK_C, VK_CONTROL]);
+        assert_eq!(pending_releases(3), &[VK_CONTROL]);
+        assert!(pending_releases(4).is_empty());
     }
 }

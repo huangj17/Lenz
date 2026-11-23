@@ -1,10 +1,19 @@
 //! Clipboard fallback is a single, bounded transaction. Never write a sentinel.
-//! Snapshot every native representation before synthesizing Copy; only restore a
-//! stable copy made during this probe. A concurrent writer or user input wins.
+//! Snapshot every native representation before synthesizing Copy; restore it whenever
+//! the clipboard still holds exactly what our Copy produced. A concurrent writer wins,
+//! and user input only invalidates the text read during the probe: input that cannot
+//! write the clipboard (pointer motion, releasing the trigger keys) must never leave
+//! the user's clipboard replaced by the selection.
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use std::time::Instant;
 
 static PROBE: Mutex<()> = Mutex::new(());
+
+/// Poll interval while waiting for the synthesized Copy to land.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+const POLL: Duration = Duration::from_millis(10);
 
 pub fn read(source: u64) -> Option<String> {
     // Drop overlapping shortcuts instead of queueing copies into a different app.
@@ -24,6 +33,9 @@ mod platform {
     };
     use objc2_core_graphics::{CGEventSource, CGEventSourceStateID, CGEventType};
     use objc2_foundation::NSArray;
+
+    const DEADLINE: Duration = Duration::from_millis(1500);
+    const SETTLE: Duration = Duration::from_millis(80);
 
     fn inputs() -> [u32; 3] {
         [
@@ -66,41 +78,53 @@ mod platform {
             }
             let input_before = inputs();
             crate::core::keystroke::copy_selection().ok()?;
-            let deadline = Instant::now() + Duration::from_millis(1500);
-            let mut copied_version = before;
-            let mut changed_at = Instant::now();
+            let started = Instant::now();
+            // Rich text applications may clear, then publish multiple formats.
+            let mut settle = super::Settle::new(before as u64, Duration::ZERO);
+            // Synthetic Copy uses a private source at the session tap, so hardware
+            // counters only move for deliberate user presses (never pointer motion).
+            let mut landed_cleanly = false;
+            let mut quiet = true;
             loop {
-                let version = board.changeCount();
-                if version != copied_version {
-                    copied_version = version;
-                    changed_at = Instant::now();
-                }
-                // Rich text applications may clear, then publish multiple formats.
-                if copied_version != before && changed_at.elapsed() >= Duration::from_millis(80) {
+                let was_landed = settle.landed();
+                if settle.observe(board.changeCount() as u64, started.elapsed(), SETTLE) {
                     break;
                 }
-                if Instant::now() >= deadline
-                    || inputs() != input_before
+                if !was_landed && settle.landed() {
+                    // A press before the board changed may be the user's own Copy:
+                    // the change cannot be attributed to us, so it is never undone.
+                    landed_cleanly = inputs() == input_before;
+                }
+                if inputs() != input_before
                     || crate::core::selection_text::foreground_id() != Some(source)
                 {
+                    if !settle.landed() {
+                        return None;
+                    }
+                    // Our Copy already replaced the board: keep waiting so it can be
+                    // restored, but the selection may have changed under us.
+                    quiet = false;
+                }
+                if settle.expired(started.elapsed(), DEADLINE) {
+                    // Unchanged (nothing selected), or another writer keeps writing.
                     return None;
                 }
-                std::thread::sleep(Duration::from_millis(10));
+                std::thread::sleep(POLL);
             }
             let text = board
                 .stringForType(unsafe { NSPasteboardTypeString })
                 .map(|s| s.to_string());
-            let input_after = inputs();
-            // Synthetic Copy uses a private source at the session tap. Hardware
-            // counts must stay unchanged; don't assume our injected C is counted once.
-            let only_our_key = input_before == input_after
+            let quiet = quiet
+                && inputs() == input_before
                 && crate::core::selection_text::foreground_id() == Some(source);
-            if !super::may_restore(
+            let verdict = super::verdict(
                 before as u64,
-                copied_version as u64,
+                settle.latest(),
                 board.changeCount() as u64,
-                only_our_key,
-            ) {
+                landed_cleanly,
+                quiet,
+            );
+            if !verdict.restore {
                 return None;
             }
             board.clearContents();
@@ -108,7 +132,7 @@ mod platform {
             {
                 log::warn!("could not restore native clipboard snapshot");
             }
-            text.filter(|s| !s.trim().is_empty())
+            text.filter(|s| verdict.use_text && !s.trim().is_empty())
         })
     }
 }
@@ -156,6 +180,12 @@ mod platform {
         fn GlobalAlloc(flags: u32, size: usize) -> *mut c_void;
         fn GlobalFree(memory: *mut c_void) -> *mut c_void;
     }
+    /// Word/Excel with large selections or busy Electron apps can take several
+    /// hundred milliseconds to publish a copy.
+    const DEADLINE: Duration = Duration::from_millis(1000);
+    const SETTLE: Duration = Duration::from_millis(50);
+    const OPEN_ATTEMPTS: u32 = 20;
+
     #[repr(C)]
     struct LastInput {
         size: u32,
@@ -195,6 +225,17 @@ mod platform {
     impl Lock {
         fn open(owner: &Window) -> Option<Self> {
             (unsafe { OpenClipboard(owner.0) } != 0).then_some(Self)
+        }
+        /// Clipboard history (Win+V) and managers such as Ditto open the clipboard
+        /// the moment it changes; a single attempt would abandon our restore.
+        fn open_retry(owner: &Window) -> Option<Self> {
+            for _ in 0..OPEN_ATTEMPTS {
+                if let Some(lock) = Self::open(owner) {
+                    return Some(lock);
+                }
+                std::thread::sleep(POLL);
+            }
+            None
         }
     }
     impl Drop for Lock {
@@ -253,28 +294,39 @@ mod platform {
     }
     pub fn read(_source: u64) -> Option<String> {
         let owner = Window::new()?;
-        let lock = Lock::open(&owner)?;
-        let saved = snapshot()?;
-        let before = version();
-        drop(lock);
+        let (saved, before) = {
+            let _lock = Lock::open(&owner)?;
+            (snapshot()?, version())
+        };
         let copy_stamp = crate::core::keystroke::copy_selection().ok()??;
-        let deadline = Instant::now() + Duration::from_millis(250);
-        while version() == before {
-            if Instant::now() >= deadline {
+        let started = Instant::now();
+        let mut settle = super::Settle::new(u64::from(before), Duration::ZERO);
+        while !settle.observe(u64::from(version()), started.elapsed(), SETTLE) {
+            if settle.expired(started.elapsed(), DEADLINE) {
+                // Unchanged (nothing selected), or another writer keeps writing.
                 return None;
             }
-            std::thread::sleep(Duration::from_millis(10));
+            std::thread::sleep(POLL);
         }
-        let copied = version();
-        if input_time()? != copy_stamp {
+        let Some(_lock) = Lock::open_retry(&owner) else {
+            log::warn!("clipboard stayed locked; selection copy could not be restored");
+            return None;
+        };
+        // GetLastInputInfo also counts pointer motion and key releases, so it cannot
+        // tell a deliberate user copy from noise. It only invalidates the text; a user
+        // copy that lands after ours bumps the sequence number and is never overwritten.
+        let quiet = input_time() == Some(copy_stamp);
+        let verdict = super::verdict(
+            u64::from(before),
+            settle.latest(),
+            u64::from(version()),
+            true,
+            quiet,
+        );
+        if !verdict.restore {
             return None;
         }
-        std::thread::sleep(Duration::from_millis(30));
-        let _lock = Lock::open(&owner)?;
-        if version() != copied || input_time()? != copy_stamp {
-            return None;
-        }
-        let text = snapshot().and_then(|data| {
+        let text = verdict.use_text.then(snapshot).flatten().and_then(|data| {
             let bytes = &data.iter().find(|(format, _)| *format == 13)?.1;
             let utf16: Vec<u16> = bytes
                 .as_chunks::<2>()
@@ -328,24 +380,159 @@ mod platform {
     }
 }
 
-#[cfg(any(target_os = "macos", test))]
-fn may_restore(before: u64, copied: u64, current: u64, no_user_input: bool) -> bool {
-    // One Copy can clear and write the board several times (plain text + rich formats).
-    // Freshness comes from a changed native version, stability and input ownership,
-    // not an assumption that the version increases exactly once.
-    copied != before && current == copied && no_user_input
+/// Tracks the native clipboard version after a synthesized Copy. One Copy can clear
+/// and write the board several times (plain text + rich formats), so the copy is
+/// only considered done once the version has changed and then held still for the
+/// settle period, rather than assuming it increases exactly once.
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+const LANDED_GRACE: Duration = Duration::from_millis(500);
+
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+struct Settle {
+    before: u64,
+    latest: u64,
+    changed_at: Duration,
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+impl Settle {
+    fn new(before: u64, now: Duration) -> Self {
+        Self {
+            before,
+            latest: before,
+            changed_at: now,
+        }
+    }
+
+    /// Records one poll; returns true once the copy has landed and settled.
+    fn observe(&mut self, version: u64, now: Duration, settle: Duration) -> bool {
+        if version != self.latest {
+            self.latest = version;
+            self.changed_at = now;
+        }
+        self.landed() && now.saturating_sub(self.changed_at) >= settle
+    }
+
+    fn landed(&self) -> bool {
+        self.latest != self.before
+    }
+
+    /// Gives up when nothing landed by `deadline`. A copy that landed close to the
+    /// deadline still gets time to settle so it can be restored; only a board that
+    /// keeps changing past the grace period (another writer) is abandoned.
+    fn expired(&self, now: Duration, deadline: Duration) -> bool {
+        now >= deadline && (!self.landed() || now >= deadline + LANDED_GRACE)
+    }
+
+    fn latest(&self) -> u64 {
+        self.latest
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[derive(Debug, PartialEq, Eq)]
+struct Verdict {
+    /// Put the user's snapshot back.
+    restore: bool,
+    /// The copied text is the current selection and may be translated.
+    use_text: bool,
+}
+
+/// Decides how a probe ends once the copy has settled.
+///
+/// - `landed_cleanly`: nothing that could itself copy happened before the board
+///   changed, so the change is ours to undo.
+/// - `quiet`: no user input or focus change during the whole probe, so the text is
+///   still the selection the shortcut was pressed for.
+///
+/// Restoring only requires that the board still holds the settled version: user
+/// input that does not write the clipboard must never cost the user their clipboard.
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+fn verdict(before: u64, copied: u64, current: u64, landed_cleanly: bool, quiet: bool) -> Verdict {
+    let ours = copied != before && current == copied && landed_cleanly;
+    Verdict {
+        restore: ours,
+        use_text: ours && quiet,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ms(n: u64) -> Duration {
+        Duration::from_millis(n)
+    }
+
     #[test]
-    fn concurrent_copy_or_user_input_wins() {
-        assert!(may_restore(10, 11, 11, true));
-        assert!(!may_restore(10, 11, 12, true));
-        assert!(may_restore(10, 12, 12, true));
-        assert!(!may_restore(10, 11, 11, false));
-        assert!(!may_restore(10, 10, 10, true));
+    fn concurrent_writer_wins() {
+        // Another write after ours settled: never overwrite it.
+        assert_eq!(
+            verdict(10, 11, 12, true, true),
+            Verdict {
+                restore: false,
+                use_text: false
+            }
+        );
+        // Nothing landed: the clipboard was never touched.
+        assert!(!verdict(10, 10, 10, true, true).restore);
+        // Press before the change landed may be the user's own copy.
+        assert!(!verdict(10, 11, 11, false, true).restore);
+    }
+
+    #[test]
+    fn user_input_after_landing_still_restores_clipboard() {
+        // Pointer motion / releasing the trigger keys after our copy landed must
+        // not leave the selection on the user's clipboard.
+        assert_eq!(
+            verdict(10, 11, 11, true, false),
+            Verdict {
+                restore: true,
+                use_text: false
+            }
+        );
+        assert_eq!(
+            verdict(10, 12, 12, true, true),
+            Verdict {
+                restore: true,
+                use_text: true
+            }
+        );
+    }
+
+    #[test]
+    fn copy_settles_after_last_change() {
+        let settle = ms(50);
+        let mut s = Settle::new(7, ms(0));
+        assert!(!s.observe(7, ms(10), settle));
+        assert!(!s.landed());
+        // Rich-text apps publish several formats: each write re-arms the settle timer.
+        assert!(!s.observe(8, ms(20), settle));
+        assert!(!s.observe(9, ms(40), settle));
+        assert!(!s.observe(9, ms(80), settle));
+        assert!(s.observe(9, ms(90), settle));
+        assert_eq!(s.latest(), 9);
+    }
+
+    #[test]
+    fn unchanged_clipboard_never_settles() {
+        let mut s = Settle::new(3, ms(0));
+        assert!(!s.observe(3, ms(5_000), ms(50)));
+        assert!(!s.landed());
+        assert!(s.expired(ms(1_000), ms(1_000)));
+    }
+
+    #[test]
+    fn late_copy_gets_time_to_settle_before_expiry() {
+        let mut s = Settle::new(3, ms(0));
+        assert!(!s.observe(4, ms(990), ms(50)));
+        // Landed 10ms before the deadline: keep waiting so it can be restored.
+        assert!(!s.expired(ms(1_000), ms(1_000)));
+        assert!(s.observe(4, ms(1_040), ms(50)));
+        // A board that never stops changing is eventually abandoned.
+        let mut busy = Settle::new(3, ms(0));
+        busy.observe(4, ms(990), ms(50));
+        assert!(busy.expired(ms(1_000) + LANDED_GRACE, ms(1_000)));
     }
 
     #[cfg(target_os = "macos")]
