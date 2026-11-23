@@ -95,6 +95,8 @@ Lenz 运行时最多存在四类窗口,职责单一,互不依赖:
 | `selection` | 运行时创建 | 一次性 | 进入截图模式时 | 关闭后销毁 |
 | `overlay` | 运行时创建 | 一次性 | F3 原图覆盖时 | 关闭后销毁,支持多屏多实例 |
 
+原生关闭请求(红灯、Cmd+W、Alt+F4)不能销毁静态窗口:`main` / `indicator` 只隐藏,`popup` 取消当前会话后隐藏;任一 `selection-*` 蒙层收到关闭请求时整组取消选区;`overlay` 走统一关闭清理会话。
+
 详见 [Spec 09](./09-windows-ui.md)。
 
 ## 4. 前后端通信
@@ -183,13 +185,15 @@ pub enum LenzError {
 ## 7. 启动时序
 
 ```
+single-instance plugin(最先注册):
+  0. 已有 Lenz 在运行 → 本进程立即退出,已运行实例显示 main 窗口
 startup plugin（配置窗口创建前）:
   1. 加载 config(容错:损坏则备份 + 重建)
      初始化全部 managed state、配置订阅及窗口事件监听
 Tauri 从配置自动创建 main/popup/indicator WebView
 app.setup():
   2. 注册托盘图标与菜单
-  3. 注册全局快捷键(config 驱动)
+  3. 注册全局快捷键(config 驱动;逐个尽力注册,被占用的键记为 inactive)
   4. 按 config.selection.autoDetect 启动划词监听
   5. 显示 main 窗口(若 config.app.openOnLaunch、Windows --show-main 或托盘创建失败)
   6. 异步触发 check_update(若 config.app.checkUpdate)

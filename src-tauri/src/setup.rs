@@ -201,10 +201,18 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         false
     };
 
-    // Step 3:注册全局快捷键。
-    if let Err(e) = shortcut::register_shortcuts(handle, &config.shortcuts) {
-        log::warn!("register shortcuts failed: {e}");
-        warn(app, "shortcuts", &format!("{e}"));
+    // Step 3:注册全局快捷键。逐个尽力注册:某个键被别的程序占用时其余照常可用。
+    match shortcut::register_shortcuts(handle, &config.shortcuts, shortcut::Mode::BestEffort) {
+        Ok(inactive) if !inactive.is_empty() => {
+            let message = format!("shortcuts in use by another app: {}", inactive.join(", "));
+            log::warn!("{message}");
+            warn(app, "shortcuts", &message);
+        }
+        Ok(_) => {}
+        Err(e) => {
+            log::warn!("register shortcuts failed: {e}");
+            warn(app, "shortcuts", &format!("{e}"));
+        }
     }
 
     // Step 4:按 config.selection.enabled(托盘「划词监听」总开关)启停划词监听

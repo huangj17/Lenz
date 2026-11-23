@@ -29,6 +29,8 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon", "macos-private-api", "image-png"] }
 tauri-plugin-log = "2"
 tauri-plugin-global-shortcut = "2"
+# 单实例:重复启动(开始菜单快捷方式、自启动后再次打开)转交给已运行的实例。
+tauri-plugin-single-instance = "2"
 # 划词翻译(快捷键模式)读取剪贴板选中文本(spec 05 §3)。
 tauri-plugin-clipboard-manager = "2"
 serde = { version = "1", features = ["derive"] }

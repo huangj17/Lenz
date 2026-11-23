@@ -16,6 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
+use crate::core::shortcut::{register_shortcuts, Mode as ShortcutMode};
 use crate::error::LenzError;
 use crate::types::ConfigChangedPayload;
 
@@ -142,11 +143,11 @@ impl ConfigStore {
             schema::validate_ocr_config(&next.ocr)?;
             // Register first: conflicts must not persist an unusable shortcut config.
             if guard.shortcuts != next.shortcuts {
-                crate::core::shortcut::register_shortcuts(app, &next.shortcuts)?;
+                register_shortcuts(app, &next.shortcuts, ShortcutMode::Strict)?;
             }
             if let Err(error) = write_atomic(&self.dir, &next) {
                 if guard.shortcuts != next.shortcuts {
-                    crate::core::shortcut::register_shortcuts(app, &guard.shortcuts).map_err(
+                    register_shortcuts(app, &guard.shortcuts, ShortcutMode::BestEffort).map_err(
                         |rollback| LenzError::config(format!("{error}; rollback: {rollback}")),
                     )?;
                 }
@@ -176,9 +177,13 @@ impl ConfigStore {
                 .inner
                 .write()
                 .map_err(|_| LenzError::internal("config lock poisoned"))?;
-            crate::core::shortcut::register_shortcuts(app, &default.shortcuts)?;
+            // 重置是「回到默认」,某个默认键被别的程序占用不应让整个重置失败。
+            let inactive = register_shortcuts(app, &default.shortcuts, ShortcutMode::BestEffort)?;
+            if !inactive.is_empty() {
+                log::warn!("default shortcuts unavailable: {}", inactive.join(", "));
+            }
             if let Err(error) = write_atomic(&self.dir, &default) {
-                crate::core::shortcut::register_shortcuts(app, &guard.shortcuts).map_err(
+                register_shortcuts(app, &guard.shortcuts, ShortcutMode::BestEffort).map_err(
                     |rollback| LenzError::config(format!("{error}; rollback: {rollback}")),
                 )?;
                 return Err(error);

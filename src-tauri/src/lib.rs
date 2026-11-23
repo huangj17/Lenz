@@ -109,6 +109,15 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        // 必须最先注册:重复启动的进程在初始化任何状态前退出,把请求转交给已运行实例。
+        // 否则会出现两个托盘图标、快捷键注册冲突,且两份 ConfigStore 互相覆盖配置。
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // 再次启动(开始菜单 `--show-main`、双击程序)视为「打开 Lenz」:显示设置窗口。
+            let handle = app.clone();
+            if let Err(e) = app.run_on_main_thread(move || crate::tray::show_main_window(&handle)) {
+                log::warn!("show main window for second instance failed: {e}");
+            }
+        }))
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
@@ -138,21 +147,9 @@ pub fn run() {
             },
         )
         .invoke_handler(specta.invoke_handler())
-        // 主窗口关闭(红灯 / Cmd+W)时隐藏而非销毁,保证托盘「打开主窗口 / 设置」
-        // 仍能找到并重新显示它(spec 10 §1.3)。
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
-                    api.prevent_close();
-                    let _ = window.hide();
-                } else if window.label() == "overlay" {
-                    api.prevent_close();
-                    let app = window.app_handle().clone();
-                    // 原生关闭请求也统一清理会话,避免在窗口事件内递归销毁。
-                    tauri::async_runtime::spawn(async move {
-                        let _ = core::overlay::close(&app);
-                    });
-                }
+                handle_close_requested(window, api);
             }
         })
         .setup(|app| setup::setup(app))
@@ -160,9 +157,87 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
+/// 原生关闭请求(红灯、Cmd+W、Alt+F4)的处理方式。
+#[derive(Debug, PartialEq, Eq)]
+enum CloseAction {
+    /// 静态窗口:只隐藏。销毁后 `get_webview_window` 再也拿不到它,对应功能需重启才恢复。
+    Hide,
+    /// popup:取消进行中的会话后隐藏(同 ESC / `cancel_screenshot`)。
+    CancelPopup,
+    /// 覆盖层:走统一关闭,清理会话与载荷。
+    CloseOverlay,
+    /// 选区蒙层:整组取消。只关一块屏会把其它屏的置顶蒙层留在屏幕上。
+    CancelSelection,
+    /// 其它窗口按默认行为关闭。
+    Default,
+}
+
+fn close_action(label: &str) -> CloseAction {
+    match label {
+        // 主窗口隐藏而非销毁,保证托盘「打开主窗口 / 设置」仍能重新显示(spec 10 §1.3)。
+        "main" | "indicator" => CloseAction::Hide,
+        "popup" => CloseAction::CancelPopup,
+        "overlay" => CloseAction::CloseOverlay,
+        l if l == core::selection_window::SELECTION_LABEL_PREFIX
+            || l.strip_prefix(core::selection_window::SELECTION_LABEL_PREFIX)
+                .is_some_and(|rest| rest.starts_with('-')) =>
+        {
+            CloseAction::CancelSelection
+        }
+        _ => CloseAction::Default,
+    }
+}
+
+fn handle_close_requested(window: &tauri::Window, api: &tauri::CloseRequestApi) {
+    let action = close_action(window.label());
+    if action == CloseAction::Default {
+        return;
+    }
+    api.prevent_close();
+    let app = window.app_handle().clone();
+    match action {
+        CloseAction::Hide => {
+            let _ = window.hide();
+        }
+        CloseAction::CancelPopup => {
+            app.state::<core::screenshot::ScreenshotSession>().cancel();
+            let _ = window.hide();
+        }
+        // 销毁放到窗口事件之外执行,避免在窗口事件内递归销毁。
+        CloseAction::CloseOverlay => {
+            tauri::async_runtime::spawn(async move {
+                let _ = core::overlay::close(&app);
+            });
+        }
+        CloseAction::CancelSelection => {
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = core::selection_window::cancel(&app) {
+                    log::warn!("cancel selection on close request failed: {e}");
+                }
+            });
+        }
+        CloseAction::Default => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{export_typescript, specta_builder};
+    use super::{close_action, export_typescript, specta_builder, CloseAction};
+
+    /// 回归:popup / 划词图标是静态窗口,Alt+F4 销毁后功能会失效到重启;选区蒙层
+    /// 必须整组取消。
+    #[test]
+    fn close_requests_never_destroy_static_windows() {
+        assert_eq!(close_action("main"), CloseAction::Hide);
+        assert_eq!(close_action("indicator"), CloseAction::Hide);
+        assert_eq!(close_action("popup"), CloseAction::CancelPopup);
+        assert_eq!(close_action("overlay"), CloseAction::CloseOverlay);
+        assert_eq!(close_action("selection"), CloseAction::CancelSelection);
+        assert_eq!(close_action("selection-0"), CloseAction::CancelSelection);
+        assert_eq!(close_action("selection-12"), CloseAction::CancelSelection);
+        assert_eq!(close_action("selectionx"), CloseAction::Default);
+        assert_eq!(close_action("other"), CloseAction::Default);
+    }
 
     /// 回归:specta 类型收集 + TS 导出不应爆栈;顺带生成正式 bindings.ts。
     #[test]

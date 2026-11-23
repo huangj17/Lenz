@@ -71,11 +71,14 @@ fn register_shortcuts(app: &AppHandle, shortcuts: &ShortcutConfig) -> Result<(),
 ### 2.3 冲突检测
 
 - 同一应用内:注册前检查已有快捷键 → UI 显示警告。
-- 与系统的冲突无法检测;用户自行处理。
+- 与其它程序的冲突只能在注册时发现:
+  - **启动 / 重置默认**:逐个尽力注册,被占用的键记为 inactive 并记日志、发启动告警,其余快捷键照常可用;
+  - **用户修改快捷键**:新选的键注册失败则整次修改回滚并报错,配置不落盘;
+  - 已是 inactive 且未改动的键在每次应用快捷键配置时重试注册,失败不阻断对其它键的修改。
 
 ### 2.4 配置变更重绑
 
-监听 `config://changed` 包含 `shortcuts.*` 时:调 `register_shortcuts` 重新注册(会先全部注销)。
+快捷键配置变化时由 `ConfigStore` 先调 `register_shortcuts` 做增量迁移(只注册新增键、注销移除键,未改动的键保持注册),成功后才持久化。
 
 ## 3. 自动启动
 
