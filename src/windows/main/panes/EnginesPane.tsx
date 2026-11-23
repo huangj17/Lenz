@@ -49,6 +49,7 @@ function initials(name: string): string {
 function validate(e: TranslatorEngine): string[] {
   const issues: string[] = [];
   if (!e.name.trim()) issues.push("engines.warnName");
+  if (e.kind === "openai" && !e.apiUrl.trim()) issues.push("engines.warnUrl");
   if (e.kind === "openai" && !(e.model ?? "").trim()) issues.push("engines.warnModel");
   if (e.kind === "youdao" && !e.apiKey.includes(":")) issues.push("engines.warnYoudaoKey");
   if (e.kind === "baidu" && !e.apiKey.includes(":")) issues.push("engines.warnBaiduKey");
@@ -283,7 +284,8 @@ export function EnginesPane() {
       id: crypto.randomUUID(),
       name: t("engines.newName"),
       kind: "openai",
-      enabled: true,
+      // 新引擎默认停用:未填 URL / 模型的草稿不能参与翻译(后端同样拒绝空 URL)。
+      enabled: false,
       apiUrl: "",
       apiKey: "",
       model: "",
@@ -342,6 +344,8 @@ export function EnginesPane() {
   const appleUnavailable = draft?.kind === "apple" && !info?.appleTranslationAvailable;
   const testError = testResult?.error?.includes("apple_languages_required")
     ? t("engines.appleLanguagesRequired")
+    : testResult?.error === "api_url_required"
+      ? t("engines.warnUrl")
     : draft?.kind === "apple" && testResult?.error?.startsWith("timeout:")
       ? t("engines.appleTimeout")
       : testResult?.error ?? "";
@@ -516,7 +520,7 @@ export function EnginesPane() {
                     value={draft.apiUrl}
                     onChange={(v) => editDraft({ apiUrl: v })}
                     onBlur={commitDraft}
-                    placeholder={t("engines.urlPlaceholder")}
+                    placeholder={t(draft.kind === "openai" ? "engines.urlPlaceholderRequired" : "engines.urlPlaceholder")}
                   />
                   <InputField
                     label="API KEY"

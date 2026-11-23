@@ -78,7 +78,8 @@ impl VisionOcr {
         if config.model.trim().is_empty() {
             return Err(LenzError::Config("ocr_model_required".into()));
         }
-        let endpoint = chat_endpoint(config.api_url.trim());
+        let endpoint = chat_endpoint(config.api_url.trim())
+            .ok_or_else(|| LenzError::Config("ocr_invalid_url".into()))?;
         Ok(Self { config, endpoint })
     }
 }

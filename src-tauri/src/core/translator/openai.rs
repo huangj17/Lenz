@@ -41,9 +41,12 @@ impl OpenAiTranslator {
             body["max_tokens"] = json!(max);
         }
 
+        // 不提供隐式默认端点:空 URL 若回退到云端,会把用户文本发给未配置的服务商。
+        let endpoint = chat_endpoint(&self.cfg.api_url)
+            .ok_or_else(|| LenzError::Config("api_url_required".into()))?;
         let mut rb = self
             .client
-            .post(chat_endpoint(&self.cfg.api_url))
+            .post(endpoint)
             .timeout(self.timeout())
             .json(&body);
         // 本地 LLM 常无需鉴权:apiKey 为空则不带 Authorization 头。
@@ -142,21 +145,22 @@ impl Translator for OpenAiTranslator {
 }
 
 /// 组装 chat completions 端点,容忍 `apiUrl` 的多种形态:
+/// - 空串 → `None`(不回退任何云端默认端点,隐私要求);
 /// - 已含 `/chat/completions` → 原样;
 /// - 已含版本段(`/v1`、`/api/paas/v4` 等)→ 仅补 `/chat/completions`;
 /// - 裸 host(`http://localhost:1234`)→ 补 `/v1/chat/completions`。
-pub(crate) fn chat_endpoint(api_url: &str) -> String {
+pub(crate) fn chat_endpoint(api_url: &str) -> Option<String> {
     let base = api_url.trim().trim_end_matches('/');
     if base.is_empty() {
-        return "https://api.openai.com/v1/chat/completions".to_string();
+        return None;
     }
-    if base.ends_with("/chat/completions") {
+    Some(if base.ends_with("/chat/completions") {
         base.to_string()
     } else if has_version_segment(base) {
         format!("{base}/chat/completions")
     } else {
         format!("{base}/v1/chat/completions")
-    }
+    })
 }
 
 /// 路径里是否已含形如 `vN` 的版本段(如 `/v1`、`/paas/v4`)。
@@ -199,41 +203,45 @@ mod tests {
 
     #[test]
     fn endpoint_handles_v1_variants() {
+        let ep = |url: &str| chat_endpoint(url).expect("non-empty url");
         assert_eq!(
-            chat_endpoint("http://localhost:1234"),
+            ep("http://localhost:1234"),
             "http://localhost:1234/v1/chat/completions"
         );
         assert_eq!(
-            chat_endpoint("http://localhost:1234/v1"),
+            ep("http://localhost:1234/v1"),
             "http://localhost:1234/v1/chat/completions"
         );
         assert_eq!(
-            chat_endpoint("http://localhost:1234/v1/"),
+            ep("http://localhost:1234/v1/"),
             "http://localhost:1234/v1/chat/completions"
         );
         assert_eq!(
-            chat_endpoint("https://x/v1/chat/completions"),
+            ep("https://x/v1/chat/completions"),
             "https://x/v1/chat/completions"
-        );
-        assert_eq!(
-            chat_endpoint(""),
-            "https://api.openai.com/v1/chat/completions"
         );
         // 智谱 /api/paas/v4:已含版本段,只补 /chat/completions。
         assert_eq!(
-            chat_endpoint("https://open.bigmodel.cn/api/paas/v4"),
+            ep("https://open.bigmodel.cn/api/paas/v4"),
             "https://open.bigmodel.cn/api/paas/v4/chat/completions"
         );
         // 硅基流动 /v1。
         assert_eq!(
-            chat_endpoint("https://api.siliconflow.cn/v1"),
+            ep("https://api.siliconflow.cn/v1"),
             "https://api.siliconflow.cn/v1/chat/completions"
         );
         // 裸 host 名含 v 但非版本段,不应误判。
         assert_eq!(
-            chat_endpoint("https://api.openai.com"),
+            ep("https://api.openai.com"),
             "https://api.openai.com/v1/chat/completions"
         );
+    }
+
+    #[test]
+    fn empty_url_has_no_implicit_endpoint() {
+        // 隐私:空 URL 绝不能回退到任何云端服务商。
+        assert_eq!(chat_endpoint(""), None);
+        assert_eq!(chat_endpoint("  / "), None);
     }
 
     #[test]

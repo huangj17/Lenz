@@ -161,6 +161,11 @@ fn engine_unavailable_reason(cfg: &TranslatorEngine) -> Option<&'static str> {
                 .unwrap_or(false);
             (!valid_pair).then_some("credential must contain a non-empty id and secret")
         }
+        // 不为空 URL 提供隐式云端端点:未填写地址的草稿引擎不能装载,否则用户文本
+        // 可能被发往未经配置的服务商。
+        EngineKind::Openai if cfg.api_url.trim().trim_end_matches('/').is_empty() => {
+            Some("API URL is required")
+        }
         EngineKind::Openai
             if matches!(cfg.id.as_str(), "builtin-zhipu" | "builtin-siliconflow")
                 && key.is_empty() =>
@@ -390,17 +395,59 @@ mod tests {
         }
     }
 
+    fn local_llm(id: &str) -> TranslatorEngine {
+        TranslatorEngine {
+            api_url: "http://localhost:11434/v1".into(),
+            ..test_engine(id, EngineKind::Openai, true, "")
+        }
+    }
+
     #[test]
     fn reload_skips_unconfigured_engine_and_falls_back_in_config_order() {
         let mgr = TranslatorManager::new();
         let engines = vec![
             test_engine("google", EngineKind::Google, true, ""),
-            test_engine("second", EngineKind::Openai, true, ""),
-            test_engine("third", EngineKind::Openai, true, ""),
+            local_llm("second"),
+            local_llm("third"),
         ];
         mgr.reload(&engines, "google");
         assert!(mgr.get(Some("google")).is_none());
         assert_eq!(mgr.get(None).unwrap().id(), "second");
+    }
+
+    /// 隐私:「添加引擎」产生的空 URL OpenAI 草稿即使被启用,也不能成为翻译候选,
+    /// 否则选中文本会被发往未经配置的云端服务商。
+    #[test]
+    fn reload_skips_openai_engine_without_url() {
+        let mgr = TranslatorManager::new();
+        let engines = vec![
+            test_engine("draft", EngineKind::Openai, true, "sk-other-vendor"),
+            TranslatorEngine {
+                api_url: "  /  ".into(),
+                ..test_engine("blank", EngineKind::Openai, true, "")
+            },
+            local_llm("local"),
+        ];
+        mgr.reload(&engines, "draft");
+        assert!(mgr.get(Some("draft")).is_none());
+        assert!(mgr.get(Some("blank")).is_none());
+        assert_eq!(mgr.get(None).unwrap().id(), "local");
+    }
+
+    /// 测试按钮走的一次性引擎同样不能把请求发到隐式默认端点。
+    #[tokio::test]
+    async fn openai_engine_without_url_fails_before_network() {
+        let engine = build_test_engine(test_engine("draft", EngineKind::Openai, true, ""));
+        let err = engine
+            .translate(TranslateRequest {
+                texts: vec!["hello".into()],
+                source_lang: None,
+                target_lang: "zh-CN".into(),
+                engine_id: None,
+            })
+            .await
+            .unwrap_err();
+        assert!(matches!(err, LenzError::Config(m) if m == "api_url_required"));
     }
 }
 

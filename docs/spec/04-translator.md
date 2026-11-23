@@ -79,6 +79,8 @@ impl TranslatorManager {
 
 适用:LM Studio、Ollama、DeepSeek、OpenAI 官方。
 
+`apiUrl` 必填,**不提供隐式默认端点**(隐私要求):URL 为空的 OpenAI 兼容引擎不会被装载为翻译候选,连接测试直接返回 `api_url_required`,不发出任何网络请求。设置页「添加引擎」创建的新引擎默认停用。
+
 ### 3.1 单条翻译
 
 ```
