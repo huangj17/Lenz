@@ -8,9 +8,13 @@ on:
         type: string
         required: true
       run_id:
-        description: Release installers run with successful platform builds
+        description: Release installers run with successful CI and platform builds
         type: string
         required: true
+      overwrite:
+        description: Replace installers of an already published release
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -45,6 +49,9 @@ jobs:
           const { jobs } = JSON.parse(readFileSync('build-jobs.json', 'utf8'));
           const builds = jobs.filter(j => j.name === 'windows' || j.name.startsWith('macos ('));
           if (builds.length !== 3 || builds.some(j => j.conclusion !== 'success')) throw new Error('All three platform builds must have succeeded.');
+          // Runs from before release.yml called CI have no such jobs and cannot be published.
+          const checks = jobs.filter(j => j.name.startsWith('ci / '));
+          if (checks.length < 2 || checks.some(j => j.conclusion !== 'success')) throw new Error('CI (typecheck, tests, clippy) must have succeeded in the same run.');
           JS
       - uses: actions/download-artifact@v4
         with:
@@ -55,11 +62,6 @@ jobs:
           merge-multiple: true
       - name: Publish existing installers and checksums
         shell: bash
-        run: |
-          set -euo pipefail
-          node scripts/release/collect-assets.mjs --input downloaded-artifacts --output release
-          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Lenz $RELEASE_TAG" --notes-file "docs/releases/$RELEASE_TAG.md"
-          fi
-          gh release upload "$RELEASE_TAG" release/* --clobber
-          gh release edit "$RELEASE_TAG" --draft=false --latest
+        env:
+          ALLOW_OVERWRITE: ${{ inputs.overwrite }}
+        run: ./scripts/release/publish.sh downloaded-artifacts

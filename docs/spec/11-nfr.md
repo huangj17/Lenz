@@ -93,7 +93,7 @@ Windows 的构建和安装识别工作流已编写,实际运行结果独立验�
 
 ### 4.3 CI 流程
 
-`.github/workflows/release.yml` 在 `v*` 标签 push 后校验标签与 Rust/Tauri/npm 三处版本一致,并构建 macOS Apple Silicon/Intel DMG、Windows x64 MSIX、安装助手 ZIP 和 EXE 安装向导。两种安装器复用同一 MSVC 应用构建,EXE 直接安装应用文件,MSIX 独立封包签名。发布收集器只收录规范命名的 setup EXE,并将其加入 SHA256SUMS,不上传裸应用 exe。macOS 自动选择 Xcode 26+、最低系统 12、ad-hoc 签名;Windows MSIX 使用 365 天自签测试证书,普通 EXE 当前未做公开可信签名。全部构建成功后上传 GitHub Release 及 SHA256 校验值。分支上的手动运行只构建 artifacts,不发布 Release。Developer ID 公证和 Windows 公开可信签名仍待后续配置。
+`.github/workflows/release.yml` 在 `v*` 标签 push 后校验标签与 Rust/Tauri/npm 三处版本一致,并构建 macOS Apple Silicon/Intel DMG、Windows x64 MSIX、安装助手 ZIP 和 EXE 安装向导。两种安装器复用同一 MSVC 应用构建,EXE 直接安装应用文件,MSIX 独立封包签名。发布收集器只收录规范命名的 setup EXE,并将其加入 SHA256SUMS,不上传裸应用 exe。macOS 自动选择 Xcode 26+、最低系统 12、ad-hoc 签名;Windows MSIX 使用 365 天自签测试证书,普通 EXE 当前未做公开可信签名。发布流程以 CI 为前提:`release.yml` 以 `workflow_call` 复用 `ci.yml`(typecheck、前端测试、fmt、clippy、Rust 测试),与平台构建并行;CI 与全部构建成功后才上传 GitHub Release 及 SHA256 校验值。`scripts/release/publish.sh` 统一两条发布入口:已公开的 Release 拒绝覆盖安装包(重跑或在标签上手动触发不会静默替换用户已下载并校验过的文件),仅 `publish-installers.yml` 显式勾选 overwrite 时才替换;只有当前标签是最高稳定版本时才标记 Latest,补发旧版本不会让应用内更新检查(读取 `/releases/latest`)指向旧版。Apple 签名 secrets 只注入需要它的步骤,不对整个 job 的第三方 action 可见。分支上的手动运行只构建 artifacts,不发布 Release。Developer ID 公证和 Windows 公开可信签名仍待后续配置。
 
 `.github/workflows/windows-msix.yml` 保留为手动验收工作流,默认仅构建;选中 `verify_installed_ocr` 才执行安装识别。v0.1.0 按用户要求暂不运行此验收:
 

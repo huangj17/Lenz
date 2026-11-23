@@ -8,6 +8,30 @@ import { createHash } from "node:crypto";
 import { collectAssets } from "../scripts/release/collect-assets.mjs";
 // @ts-expect-error Shared Node CLI has no TypeScript declaration.
 import { macosSigning, localSigning, selectLocalSigning, verifyApp } from "../scripts/release/macos-signing.mjs";
+// @ts-expect-error Shared Node CLI has no TypeScript declaration.
+import { shouldMarkLatest, releaseAction } from "../scripts/release/release-policy.mjs";
+
+test("re-publishing an older tag never takes Latest away from a newer release", () => {
+  assert.equal(shouldMarkLatest("v0.1.6", []), true);
+  assert.equal(shouldMarkLatest("v0.1.6", ["v0.1.5", "v0.1.4"]), true);
+  // Re-running the current release keeps it Latest.
+  assert.equal(shouldMarkLatest("v0.1.5", ["v0.1.5", "v0.1.4"]), true);
+  // Backfilling v0.1.4 after v0.1.5 must not redirect the update check to v0.1.4.
+  assert.equal(shouldMarkLatest("v0.1.4", ["v0.1.5"]), false);
+  // Numeric, not lexicographic, comparison.
+  assert.equal(shouldMarkLatest("v0.1.10", ["v0.1.9"]), true);
+  assert.equal(shouldMarkLatest("v0.2.0", ["v0.10.0"]), false);
+  // Non-stable tags never compete.
+  assert.equal(shouldMarkLatest("v0.1.6", ["v9.0.0-beta.1", "nightly"]), true);
+  assert.throws(() => shouldMarkLatest("v0.1.6-rc.1", []), /stable/);
+});
+
+test("published installers are never replaced without an explicit overwrite", () => {
+  assert.equal(releaseAction(null, false), "create");
+  assert.equal(releaseAction(true, false), "update-draft");
+  assert.throws(() => releaseAction(false, false), /already published/);
+  assert.equal(releaseAction(false, true), "overwrite");
+});
 
 test("macOS test releases remain available but incomplete certificate credentials never fall back silently", () => {
   assert.deepEqual(macosSigning({}), { mode: "adhoc", identity: "-" });
