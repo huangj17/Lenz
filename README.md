@@ -6,14 +6,14 @@
 
 ## 📦 下载与安装
 
-v0.1.5 改善了 macOS 桌面应用的划词取词，无选区时也可以打开弹框输入文字。下载与验证范围见 [v0.1.5 发布说明](https://github.com/huangj17/Lenz/releases/tag/v0.1.5)。
+v0.1.6 修复了一轮代码审查发现的问题：未填写地址的模型引擎不再默认发往 OpenAI，Windows 划词不再丢失剪贴板，重复启动只保留一个实例，快捷键冲突不再连带失效。下载与验证范围见 [v0.1.6 发布说明](https://github.com/huangj17/Lenz/releases/tag/v0.1.6)。
 
 | 平台 | 安装包 | 最低系统版本 |
 |---|---|---|
-| macOS Apple Silicon | [aarch64 DMG](https://github.com/huangj17/Lenz/releases/download/v0.1.5/Lenz_0.1.5_aarch64.dmg) | macOS 12 |
-| macOS Intel | [x64 DMG](https://github.com/huangj17/Lenz/releases/download/v0.1.5/Lenz_0.1.5_x64.dmg) | macOS 12 |
-| Windows x64（推荐，腾讯云等 OCR） | [普通 EXE 安装包](https://github.com/huangj17/Lenz/releases/download/v0.1.5/Lenz_0.1.5_windows_x64_setup.exe) | Windows 10 1809 |
-| Windows x64（可选，系统 OCR） | [MSIX + 安装助手 ZIP](https://github.com/huangj17/Lenz/releases/download/v0.1.5/Lenz_0.1.5_windows_x64_test-signed.zip) | Windows 10 1809 |
+| macOS Apple Silicon | [aarch64 DMG](https://github.com/huangj17/Lenz/releases/download/v0.1.6/Lenz_0.1.6_aarch64.dmg) | macOS 12 |
+| macOS Intel | [x64 DMG](https://github.com/huangj17/Lenz/releases/download/v0.1.6/Lenz_0.1.6_x64.dmg) | macOS 12 |
+| Windows x64（推荐，腾讯云等 OCR） | [普通 EXE 安装包](https://github.com/huangj17/Lenz/releases/download/v0.1.6/Lenz_0.1.6_windows_x64_setup.exe) | Windows 10 1809 |
+| Windows x64（可选，系统 OCR） | [MSIX + 安装助手 ZIP](https://github.com/huangj17/Lenz/releases/download/v0.1.6/Lenz_0.1.6_windows_x64_test-signed.zip) | Windows 10 1809 |
 
 macOS 打开 DMG 后将 Lenz 拖入「应用程序」。本版使用 ad-hoc 签名，尚未完成 Developer ID 签名与公证；首次打开可能需要在系统「隐私与安全性」中确认。
 
@@ -23,9 +23,9 @@ Windows 推荐下载普通 **EXE 安装包**,无需手动导入证书。安装�
 
 以后需要 Windows 系统 OCR 时,可选安装 **MSIX + 安装助手 ZIP**。此版本需要包身份及对应 OCR 语言包;当前使用 365 天自签测试证书,需用户检查后明确导入「本地计算机 → 受信任人」。仅导入证书不能让普通 EXE 启用系统 OCR。切换前请退出应用,按安装说明区分 EXE 与 MSIX 启动入口。详细步骤见 [Windows 分发指南](docs/windows-distribution.md)。
 
-已安装旧版的 Windows 用户请先完全退出 Lenz，再覆盖安装新版 EXE。安装后可在「关于」查看 0.1.5，本机配置会保留。Windows 客户端的快捷键翻译、混合 DPI、升级和卸载仍待实测。普通 EXE 可能显示未知发布者或 SmartScreen 提示。
+已安装旧版的 Windows 用户请先完全退出 Lenz，再覆盖安装新版 EXE。安装后可在「关于」查看 0.1.6，本机配置会保留。Windows 客户端的快捷键翻译、混合 DPI、升级和卸载仍待实测。普通 EXE 可能显示未知发布者或 SmartScreen 提示。
 
-安装产物附带 [SHA256SUMS.txt](https://github.com/huangj17/Lenz/releases/download/v0.1.5/SHA256SUMS.txt)。
+安装产物附带 [SHA256SUMS.txt](https://github.com/huangj17/Lenz/releases/download/v0.1.6/SHA256SUMS.txt)。
 
 ## ✨ 核心功能
 
@@ -54,7 +54,7 @@ Bob 是 macOS 上广受好评的翻译工具，但仅支持 macOS、订阅制收
 
 ## 🚧 项目状态
 
-v0.1.5 的功能实现与平台运行验收见 [`docs/TODO.md`](docs/TODO.md)。
+v0.1.6 的功能实现与平台运行验收见 [`docs/TODO.md`](docs/TODO.md)。
 
 | 里程碑 | 当前状态 |
 |---|---|
@@ -68,7 +68,7 @@ v0.1.5 的功能实现与平台运行验收见 [`docs/TODO.md`](docs/TODO.md)。
 | M8 完善 | 中英界面、主题、自启和更新检查已接通；日志轮转、原生毛玻璃与系统交互验收仍有待办 |
 | M9 打包发布 | 双架构 macOS DMG、Windows x64 MSIX、安装助手和 EXE 安装向导已发布；正式可信签名、公证和运行验收待完成 |
 
-本地 macOS 已通过类型检查、45 项前端和打包测试、生产构建与 96 项 Rust 测试。CI 执行双平台构建与 Rust fmt/Clippy，在 macOS 上运行 Rust 测试，在 Windows 上编译测试。Windows 安装、OCR、自启和 GUI 验收仍需客户端运行报告。[主分支 CI](https://github.com/huangj17/Lenz/actions/workflows/ci.yml)
+v0.1.6 已通过类型检查、47 项前端和打包测试、生产构建、Linux 上 112 项 Rust 测试，以及 macOS / Windows 目标的交叉 Clippy。CI 执行双平台构建与 Rust fmt/Clippy，在 macOS 上运行 Rust 测试，在 Windows 上编译测试；发布标签须先通过同一套 CI 才会上传安装包。Windows 安装、OCR、自启和 GUI 验收仍需客户端运行报告。[主分支 CI](https://github.com/huangj17/Lenz/actions/workflows/ci.yml)
 
 `v*` 标签触发双架构 macOS DMG 和 Windows x64 MSIX、安装助手 ZIP、EXE 安装向导构建，成功后上传 [Releases](https://github.com/huangj17/Lenz/releases)。Windows 安装/OCR 验收工作流仅手动触发，默认只构建。
 

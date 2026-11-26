@@ -11,6 +11,17 @@
 
 ---
 
+## 2026-11-26 · v0.1.6 代码审查修复
+
+- [x] OpenAI 兼容引擎不再为空 `apiUrl` 提供隐式 api.openai.com 端点:管理器跳过空 URL 引擎,测试直接返回 `api_url_required`;新建引擎默认停用,表单提示 URL 必填(→ spec 04 §3)。
+- [x] Windows 合成复制前等待修饰键松开(`GetAsyncKeyState`),`SendInput` 部分失败时补发抬起;剪贴板复制回退「恢复」与「采用文本」分开判定,落地后的用户输入只作废文本、仍恢复快照,剪贴板被占用时重试打开,Windows 等待上限 1000ms(→ spec 05 §3)。
+- [x] 接入 `tauri-plugin-single-instance`;`main`/`indicator` 关闭请求只隐藏,`popup` 取消会话后隐藏,任一 `selection-*` 关闭请求整组取消(→ spec 00 §3、§7)。
+- [x] 启动 / 重置时快捷键逐个尽力注册,被占用的键记为 inactive 并在后续应用时重试,不阻断修改其它键;用户修改仍为事务(→ spec 10 §2.3)。
+- [x] macOS 截图前以 `CGPreflightScreenCaptureAccess` 预检屏幕录制权限,未授权时请求一次系统授权并返回 Permission(→ spec 02 §4)。
+- [x] 发布须先通过复用的 CI;签名 secrets 限定到使用步骤;统一 `publish.sh` 拒绝覆盖已公开 Release,仅最高稳定版本标记 Latest(→ spec 11)。
+- [x] 前端 typecheck/build、47 项前端/打包测试、Rust fmt、Linux 上 112 项 Rust 测试通过;`x86_64-pc-windows-msvc` 与 `aarch64-apple-darwin` 交叉 `clippy -D warnings` 通过。
+- [ ] 实机验收待做:Windows 划词复制回退与剪贴板恢复、单实例转交、`Alt+F4` 关闭弹框、快捷键被占用时启动、macOS 首次截图授权弹窗。被占用的快捷键目前仅记日志/启动告警,设置页尚无提示。
+
 ## 2026-11-17 · 截图定格:tooltip / 菜单不再随快捷键消失
 
 - [x] 根因:选区蒙层先抢焦点、遮住鼠标,框选完成后才截屏,tooltip、菜单、下拉框等易失内容已经收起。改为快捷键触发即定格全部显示器,选区窗口以定格图为背景,框选后从内存裁剪;F2/F3 共用,不加开关(→ PRD F2/F3、spec 02 §2.3)。
